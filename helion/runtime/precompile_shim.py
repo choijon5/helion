@@ -34,9 +34,12 @@ def _get_helion_compilation_success(kernel: CompiledKernel) -> bool:
 
 def make_precompiler(
     fn: JITFunction[object],
-    config: Config,
-    bound_kernel: BoundKernel,
+    config: Config | None,
+    bound_kernel: BoundKernel | None,
 ) -> Callable[..., Callable[[], bool]]:
+    """``bound_kernel``/``config`` may be ``None`` when invoked from a
+    subprocess that has only the Triton fn + launch args (e.g. the pool
+    worker); their only use here is error formatting."""
     from .kernel import _find_device
 
     def _make_precompiler(*args: object, **kwargs: object) -> Callable[[], bool]:
@@ -98,7 +101,11 @@ def make_precompiler(
                     compiled_kernel._init_handles()
             except Exception as e:
                 action = classify_triton_exception(e)
-                if action != "debug":
+                if (
+                    action != "debug"
+                    and bound_kernel is not None
+                    and config is not None
+                ):
                     print(
                         format_triton_compile_failure(config, e, bound_kernel),
                         file=sys.stderr,

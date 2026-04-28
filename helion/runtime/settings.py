@@ -402,6 +402,16 @@ class _Settings:
             },
         )
     )
+    autotune_precompile_workers: int = dataclasses.field(
+        default_factory=functools.partial(
+            _env_get_int, "HELION_AUTOTUNE_PRECOMPILE_WORKERS", 0
+        )
+    )
+    autotune_precompile_workers_cap: int = dataclasses.field(
+        default_factory=functools.partial(
+            _env_get_int, "HELION_AUTOTUNE_PRECOMPILE_WORKERS_CAP", 16
+        )
+    )
     autotune_precompile_jobs: int | None = dataclasses.field(
         default_factory=functools.partial(
             _env_get_optional_int,
@@ -571,6 +581,8 @@ class Settings(_Settings):
         "autotune_benchmark_timeout": "Per-config wall-clock timeout in seconds for the subprocess benchmark phase. Only applies when autotune_benchmark_subprocess is enabled. Default 30 seconds.",
         "autotune_precompile": "Autotuner precompile mode: 'fork', 'spawn', or falsy/None to disable. Defaults to 'fork' on non-Windows platforms.",
         "autotune_precompile_jobs": "Maximum concurrent Triton precompile processes, default to cpu count.",
+        "autotune_precompile_workers": "Worker-pool precompile size. 0 (default) auto-decides from GPU memory + cpu count when subprocess benchmark is enabled. >0 sets an explicit count. <0 disables the pool path. Set HELION_AUTOTUNE_PRECOMPILE_WORKERS=N to override.",
+        "autotune_precompile_workers_cap": "Upper bound on the auto-decided worker-pool size when autotune_precompile_workers=0 (auto-decide). Defaults to 16: spawning fresh Python interpreters is disk-bound past ~16 on typical hardware. Override via HELION_AUTOTUNE_PRECOMPILE_WORKERS_CAP=N. Has no effect when autotune_precompile_workers is set to a positive value (explicit count) or a negative value (pool disabled).",
         "autotune_random_seed": "Seed used for autotuner random number generation. Defaults to HELION_AUTOTUNE_RANDOM_SEED or a time-based seed.",
         "autotune_accuracy_check": "If True, validate candidate configs against the baseline kernel output before accepting them during autotuning.",
         "autotune_rebenchmark_threshold": "If a config is within threshold*best_perf, re-benchmark it to avoid outliers. Defaults to effort profile value. Set HELION_REBENCHMARK_THRESHOLD to override.",

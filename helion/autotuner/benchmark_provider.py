@@ -29,8 +29,11 @@ from ..runtime.precompile_shim import already_compiled
 from ..runtime.precompile_shim import already_compiled_fail
 from ..runtime.precompile_shim import make_precompiler
 from .benchmark_job import BenchmarkJob
+from .benchmark_job import PrecompileJob
 from .benchmark_worker import BenchmarkSubprocessError
 from .benchmark_worker import BenchmarkWorker
+from .benchmark_worker import BenchmarkWorkerPool
+from .benchmark_worker import get_or_create_pool
 from .benchmarking import do_bench
 from .benchmarking import synchronize_device
 from .logger import SUPPRESSED_TRITON_CODE_MSG
@@ -339,6 +342,7 @@ class LocalBenchmarkProvider(BenchmarkProvider):
         self._precompile_args_path: str | None = None
         self._precompile_result_counter: count[int] = count()
         self._benchmark_worker: BenchmarkWorker | None = None
+        self._worker_pool: BenchmarkWorkerPool | None = None
 
         # TODO(hinriksnaer): baseline computation is expensive (compiles and runs
         # the kernel). Currently safe because the provider is only constructed
@@ -541,7 +545,12 @@ class LocalBenchmarkProvider(BenchmarkProvider):
         )
 
     def setup(self) -> None:
-        """Prepare precompile tmpdir and args for spawn mode."""
+        """Prepare precompile tmpdir and args. Eagerly start + warm the
+        worker pool when worker-pool precompile is enabled so spawn +
+        ``torch.load`` cost runs once, here, instead of being paid again
+        per phase."""
+        from .benchmark_job import WarmupJob
+
         if self._precompile_tmpdir is None:
             self._precompile_tmpdir = tempfile.TemporaryDirectory()
         if (
@@ -551,6 +560,18 @@ class LocalBenchmarkProvider(BenchmarkProvider):
             args_path = os.path.join(self._precompile_tmpdir.name, "args.pt")
             torch.save(self.args, args_path)
             self._precompile_args_path = args_path
+
+        if self._worker_precompile_enabled():
+            assert self._precompile_args_path is not None
+            args_path = self._precompile_args_path
+            pool = self._ensure_worker_pool()
+            # Spawn from the main thread so PR_SET_PDEATHSIG anchors here
+            # and the workers don't die after warmup's helper threads exit.
+            pool.start_all()
+            pool.warmup(
+                lambda: WarmupJob(args_path=args_path),
+                timeout=float(self.settings.autotune_compile_timeout),
+            )
 
     def _next_precompile_result_path(self) -> str:
         """Return a fresh path for a precompile result file."""
@@ -562,10 +583,13 @@ class LocalBenchmarkProvider(BenchmarkProvider):
         )
 
     def cleanup(self) -> None:
-        """Release precompile tmpdir and related resources."""
+        """Release per-autotune resources. The process-level worker pool is
+        intentionally left alive so subsequent autotunes (e.g. iterating
+        input shapes within tritonbench) reuse the same workers."""
         if self._benchmark_worker is not None:
             self._benchmark_worker.shutdown()
             self._benchmark_worker = None
+        self._worker_pool = None  # release local handle; pool itself stays up
         if self._precompile_tmpdir is not None:
             self._precompile_tmpdir.cleanup()
             self._precompile_tmpdir = None
@@ -584,6 +608,60 @@ class LocalBenchmarkProvider(BenchmarkProvider):
         # Custom do_bench implementations are not shipped to the worker.
         _backend = getattr(self.config_spec, "backend", None)
         return not (_backend is not None and _backend.get_do_bench() is not None)
+
+    def _worker_precompile_enabled(self) -> bool:
+        """Worker-pool precompile activates when subprocess benchmark is on
+        and precompile is itself enabled. Pool size auto-decides from GPU
+        memory + cpu count; ``HELION_AUTOTUNE_PRECOMPILE_WORKERS=<n>``
+        overrides (set ``< 0`` to disable)."""
+        return (
+            bool(self.settings.autotune_precompile)
+            and self.settings.autotune_precompile_workers >= 0
+            and self._subprocess_benchmark_enabled()
+            and self._precompile_args_path is not None
+            and self._pool_size() >= 1
+        )
+
+    def _pool_size(self) -> int:
+        """Resolve the effective pool size. ``autotune_precompile_workers > 0``
+        is honored verbatim. Auto-decide picks ``min(cpu_cap, mem_cap, cap)``
+        where ``cap`` is ``autotune_precompile_workers_cap`` (default 16).
+        Spawning fresh Python interpreters is disk-bound past ~16 in practice;
+        users on faster disks or larger memory budgets can raise the cap.
+        ``cpu_cap`` is ``cpu_count`` divided by ``PYTEST_XDIST_WORKER_COUNT``
+        when running under xdist."""
+        explicit = self.settings.autotune_precompile_workers
+        if explicit > 0:
+            return explicit
+        cpu_cap = os.cpu_count() or 1
+        xdist_count = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+        if xdist_count > 1:
+            cpu_cap = max(1, cpu_cap // xdist_count)
+        cpu_cap = min(cpu_cap, max(1, self.settings.autotune_precompile_workers_cap))
+        device = self.kernel.env.device
+        if device.type != "cuda":
+            return cpu_cap
+        args_bytes = _estimate_tree_bytes(self.args)
+        # Each worker holds one CUDA copy of args (cached by ``_load_args``'s
+        # lru_cache, so re-runs don't re-allocate) plus ~1 GiB for Triton
+        # compile scratch. Older formula was ``(args + max(args, 1GB)) * 2``,
+        # which over-counted by ~3x on multi-GiB args and dropped pool below
+        # the cpu_cap=16 default on heavy shapes (e.g. cross_entropy V=131072
+        # with 4.3 GB args saw memory_cap=9 instead of 16, costing ~21% on
+        # that shape's compile wall-clock).
+        per_worker_bytes = args_bytes + 1 * 1024**3
+        if per_worker_bytes <= 0:
+            return cpu_cap
+        available_memory, _ = torch.cuda.mem_get_info(device)
+        memory_cap = max(1, int(available_memory * 0.9) // per_worker_bytes)
+        return min(cpu_cap, memory_cap)
+
+    def _ensure_worker_pool(self) -> BenchmarkWorkerPool:
+        if self._worker_pool is None:
+            # Process-level pool: spawn cost amortized across all autotune
+            # calls in this process, not paid per input shape.
+            self._worker_pool = get_or_create_pool(self._pool_size())
+        return self._worker_pool
 
     def _validate_against_baseline(
         self, config: Config, output: object, args: Sequence[object]
@@ -676,7 +754,17 @@ class LocalBenchmarkProvider(BenchmarkProvider):
         configs = [all_configs[i] for i in valid_indices]
 
         # Precompile phase
-        if self.settings.autotune_precompile:
+        precompile_status: list[Literal["ok", "error", "timeout"]] = []
+        compile_times: list[float | None] = [None] * len(configs)
+        if self._worker_precompile_enabled() and self.settings.autotune_precompile:
+            precompile_desc = (
+                f"{desc} precompiling" if self.settings.autotune_progress_bar else None
+            )
+            is_workings, precompile_status, compile_times = (
+                self._worker_pool_precompile(configs, fns, precompile_desc)
+            )
+            futures = None
+        elif self.settings.autotune_precompile:
             futures = list(
                 starmap(
                     self._create_precompile_future,
@@ -687,7 +775,6 @@ class LocalBenchmarkProvider(BenchmarkProvider):
                 f"{desc} precompiling" if self.settings.autotune_progress_bar else None
             )
             is_workings = PrecompileFuture.wait_for_all(futures, desc=precompile_desc)
-            precompile_status: list[Literal["ok", "error", "timeout"]] = []
             for future, ok in zip(futures, is_workings, strict=True):
                 reason = future.failure_reason
                 if ok:
@@ -697,6 +784,7 @@ class LocalBenchmarkProvider(BenchmarkProvider):
                 else:
                     precompile_status.append("error")
         else:
+            futures = None
             is_workings = [True] * len(configs)
             precompile_status = ["ok"] * len(configs)
 
@@ -725,7 +813,7 @@ class LocalBenchmarkProvider(BenchmarkProvider):
                     else None
                 )
             else:
-                compile_time = None
+                compile_time = compile_times[index]
             status: Literal[
                 "ok", "error", "timeout", "peer_compilation_fail", "filtered"
             ]
@@ -954,6 +1042,65 @@ class LocalBenchmarkProvider(BenchmarkProvider):
             self._autotune_metrics.num_compile_failures += 1
             return inf
 
+    def _worker_pool_precompile(
+        self,
+        configs: list[Config],
+        fns: list[CompiledConfig],
+        desc: str | None,
+    ) -> tuple[
+        list[bool],
+        list[Literal["ok", "error", "timeout"]],
+        list[float | None],
+    ]:
+        """Compile each config in the long-lived worker pool. Returns
+        ``(is_workings, statuses, compile_times)`` aligned with ``configs``."""
+        assert self._precompile_args_path is not None
+        args_path = self._precompile_args_path
+        timeout = float(self.settings.autotune_compile_timeout)
+
+        # Build PrecompileJobs; serialization failures count as compile failures.
+        jobs: list[PrecompileJob | None] = []
+        for fn in fns:
+            try:
+                jobs.append(
+                    PrecompileJob(
+                        fn_spec=_serialize_compiled_fn(fn), args_path=args_path
+                    )
+                )
+            except RuntimeError:
+                jobs.append(None)
+
+        live_idxs = [i for i, j in enumerate(jobs) if j is not None]
+        live_jobs = cast("list[Callable[[], object]]", [jobs[i] for i in live_idxs])
+        t0 = time.perf_counter()
+        live_results = self._ensure_worker_pool().map_jobs(live_jobs, timeout=timeout)
+        elapsed = time.perf_counter() - t0
+
+        is_workings = [False] * len(configs)
+        statuses: list[Literal["ok", "error", "timeout"]] = ["error"] * len(configs)
+        compile_times: list[float | None] = [None] * len(configs)
+        for idx, result in zip(live_idxs, live_results, strict=True):
+            compile_times[idx] = elapsed
+            if isinstance(result, BaseException):
+                statuses[idx] = (
+                    "timeout"
+                    if isinstance(result, BenchmarkSubprocessError)
+                    and "timeout" in str(result).lower()
+                    else "error"
+                )
+                self.log.debug(
+                    f"Precompile worker failed for {configs[idx]!r}: "
+                    f"{type(result).__name__}: {result}"
+                )
+                self._autotune_metrics.num_compile_failures += 1
+            else:
+                is_workings[idx] = True
+                statuses[idx] = "ok"
+
+        if desc:
+            self.log(f"{desc} 100% via worker pool ({len(live_idxs)} configs)")
+        return is_workings, statuses, compile_times
+
     def _benchmark_function_subprocess(
         self, config: Config, fn: CompiledConfig
     ) -> float | None:
@@ -969,8 +1116,14 @@ class LocalBenchmarkProvider(BenchmarkProvider):
         except RuntimeError:
             return None
 
-        if self._benchmark_worker is None:
-            self._benchmark_worker = BenchmarkWorker(device=None)
+        # Prefer the pool's first worker if a pool is active so the same CUDA
+        # context that compiled also benchmarks (Triton cache hit, no recompile).
+        if self._worker_pool is not None:
+            run_in_worker = lambda j, t: self._worker_pool.run_one(j, timeout=t)  # noqa: E731
+        else:
+            if self._benchmark_worker is None:
+                self._benchmark_worker = BenchmarkWorker(device=None)
+            run_in_worker = lambda j, t: self._benchmark_worker.run(j, timeout=t)  # noqa: E731
 
         job = BenchmarkJob(
             fn_spec=fn_spec,
@@ -981,7 +1134,7 @@ class LocalBenchmarkProvider(BenchmarkProvider):
         timeout = float(self.settings.autotune_benchmark_timeout)
 
         try:
-            latency = self._benchmark_worker.run(job, timeout=timeout)
+            latency = run_in_worker(job, timeout)
         except BenchmarkSubprocessError as e:
             # Timeout or unexpected worker exit; skip config and continue.
             self.log.warning(f"Benchmark subprocess failed for {config!r}: {e}")
