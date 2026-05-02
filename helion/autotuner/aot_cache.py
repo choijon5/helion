@@ -387,6 +387,14 @@ def compute_tensor_hash(tensor: torch.Tensor) -> str:
     # Convert dtypes not supported by numpy (e.g., bfloat16)
     if tensor.dtype == torch.bfloat16:
         tensor = tensor.to(torch.float32)
+    # numpy doesn't support float8; view as uint8 for hashing (same bytes)
+    if tensor.dtype in (
+        getattr(torch, "float8_e4m3fn", None),
+        getattr(torch, "float8_e5m2", None),
+        getattr(torch, "float8_e4m3fnuz", None),
+        getattr(torch, "float8_e5m2fnuz", None),
+    ):
+        tensor = tensor.view(torch.uint8)
     return hashlib.sha256(tensor.numpy().tobytes()).hexdigest()[:8]
 
 
