@@ -1,0 +1,15 @@
+{
+  "fp8_gemm": {
+    "num_configs": 6,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.043478274623738,
+      "geomean_slowdown": 1.0043751635061455,
+      "avg_slowdown": 1.004444213821042,
+      "satisfied_ratio": 1.0,
+      "num_configs": 6,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}

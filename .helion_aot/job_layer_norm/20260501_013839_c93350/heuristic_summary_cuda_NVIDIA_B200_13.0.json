@@ -1,0 +1,15 @@
+{
+  "layer_norm": {
+    "num_configs": 4,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.0869564701609822,
+      "geomean_slowdown": 1.0106336925794206,
+      "avg_slowdown": 1.010941697259378,
+      "satisfied_ratio": 1.0,
+      "num_configs": 4,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}

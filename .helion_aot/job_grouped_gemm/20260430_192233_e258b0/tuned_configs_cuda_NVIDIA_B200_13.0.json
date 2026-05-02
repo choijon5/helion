@@ -1,0 +1,729 @@
+{
+  "grouped_gemm": [
+    {
+      "config": {
+        "block_sizes": [
+          1,
+          32,
+          16,
+          64
+        ],
+        "loop_orders": [
+          [
+            0,
+            1,
+            2
+          ]
+        ],
+        "l2_groupings": [
+          4
+        ],
+        "range_unroll_factors": [
+          0,
+          1
+        ],
+        "range_warp_specializes": [
+          false,
+          false
+        ],
+        "range_num_stages": [
+          2,
+          4
+        ],
+        "range_multi_buffers": [
+          false,
+          true
+        ],
+        "range_flattens": [
+          false,
+          false
+        ],
+        "load_eviction_policies": [
+          "first",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 3,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "persistent_interleaved",
+        "num_sm_multiplier": 16,
+        "maxnreg": 128
+      },
+      "shape_key": {
+        "kernel_name": "grouped_gemm",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  4,
+                  128,
+                  128
+                ]
+              },
+              {
+                "__tuple__": [
+                  16384,
+                  128,
+                  1
+                ]
+              },
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  4,
+                  128,
+                  128
+                ]
+              },
+              {
+                "__tuple__": [
+                  16384,
+                  128,
+                  1
+                ]
+              },
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  128
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim2",
+                  128
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  3
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  65536
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim0",
+                  4
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim1",
+                  128
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim2",
+                  128
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_ndim",
+                  3
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_numel",
+                  65536
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 3,
+        "arg0_dim0": 4,
+        "arg0_dim1": 128,
+        "arg0_dim2": 128,
+        "arg0_numel": 65536,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2,
+        "arg1_ndim": 3,
+        "arg1_dim0": 4,
+        "arg1_dim1": 128,
+        "arg1_dim2": 128,
+        "arg1_numel": 65536,
+        "arg1_dtype": "torch.float16",
+        "arg1_dtype_size": 2,
+        "arg1_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "08d0bb50",
+          "f32c2496"
+        ],
+        [
+          "08d0bb50",
+          "f32c2496"
+        ],
+        [
+          "066bf85e"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1,
+          32,
+          16,
+          64
+        ],
+        "loop_orders": [
+          [
+            1,
+            2,
+            0
+          ]
+        ],
+        "l2_groupings": [
+          16
+        ],
+        "range_unroll_factors": [
+          0,
+          0
+        ],
+        "range_warp_specializes": [
+          null,
+          null
+        ],
+        "range_num_stages": [
+          0,
+          3
+        ],
+        "range_multi_buffers": [
+          null,
+          false
+        ],
+        "range_flattens": [
+          null,
+          false
+        ],
+        "load_eviction_policies": [
+          "first",
+          "first"
+        ],
+        "num_warps": 4,
+        "num_stages": 6,
+        "indexing": [
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "grouped_gemm",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  4,
+                  256,
+                  256
+                ]
+              },
+              {
+                "__tuple__": [
+                  65536,
+                  256,
+                  1
+                ]
+              },
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  4,
+                  256,
+                  256
+                ]
+              },
+              {
+                "__tuple__": [
+                  65536,
+                  256,
+                  1
+                ]
+              },
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  256
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim2",
+                  256
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  3
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  262144
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim0",
+                  4
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim1",
+                  256
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim2",
+                  256
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_ndim",
+                  3
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_numel",
+                  262144
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 3,
+        "arg0_dim0": 4,
+        "arg0_dim1": 256,
+        "arg0_dim2": 256,
+        "arg0_numel": 262144,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2,
+        "arg1_ndim": 3,
+        "arg1_dim0": 4,
+        "arg1_dim1": 256,
+        "arg1_dim2": 256,
+        "arg1_numel": 262144,
+        "arg1_dtype": "torch.float16",
+        "arg1_dtype_size": 2,
+        "arg1_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "a0af7742",
+          "ae16201c"
+        ],
+        [
+          "a0af7742",
+          "ae16201c"
+        ],
+        [
+          "6fe076dd"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1,
+          128,
+          64,
+          256
+        ],
+        "loop_orders": [
+          [
+            2,
+            0,
+            1
+          ]
+        ],
+        "l2_groupings": [
+          1
+        ],
+        "range_unroll_factors": [
+          0,
+          0
+        ],
+        "range_warp_specializes": [
+          null,
+          true
+        ],
+        "range_num_stages": [
+          0,
+          3
+        ],
+        "range_multi_buffers": [
+          null,
+          true
+        ],
+        "range_flattens": [
+          null,
+          false
+        ],
+        "load_eviction_policies": [
+          "first",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 2,
+        "indexing": [
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "grouped_gemm",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  4,
+                  512,
+                  512
+                ]
+              },
+              {
+                "__tuple__": [
+                  262144,
+                  512,
+                  1
+                ]
+              },
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  4,
+                  512,
+                  512
+                ]
+              },
+              {
+                "__tuple__": [
+                  262144,
+                  512,
+                  1
+                ]
+              },
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  512
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim2",
+                  512
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  3
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  1048576
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim0",
+                  4
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim1",
+                  512
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dim2",
+                  512
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_ndim",
+                  3
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg1_numel",
+                  1048576
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 3,
+        "arg0_dim0": 4,
+        "arg0_dim1": 512,
+        "arg0_dim2": 512,
+        "arg0_numel": 1048576,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2,
+        "arg1_ndim": 3,
+        "arg1_dim0": 4,
+        "arg1_dim1": 512,
+        "arg1_dim2": 512,
+        "arg1_numel": 1048576,
+        "arg1_dtype": "torch.float16",
+        "arg1_dtype_size": 2,
+        "arg1_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "248aad80",
+          "d341832c"
+        ],
+        [
+          "248aad80",
+          "d341832c"
+        ],
+        [
+          "32d15d32"
+        ]
+      ]
+    }
+  ]
+}

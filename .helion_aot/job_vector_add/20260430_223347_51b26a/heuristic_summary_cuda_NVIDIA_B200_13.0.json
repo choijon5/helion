@@ -1,0 +1,15 @@
+{
+  "vector_add": {
+    "num_configs": 1,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.0253603918267615,
+      "geomean_slowdown": 1.0068302347093927,
+      "avg_slowdown": 1.0068587790352554,
+      "satisfied_ratio": 1.0,
+      "num_configs": 1,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}

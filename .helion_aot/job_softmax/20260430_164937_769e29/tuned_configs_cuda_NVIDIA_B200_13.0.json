@@ -1,0 +1,8187 @@
+{
+  "softmax": [
+    {
+      "config": {
+        "block_sizes": [
+          32
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 32,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  256
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  1048576
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 256,
+        "arg0_numel": 1048576,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "1652885a"
+        ],
+        [
+          "1652885a"
+        ],
+        [
+          "7fa47fde"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  384
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  1572864
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 384,
+        "arg0_numel": 1572864,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "cb89bc80"
+        ],
+        [
+          "cb89bc80"
+        ],
+        [
+          "4c4d1c60"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  512
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  2097152
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 512,
+        "arg0_numel": 2097152,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "6aaab5fc"
+        ],
+        [
+          "6aaab5fc"
+        ],
+        [
+          "48fe2bc5"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          "first"
+        ],
+        "num_warps": 2,
+        "num_stages": 4,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  640
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  2621440
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 640,
+        "arg0_numel": 2621440,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "ec1db8db"
+        ],
+        [
+          "ec1db8db"
+        ],
+        [
+          "6f5c5f14"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "first",
+          ""
+        ],
+        "num_warps": 2,
+        "num_stages": 3,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  768
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  3145728
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 768,
+        "arg0_numel": 3145728,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "735b02de"
+        ],
+        [
+          "735b02de"
+        ],
+        [
+          "7643d0ff"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "first",
+          "last",
+          ""
+        ],
+        "num_warps": 1,
+        "num_stages": 1,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  896
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  3670016
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 896,
+        "arg0_numel": 3670016,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "2a48a08d"
+        ],
+        [
+          "2a48a08d"
+        ],
+        [
+          "7665870d"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "first",
+          "",
+          "last",
+          "last"
+        ],
+        "num_warps": 1,
+        "num_stages": 2,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1024
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  4194304
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1024,
+        "arg0_numel": 4194304,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "c22ae8e4"
+        ],
+        [
+          "c22ae8e4"
+        ],
+        [
+          "e9bc03b2"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1152
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  4718592
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1152,
+        "arg0_numel": 4718592,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "cd5de02b"
+        ],
+        [
+          "cd5de02b"
+        ],
+        [
+          "67403f62"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          4
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "first",
+          "first"
+        ],
+        "num_warps": 8,
+        "num_stages": 4,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1280
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  5242880
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1280,
+        "arg0_numel": 5242880,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "39229b39"
+        ],
+        [
+          "39229b39"
+        ],
+        [
+          "5963e79f"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1408
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  5767168
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1408,
+        "arg0_numel": 5767168,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "d08a2635"
+        ],
+        [
+          "d08a2635"
+        ],
+        [
+          "92c9491d"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1536
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  6291456
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1536,
+        "arg0_numel": 6291456,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "7c7b183d"
+        ],
+        [
+          "7c7b183d"
+        ],
+        [
+          "337edb05"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1664
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  6815744
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1664,
+        "arg0_numel": 6815744,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "cc360a3c"
+        ],
+        [
+          "cc360a3c"
+        ],
+        [
+          "c40ce15e"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          2
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 2,
+        "num_stages": 5,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1792
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  7340032
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1792,
+        "arg0_numel": 7340032,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "aec48c9d"
+        ],
+        [
+          "aec48c9d"
+        ],
+        [
+          "50e5b508"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  1920
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  7864320
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 1920,
+        "arg0_numel": 7864320,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "91bc5d29"
+        ],
+        [
+          "91bc5d29"
+        ],
+        [
+          "a57d79da"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2048
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  8388608
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2048,
+        "arg0_numel": 8388608,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "a161e25b"
+        ],
+        [
+          "a161e25b"
+        ],
+        [
+          "f23bc33e"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 6,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2176
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  8912896
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2176,
+        "arg0_numel": 8912896,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "bb799e77"
+        ],
+        [
+          "bb799e77"
+        ],
+        [
+          "fe46af7d"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 4,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2304
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  9437184
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2304,
+        "arg0_numel": 9437184,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "fc11ad03"
+        ],
+        [
+          "fc11ad03"
+        ],
+        [
+          "c35381ef"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "first",
+          "",
+          "first"
+        ],
+        "num_warps": 4,
+        "num_stages": 5,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2432
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  9961472
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2432,
+        "arg0_numel": 9961472,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "07af933b"
+        ],
+        [
+          "07af933b"
+        ],
+        [
+          "8e270dc3"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 4,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2560
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  10485760
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2560,
+        "arg0_numel": 10485760,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "33f0ca88"
+        ],
+        [
+          "33f0ca88"
+        ],
+        [
+          "1952b017"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "last",
+          "last",
+          "first"
+        ],
+        "num_warps": 4,
+        "num_stages": 2,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2688
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  11010048
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2688,
+        "arg0_numel": 11010048,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "8c75ee2f"
+        ],
+        [
+          "8c75ee2f"
+        ],
+        [
+          "57c21a5a"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "first",
+          "first",
+          "",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 5,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2816
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  11534336
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2816,
+        "arg0_numel": 11534336,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "b198ca35"
+        ],
+        [
+          "b198ca35"
+        ],
+        [
+          "2d36f5ee"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "last",
+          "first"
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  2944
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  12058624
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 2944,
+        "arg0_numel": 12058624,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "a5d36f62"
+        ],
+        [
+          "a5d36f62"
+        ],
+        [
+          "6543c801"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "last",
+          "last",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 2,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3072
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  12582912
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3072,
+        "arg0_numel": 12582912,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "f4f7f7e6"
+        ],
+        [
+          "f4f7f7e6"
+        ],
+        [
+          "4a2eb234"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          false
+        ],
+        "range_flattens": [
+          false
+        ],
+        "load_eviction_policies": [
+          "first",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 4,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "persistent_blocked",
+        "num_sm_multiplier": 16,
+        "maxnreg": 64
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3200
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  13107200
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3200,
+        "arg0_numel": 13107200,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "6488334d"
+        ],
+        [
+          "6488334d"
+        ],
+        [
+          "2ee14a77"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          false
+        ],
+        "range_flattens": [
+          false
+        ],
+        "load_eviction_policies": [
+          "first",
+          "",
+          "last",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "persistent_blocked",
+        "num_sm_multiplier": 16,
+        "maxnreg": 64
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3328
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  13631488
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3328,
+        "arg0_numel": 13631488,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "0c28c0c9"
+        ],
+        [
+          "0c28c0c9"
+        ],
+        [
+          "506ce104"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          true
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          false
+        ],
+        "range_flattens": [
+          false
+        ],
+        "load_eviction_policies": [
+          "first",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 4,
+        "num_stages": 4,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "persistent_blocked",
+        "num_sm_multiplier": 16,
+        "maxnreg": 64
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3456
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  14155776
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3456,
+        "arg0_numel": 14155776,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "ead79c45"
+        ],
+        [
+          "ead79c45"
+        ],
+        [
+          "58572d81"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3584
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  14680064
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3584,
+        "arg0_numel": 14680064,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "8d8b1de7"
+        ],
+        [
+          "8d8b1de7"
+        ],
+        [
+          "9b95e0f0"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          1
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          false
+        ],
+        "range_flattens": [
+          false
+        ],
+        "load_eviction_policies": [
+          "first",
+          "",
+          "",
+          "first"
+        ],
+        "num_warps": 4,
+        "num_stages": 4,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "persistent_interleaved",
+        "num_sm_multiplier": 16,
+        "maxnreg": 64
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3712
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  15204352
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3712,
+        "arg0_numel": 15204352,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "2207d3c2"
+        ],
+        [
+          "2207d3c2"
+        ],
+        [
+          "cd41d4a4"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3840
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  15728640
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3840,
+        "arg0_numel": 15728640,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "f7976d71"
+        ],
+        [
+          "f7976d71"
+        ],
+        [
+          "4de56e01"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  3968
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  16252928
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 3968,
+        "arg0_numel": 16252928,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "f1155621"
+        ],
+        [
+          "f1155621"
+        ],
+        [
+          "16fe26c4"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 4,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  16777216
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4096,
+        "arg0_numel": 16777216,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "6a233277"
+        ],
+        [
+          "6a233277"
+        ],
+        [
+          "f60f418b"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          512
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 2,
+        "num_stages": 6,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4224
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  17301504
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4224,
+        "arg0_numel": 17301504,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "7c4b4ba9"
+        ],
+        [
+          "7c4b4ba9"
+        ],
+        [
+          "c1400527"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          512
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "first",
+          "first"
+        ],
+        "num_warps": 2,
+        "num_stages": 7,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4352
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  17825792
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4352,
+        "arg0_numel": 17825792,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "f179df52"
+        ],
+        [
+          "f179df52"
+        ],
+        [
+          "094eb647"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          2
+        ],
+        "reduction_loops": [
+          512
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "first",
+          "first"
+        ],
+        "num_warps": 4,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4480
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  18350080
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4480,
+        "arg0_numel": 18350080,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "127f539d"
+        ],
+        [
+          "127f539d"
+        ],
+        [
+          "5f7cfb56"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          512
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "",
+          "",
+          "first"
+        ],
+        "num_warps": 2,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4608
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  18874368
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4608,
+        "arg0_numel": 18874368,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "af056c22"
+        ],
+        [
+          "af056c22"
+        ],
+        [
+          "afdf8e66"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "",
+          "first",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4736
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  19398656
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4736,
+        "arg0_numel": 19398656,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "a1910d66"
+        ],
+        [
+          "a1910d66"
+        ],
+        [
+          "a12c8d27"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "first",
+          "",
+          "first",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4864
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  19922944
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4864,
+        "arg0_numel": 19922944,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "dad6ca7e"
+        ],
+        [
+          "dad6ca7e"
+        ],
+        [
+          "12fa6d1b"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          4
+        ],
+        "reduction_loops": [
+          1024
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "first",
+          "first"
+        ],
+        "num_warps": 4,
+        "num_stages": 3,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  4992
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  20447232
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 4992,
+        "arg0_numel": 20447232,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "6e510980"
+        ],
+        [
+          "6e510980"
+        ],
+        [
+          "a69e0c83"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          1024
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 1,
+        "num_stages": 1,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  5120
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  20971520
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 5120,
+        "arg0_numel": 20971520,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "1aaebfec"
+        ],
+        [
+          "1aaebfec"
+        ],
+        [
+          "be979087"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          2
+        ],
+        "range_warp_specializes": [
+          false
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          true
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "first",
+          "",
+          "first",
+          "first"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "persistent_interleaved",
+        "num_sm_multiplier": 16
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  5248
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  21495808
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 5248,
+        "arg0_numel": 21495808,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "284066c3"
+        ],
+        [
+          "284066c3"
+        ],
+        [
+          "17f11ec1"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "first",
+          "last",
+          "first",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  5376
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  22020096
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 5376,
+        "arg0_numel": 22020096,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "f8a06e46"
+        ],
+        [
+          "f8a06e46"
+        ],
+        [
+          "200dae2c"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 6,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  5504
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  22544384
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 5504,
+        "arg0_numel": 22544384,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "6ddf27c7"
+        ],
+        [
+          "6ddf27c7"
+        ],
+        [
+          "b2f88c06"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          "first"
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  5632
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  23068672
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 5632,
+        "arg0_numel": 23068672,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "000ca8a5"
+        ],
+        [
+          "000ca8a5"
+        ],
+        [
+          "3b6e014d"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  5760
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  23592960
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 5760,
+        "arg0_numel": 23592960,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "5f09a050"
+        ],
+        [
+          "5f09a050"
+        ],
+        [
+          "81bb0cc3"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "last",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  5888
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  24117248
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 5888,
+        "arg0_numel": 24117248,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "10722d22"
+        ],
+        [
+          "10722d22"
+        ],
+        [
+          "358c8b19"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "first",
+          "first",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 3,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6016
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  24641536
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6016,
+        "arg0_numel": 24641536,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "b8799a23"
+        ],
+        [
+          "b8799a23"
+        ],
+        [
+          "1c7f95de"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "last",
+          "",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6144
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  25165824
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6144,
+        "arg0_numel": 25165824,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "aaa73293"
+        ],
+        [
+          "aaa73293"
+        ],
+        [
+          "a14ea555"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "last",
+          "first"
+        ],
+        "num_warps": 8,
+        "num_stages": 6,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6272
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  25690112
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6272,
+        "arg0_numel": 25690112,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "522a21ee"
+        ],
+        [
+          "522a21ee"
+        ],
+        [
+          "9aa8cfd0"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          2
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6400
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  26214400
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6400,
+        "arg0_numel": 26214400,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "dd4cbf9d"
+        ],
+        [
+          "dd4cbf9d"
+        ],
+        [
+          "25237f0b"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "last",
+          "first",
+          "first"
+        ],
+        "num_warps": 8,
+        "num_stages": 7,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6528
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  26738688
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6528,
+        "arg0_numel": 26738688,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "87d2d4a7"
+        ],
+        [
+          "87d2d4a7"
+        ],
+        [
+          "72ba857b"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "first",
+          "first",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6656
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  27262976
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6656,
+        "arg0_numel": 27262976,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "a9045126"
+        ],
+        [
+          "a9045126"
+        ],
+        [
+          "ce6eb336"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "first",
+          "first",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6784
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  27787264
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6784,
+        "arg0_numel": 27787264,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "1ad0500a"
+        ],
+        [
+          "1ad0500a"
+        ],
+        [
+          "c4484585"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "first",
+          "first",
+          "",
+          "first"
+        ],
+        "num_warps": 8,
+        "num_stages": 7,
+        "indexing": [
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  6912
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  28311552
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 6912,
+        "arg0_numel": 28311552,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "74e168e8"
+        ],
+        [
+          "74e168e8"
+        ],
+        [
+          "cbf032ad"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "first",
+          "first",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "tensor_descriptor",
+          "tensor_descriptor",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7040
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  28835840
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7040,
+        "arg0_numel": 28835840,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "67929489"
+        ],
+        [
+          "67929489"
+        ],
+        [
+          "72008fd5"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "last",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7168
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  29360128
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7168,
+        "arg0_numel": 29360128,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "a50718e0"
+        ],
+        [
+          "a50718e0"
+        ],
+        [
+          "b4c90a0f"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7296
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  29884416
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7296,
+        "arg0_numel": 29884416,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "cb6f8be5"
+        ],
+        [
+          "cb6f8be5"
+        ],
+        [
+          "87531f5c"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "first",
+          "",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7424
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  30408704
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7424,
+        "arg0_numel": 30408704,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "c3547e59"
+        ],
+        [
+          "c3547e59"
+        ],
+        [
+          "6be8f574"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "",
+          "last"
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7552
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  30932992
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7552,
+        "arg0_numel": 30932992,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "d2a600b9"
+        ],
+        [
+          "d2a600b9"
+        ],
+        [
+          "e2d32107"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "first",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7680
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  31457280
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7680,
+        "arg0_numel": 31457280,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "95be401e"
+        ],
+        [
+          "95be401e"
+        ],
+        [
+          "9107c2a9"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "first",
+          "",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 1,
+        "indexing": [
+          "tensor_descriptor",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7808
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  31981568
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7808,
+        "arg0_numel": 31981568,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "f0141920"
+        ],
+        [
+          "f0141920"
+        ],
+        [
+          "dc91c4b3"
+        ]
+      ]
+    },
+    {
+      "config": {
+        "block_sizes": [
+          1
+        ],
+        "reduction_loops": [
+          null
+        ],
+        "range_unroll_factors": [
+          0
+        ],
+        "range_warp_specializes": [
+          null
+        ],
+        "range_num_stages": [
+          0
+        ],
+        "range_multi_buffers": [
+          null
+        ],
+        "range_flattens": [
+          null
+        ],
+        "load_eviction_policies": [
+          "",
+          "",
+          "first",
+          ""
+        ],
+        "num_warps": 8,
+        "num_stages": 2,
+        "indexing": [
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "pointer",
+          "tensor_descriptor"
+        ],
+        "pid_type": "flat"
+      },
+      "shape_key": {
+        "kernel_name": "softmax",
+        "specialization_key": [
+          {
+            "__tuple__": [
+              {
+                "__dtype__": "torch.float16"
+              },
+              "cuda",
+              {
+                "__tuple__": [
+                  2,
+                  2
+                ]
+              },
+              false,
+              {
+                "__frozenset__": []
+              }
+            ]
+          },
+          {
+            "__tuple__": [
+              {
+                "__tuple__": [
+                  "arg0_dim0",
+                  4096
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dim1",
+                  7936
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype",
+                  "torch.float16"
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_cat",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_dtype_size",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_ndim",
+                  2
+                ]
+              },
+              {
+                "__tuple__": [
+                  "arg0_numel",
+                  32505856
+                ]
+              }
+            ]
+          }
+        ],
+        "hardware_id": "cuda_NVIDIA_B200_13.0"
+      },
+      "timing_ms": null,
+      "kernel_source_file": "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+      "shape_features": {
+        "arg0_ndim": 2,
+        "arg0_dim0": 4096,
+        "arg0_dim1": 7936,
+        "arg0_numel": 32505856,
+        "arg0_dtype": "torch.float16",
+        "arg0_dtype_size": 2,
+        "arg0_dtype_cat": 2
+      },
+      "tensor_hashes": [
+        [
+          "4405dc69"
+        ],
+        [
+          "4405dc69"
+        ],
+        [
+          "2c26d908"
+        ]
+      ]
+    }
+  ]
+}

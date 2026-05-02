@@ -1,0 +1,15 @@
+{
+  "attention": {
+    "num_configs": 2,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.066086992304651,
+      "geomean_slowdown": 1.026041621438686,
+      "avg_slowdown": 1.0262063866185975,
+      "satisfied_ratio": 1.0,
+      "num_configs": 2,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}
