@@ -1,0 +1,165 @@
+# evaluate phase
+# Command: /home/jongsokchoi/.conda/envs/helion/bin/python /home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py --kernel fp8_gemm
+# Environment: {"HELION_AOT_MODE": "evaluate", "HELION_AOT_DATA_DIR": "/home/jongsokchoi/helion_2/.helion_aot/job_fp8_gemm/20260501_220932_cb0d7e", "HELION_AUTOTUNE_CACHE": "AOTAutotuneCache"}
+# Started: 2026-05-02T02:19:58.848519
+
+AOT mode: evaluate
+=== fp8_gemm ===
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[16, 32, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[8], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=6, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 3], range_unroll_factors=[0, 0], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  256x256 @ 256x256 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[2], load_eviction_policies=['', 'last'], loop_orders=[[0, 1]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 0], range_unroll_factors=[0, 1], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  384x384 @ 384x384 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 32, 256], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[8], load_eviction_policies=['last', 'last'], loop_orders=[[0, 1]], num_stages=3, num_warps=8, pid_type='flat', range_flattens=[None, None], range_multi_buffers=[None, None], range_num_stages=[0, 4], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  512x512 @ 512x512 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 32, 256], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[8], load_eviction_policies=['last', 'last'], loop_orders=[[0, 1]], num_stages=3, num_warps=8, pid_type='flat', range_flattens=[None, None], range_multi_buffers=[None, None], range_num_stages=[0, 4], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  640x640 @ 640x640 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 32, 256], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[8], load_eviction_policies=['last', 'last'], loop_orders=[[0, 1]], num_stages=3, num_warps=8, pid_type='flat', range_flattens=[None, None], range_multi_buffers=[None, None], range_num_stages=[0, 4], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  768x768 @ 768x768 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[2], load_eviction_policies=['', 'last'], loop_orders=[[0, 1]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 0], range_unroll_factors=[0, 1], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  896x896 @ 896x896 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[2], load_eviction_policies=['', 'last'], loop_orders=[[0, 1]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 0], range_unroll_factors=[0, 1], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1024x1024 @ 1024x1024 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[2], load_eviction_policies=['', 'last'], loop_orders=[[0, 1]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 0], range_unroll_factors=[0, 1], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1152x1152 @ 1152x1152 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[2], load_eviction_policies=['', 'last'], loop_orders=[[0, 1]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 0], range_unroll_factors=[0, 1], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1280x1280 @ 1280x1280 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[2], load_eviction_policies=['', 'last'], loop_orders=[[0, 1]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 0], range_unroll_factors=[0, 1], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1408x1408 @ 1408x1408 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 128], indexing=['pointer', 'pointer', 'pointer'], l2_groupings=[2], load_eviction_policies=['', 'last'], loop_orders=[[0, 1]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 0], range_unroll_factors=[0, 1], range_warp_specializes=[None, None]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1536x1536 @ 1536x1536 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 128], epilogue_subtile=2, indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[32], load_eviction_policies=['first', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, True], range_multi_buffers=[None, None], range_num_stages=[0, 2], range_unroll_factors=[0, 4], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1664x1664 @ 1664x1664 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 128], epilogue_subtile=2, indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[32], load_eviction_policies=['first', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, True], range_multi_buffers=[None, None], range_num_stages=[0, 2], range_unroll_factors=[0, 4], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1792x1792 @ 1792x1792 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 128], epilogue_subtile=2, indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[32], load_eviction_policies=['first', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, True], range_multi_buffers=[None, None], range_num_stages=[0, 2], range_unroll_factors=[0, 4], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  1920x1920 @ 1920x1920 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 128], epilogue_subtile=2, indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[32], load_eviction_policies=['first', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, True], range_multi_buffers=[None, None], range_num_stages=[0, 2], range_unroll_factors=[0, 4], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2048x2048 @ 2048x2048 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 128, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[8], load_eviction_policies=['last', 'first'], loop_orders=[[0, 1]], num_stages=6, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, True], range_num_stages=[0, 0], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2176x2176 @ 2176x2176 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2304x2304 @ 2304x2304 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2432x2432 @ 2432x2432 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2560x2560 @ 2560x2560 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2688x2688 @ 2688x2688 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2816x2816 @ 2816x2816 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  2944x2944 @ 2944x2944 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3072x3072 @ 3072x3072 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3200x3200 @ 3200x3200 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3328x3328 @ 3328x3328 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3456x3456 @ 3456x3456 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3584x3584 @ 3584x3584 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3712x3712 @ 3712x3712 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3840x3840 @ 3840x3840 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  3968x3968 @ 3968x3968 done
+Using cached config:
+	@helion.kernel(config=helion.Config(atomic_indexing=[], block_sizes=[128, 256, 64], indexing=['pointer', 'pointer', 'tensor_descriptor'], l2_groupings=[4], load_eviction_policies=['', ''], loop_orders=[[1, 0]], num_stages=4, num_warps=4, pid_type='flat', range_flattens=[None, False], range_multi_buffers=[None, False], range_num_stages=[0, 2], range_unroll_factors=[0, 0], range_warp_specializes=[None, False]), static_shapes=True)
+[0s] Found cached config for fp8_gemm, skipping autotuning.
+
+  4096x4096 @ 4096x4096 done
+
+# Finished: 2026-05-02T02:20:12.195013
+# Return code: 0

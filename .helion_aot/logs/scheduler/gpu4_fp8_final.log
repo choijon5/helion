@@ -1,0 +1,11 @@
+Using GPUs: [4] (1 workers)
+Kernels: ['fp8_gemm']
+Output root: /home/jongsokchoi/helion_2/.helion_aot
+[22:09:29] [GPU 4] start fp8_gemm -> /home/jongsokchoi/helion_2/.helion_aot/logs/fp8_gemm.log
+[02:20:13] [GPU 4] OK fp8_gemm in 15045s
+
+All jobs finished in 15045s
+Results: 1 OK, 0 FAIL
+        fp8_gemm (GPU 4): OK in 15045s
+
+Merging outputs...

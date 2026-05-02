@@ -3,3 +3,11 @@ Using GPUs: [4] (1 workers)
 Kernels: ['fp8_gemm']
 Output root: /home/jongsokchoi/helion_2/.helion_aot
 [18:02:39] [GPU 4] start fp8_gemm -> /home/jongsokchoi/helion_2/.helion_aot/logs/fp8_gemm.log
+[21:55:30] [GPU 4] OK fp8_gemm in 13971s
+
+All jobs finished in 13971s
+Results: 1 OK, 0 FAIL
+        fp8_gemm (GPU 4): OK in 13971s
+
+Merging outputs...
+[GPU 4] fp8_gemm retry done at 21:55:30

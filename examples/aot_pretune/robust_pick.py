@@ -42,6 +42,9 @@ def load_kernels_module():
     )
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
+    # Register before exec so helion's compiler can resolve __module__
+    # lookups (e.g. when retrieving the kernel source for fp8_gemm).
+    sys.modules["tutorial_kernels"] = mod
     spec.loader.exec_module(mod)
     return mod
 
