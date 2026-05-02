@@ -1,0 +1,40 @@
+[GPU 4] fp8_gemm × 3 starting at 14:18:51
+[GPU 4] fp8_gemm iter 1/3 at 14:18:51
+Using GPUs: [4] (1 workers)
+Kernels: ['fp8_gemm']
+Output root: /home/jongsokchoi/helion_2/.helion_aot
+[14:18:51] [GPU 4] start fp8_gemm -> /home/jongsokchoi/helion_2/.helion_aot/logs/fp8_gemm.log
+[15:14:09] [GPU 4] FAIL(1) fp8_gemm in 3318s
+
+All jobs finished in 3318s
+Results: 0 OK, 1 FAIL
+        fp8_gemm (GPU 4): FAIL(1) in 3318s
+
+Merging outputs...
+[GPU 4] iter 1 FAILED
+[GPU 4] fp8_gemm iter 2/3 at 15:14:09
+Using GPUs: [4] (1 workers)
+Kernels: ['fp8_gemm']
+Output root: /home/jongsokchoi/helion_2/.helion_aot
+[15:14:09] [GPU 4] start fp8_gemm -> /home/jongsokchoi/helion_2/.helion_aot/logs/fp8_gemm.log
+[17:09:54] [GPU 4] OK fp8_gemm in 6944s
+
+All jobs finished in 6944s
+Results: 1 OK, 0 FAIL
+        fp8_gemm (GPU 4): OK in 6944s
+
+Merging outputs...
+[GPU 4] fp8_gemm iter 3/3 at 17:09:54
+Using GPUs: [4] (1 workers)
+Kernels: ['fp8_gemm']
+Output root: /home/jongsokchoi/helion_2/.helion_aot
+[17:09:54] [GPU 4] start fp8_gemm -> /home/jongsokchoi/helion_2/.helion_aot/logs/fp8_gemm.log
+[17:26:42] [GPU 4] FAIL(1) fp8_gemm in 1008s
+
+All jobs finished in 1008s
+Results: 0 OK, 1 FAIL
+        fp8_gemm (GPU 4): FAIL(1) in 1008s
+
+Merging outputs...
+[GPU 4] iter 3 FAILED
+[GPU 4] fp8_gemm × 3 done at 17:26:42
