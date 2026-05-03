@@ -20,6 +20,7 @@ import argparse
 import math
 import os
 from typing import Callable
+from typing import TypeVar
 
 import torch
 
@@ -29,6 +30,43 @@ from helion._testing import HALF_DTYPE
 import helion.experimental
 import helion.language as hl
 
+_T = TypeVar("_T")
+
+
+def _shape_set(kind: str) -> str:
+    default = os.environ.get("HELION_PRETUNE_SHAPE_SET", "base")
+    return os.environ.get(
+        f"HELION_PRETUNE_{kind.upper()}_SHAPE_SET", default
+    ).lower()
+
+
+def _choose_shapes(base: list[_T], extra: list[_T], kind: str) -> list[_T]:
+    shape_set = _shape_set(kind)
+    if shape_set == "base":
+        return list(base)
+    if shape_set == "additional":
+        return list(extra)
+    if shape_set == "expanded":
+        return [*base, *extra]
+    raise ValueError(
+        "HELION_PRETUNE_*_SHAPE_SET must be one of: base, additional, expanded"
+    )
+
+
+def _workflow_only() -> bool:
+    return os.environ.get("HELION_PRETUNE_WORKFLOW_ONLY") == "1"
+
+
+def _run_workflow_once(
+    kernel: Callable[..., object],
+    inputs: list[tuple[object, ...]],
+) -> bool:
+    if not _workflow_only():
+        return False
+    if inputs:
+        kernel(*inputs[0])
+    return True
+
 
 # ---------------------------------------------------------------------------
 # vector_add (Triton tutorial 01)  shapes: size = 2**i for i in range(12, 27)
@@ -36,22 +74,37 @@ import helion.language as hl
 
 # Triton tutorial 01: x_vals=[2**i for i in range(12, 28, 1)]  → 16 shapes
 # (sizes from 4096 to 134_217_728 elements).
-_VECTOR_ADD_SIZES = [2**i for i in range(12, 28)]  # 16 shapes
+_VECTOR_ADD_BASE_SIZES = [2**i for i in range(12, 28)]  # 16 shapes
+_VECTOR_ADD_EXTRA_SIZES = [2**i for i in range(28, 32)]  # 4 bigger shapes
 
 
-def _vector_add_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+def _vector_add_sizes(kind: str = "benchmark") -> list[int]:
+    return _choose_shapes(_VECTOR_ADD_BASE_SIZES, _VECTOR_ADD_EXTRA_SIZES, kind)
+
+
+def _vector_add_inputs(
+    kind: str = "benchmark",
+) -> list[tuple[torch.Tensor, torch.Tensor]]:
     return [
         (
             torch.randn([n], device=DEVICE, dtype=torch.float32),
             torch.randn([n], device=DEVICE, dtype=torch.float32),
         )
-        for n in _VECTOR_ADD_SIZES
+        for n in _vector_add_sizes(kind)
     ]
 
 
+def _vector_add_collect_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return _vector_add_inputs("collect")
+
+
+def _vector_add_measure_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return _vector_add_inputs("measure")
+
+
 @helion.experimental.aot_kernel(
-    collect_fn=_vector_add_inputs,
-    measure_fn=_vector_add_inputs,
+    collect_fn=_vector_add_collect_inputs,
+    measure_fn=_vector_add_measure_inputs,
 )
 def vector_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     out = torch.empty_like(x)
@@ -62,7 +115,10 @@ def vector_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 def benchmark_vector_add() -> None:
     print("=== vector_add ===")
-    for x, y in _vector_add_inputs():
+    inputs = _vector_add_inputs()
+    if _run_workflow_once(vector_add, inputs):
+        return
+    for x, y in inputs:
         vector_add(x, y)
         print(f"  N={x.numel()} done")
 
@@ -73,22 +129,44 @@ def benchmark_vector_add() -> None:
 
 # Triton tutorial 03: x_vals=[128 * i for i in range(2, 33)]  → 31 shapes
 # (square M=N=K from 256 to 4096).
-_MATMUL_SIZES = [128 * i for i in range(2, 33)]  # 31 shapes
+_MATMUL_BASE_SHAPES = [(128 * i, 128 * i, 128 * i) for i in range(2, 33)]
+_MATMUL_EXTRA_SHAPES = [
+    (4608, 4608, 4608),
+    (5120, 5120, 5120),
+    (6144, 6144, 6144),
+    (7168, 7168, 7168),
+    (8192, 8192, 8192),
+    (4096, 4096, 12288),
+    (4096, 12288, 4096),
+    (8192, 4096, 4096),
+]
 
 
-def _matmul_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+def _matmul_shapes(kind: str = "benchmark") -> list[tuple[int, int, int]]:
+    return _choose_shapes(_MATMUL_BASE_SHAPES, _MATMUL_EXTRA_SHAPES, kind)
+
+
+def _matmul_inputs(kind: str = "benchmark") -> list[tuple[torch.Tensor, torch.Tensor]]:
     return [
         (
-            torch.randn([n, n], device=DEVICE, dtype=HALF_DTYPE),
-            torch.randn([n, n], device=DEVICE, dtype=HALF_DTYPE),
+            torch.randn([m, k], device=DEVICE, dtype=HALF_DTYPE),
+            torch.randn([k, n], device=DEVICE, dtype=HALF_DTYPE),
         )
-        for n in _MATMUL_SIZES
+        for m, n, k in _matmul_shapes(kind)
     ]
 
 
+def _matmul_collect_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return _matmul_inputs("collect")
+
+
+def _matmul_measure_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return _matmul_inputs("measure")
+
+
 @helion.experimental.aot_kernel(
-    collect_fn=_matmul_inputs,
-    measure_fn=_matmul_inputs,
+    collect_fn=_matmul_collect_inputs,
+    measure_fn=_matmul_measure_inputs,
     static_shapes=True,
 )
 def matmul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -108,7 +186,10 @@ def matmul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 def benchmark_matmul() -> None:
     print("=== matmul ===")
-    for x, y in _matmul_inputs():
+    inputs = _matmul_inputs()
+    if _run_workflow_once(matmul, inputs):
+        return
+    for x, y in inputs:
         m, k = x.shape
         _, n = y.shape
         matmul(x, y)
@@ -211,23 +292,53 @@ _ATTN_BATCH = 4
 _ATTN_HEAD = 32
 _ATTN_HEAD_DIMS = [64, 128]
 _ATTN_N_CTX = [2**i for i in range(10, 15)]  # 1024, 2048, 4096, 8192, 16384
+_ATTN_BASE_SHAPES = [
+    (_ATTN_BATCH, _ATTN_HEAD, n_ctx, head_dim)
+    for head_dim in _ATTN_HEAD_DIMS
+    for n_ctx in _ATTN_N_CTX
+]
+_ATTN_EXTRA_SHAPES = [
+    (4, 32, 1536, 64),
+    (4, 32, 3072, 64),
+    (4, 32, 6144, 64),
+    (4, 32, 12288, 64),
+    (4, 32, 14336, 64),
+    (4, 32, 1536, 128),
+    (4, 32, 3072, 128),
+    (4, 32, 6144, 128),
+    (4, 32, 12288, 128),
+    (4, 32, 14336, 128),
+]
 
 
-def _attention_inputs() -> list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+def _attention_shapes(kind: str = "benchmark") -> list[tuple[int, int, int, int]]:
+    return _choose_shapes(_ATTN_BASE_SHAPES, _ATTN_EXTRA_SHAPES, kind)
+
+
+def _attention_inputs(
+    kind: str = "benchmark",
+) -> list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
     out = []
-    for head_dim in _ATTN_HEAD_DIMS:
-        for n_ctx in _ATTN_N_CTX:
-            shape = [_ATTN_BATCH, _ATTN_HEAD, n_ctx, head_dim]
-            q = torch.randn(shape, device=DEVICE, dtype=HALF_DTYPE)
-            k = torch.randn(shape, device=DEVICE, dtype=HALF_DTYPE)
-            v = torch.randn(shape, device=DEVICE, dtype=HALF_DTYPE)
-            out.append((q, k, v))
+    for batch, heads, n_ctx, head_dim in _attention_shapes(kind):
+        shape = [batch, heads, n_ctx, head_dim]
+        q = torch.randn(shape, device=DEVICE, dtype=HALF_DTYPE)
+        k = torch.randn(shape, device=DEVICE, dtype=HALF_DTYPE)
+        v = torch.randn(shape, device=DEVICE, dtype=HALF_DTYPE)
+        out.append((q, k, v))
     return out
 
 
+def _attention_collect_inputs() -> list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    return _attention_inputs("collect")
+
+
+def _attention_measure_inputs() -> list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    return _attention_inputs("measure")
+
+
 @helion.experimental.aot_kernel(
-    collect_fn=_attention_inputs,
-    measure_fn=_attention_inputs,
+    collect_fn=_attention_collect_inputs,
+    measure_fn=_attention_measure_inputs,
     static_shapes=True,
 )
 def attention(
@@ -272,9 +383,15 @@ def attention(
 
 def benchmark_attention() -> None:
     print("=== attention ===")
-    for q, k, v in _attention_inputs():
+    inputs = _attention_inputs()
+    if _run_workflow_once(attention, inputs):
+        return
+    for q, k, v in inputs:
         attention(q, k, v)
-        print(f"  N_CTX={q.shape[2]} done")
+        print(
+            f"  B={q.shape[0]} H={q.shape[1]} N_CTX={q.shape[2]} "
+            f"D={q.shape[3]} done"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -285,29 +402,66 @@ def benchmark_attention() -> None:
 #   benchmark_square_matrices: M=N=K = 2^i for i in range(7, 11)  → 4 shapes
 #   benchmark_batches:         M = 2^i for i in range(7, 11), N=K=8192  → 4 shapes
 # Total: 8 (M, N, K) triples.
-_GG_GROUPS = 4
 _GG_SQUARE_SIZES = [2**i for i in range(7, 11)]  # 128, 256, 512, 1024
 _GG_BATCHES_M = [2**i for i in range(7, 11)]  # 128, 256, 512, 1024
 _GG_BATCHES_NK = 8192
-_GG_SHAPES = [(n, n, n) for n in _GG_SQUARE_SIZES] + [
-    (m, _GG_BATCHES_NK, _GG_BATCHES_NK) for m in _GG_BATCHES_M
+_GG_BASE_SHAPES = [(4, n, n, n) for n in _GG_SQUARE_SIZES] + [
+    (4, m, _GG_BATCHES_NK, _GG_BATCHES_NK) for m in _GG_BATCHES_M
+]
+_GG_EXTRA_SHAPES = [
+    (4, 1536, 1536, 1536),
+    (4, 2048, 2048, 2048),
+    (4, 256, 4096, 4096),
+    (4, 512, 4096, 4096),
+    (4, 1024, 4096, 4096),
+    (4, 2048, 4096, 4096),
+    (4, 128, 16384, 8192),
+    (4, 256, 16384, 8192),
+    (8, 256, 4096, 4096),
+    (8, 512, 4096, 4096),
+    (8, 1024, 2048, 2048),
+    (16, 256, 2048, 2048),
 ]
 # kept for benchmark printer
 _GG_SIZES = _GG_SQUARE_SIZES
 
 
+def _grouped_gemm_shapes(kind: str = "benchmark") -> list[tuple[int, int, int, int]]:
+    return _choose_shapes(_GG_BASE_SHAPES, _GG_EXTRA_SHAPES, kind)
+
+
 def _grouped_gemm_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
     out = []
-    for m, n, k in _GG_SHAPES:
-        a = torch.randn([_GG_GROUPS, m, k], device=DEVICE, dtype=HALF_DTYPE)
-        b = torch.randn([_GG_GROUPS, k, n], device=DEVICE, dtype=HALF_DTYPE)
+    for groups, m, n, k in _grouped_gemm_shapes():
+        a = torch.randn([groups, m, k], device=DEVICE, dtype=HALF_DTYPE)
+        b = torch.randn([groups, k, n], device=DEVICE, dtype=HALF_DTYPE)
         out.append((a, b))
     return out
 
 
+def _grouped_gemm_collect_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return [
+        (
+            torch.randn([groups, m, k], device=DEVICE, dtype=HALF_DTYPE),
+            torch.randn([groups, k, n], device=DEVICE, dtype=HALF_DTYPE),
+        )
+        for groups, m, n, k in _grouped_gemm_shapes("collect")
+    ]
+
+
+def _grouped_gemm_measure_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return [
+        (
+            torch.randn([groups, m, k], device=DEVICE, dtype=HALF_DTYPE),
+            torch.randn([groups, k, n], device=DEVICE, dtype=HALF_DTYPE),
+        )
+        for groups, m, n, k in _grouped_gemm_shapes("measure")
+    ]
+
+
 @helion.experimental.aot_kernel(
-    collect_fn=_grouped_gemm_inputs,
-    measure_fn=_grouped_gemm_inputs,
+    collect_fn=_grouped_gemm_collect_inputs,
+    measure_fn=_grouped_gemm_measure_inputs,
     static_shapes=True,
 )
 def grouped_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -329,10 +483,14 @@ def grouped_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 def benchmark_grouped_gemm() -> None:
     print("=== grouped_gemm ===")
-    for a, b in _grouped_gemm_inputs():
+    inputs = _grouped_gemm_inputs()
+    if _run_workflow_once(grouped_gemm, inputs):
+        return
+    for a, b in inputs:
         g, m, k = a.shape
+        _, _, n = b.shape
         grouped_gemm(a, b)
-        print(f"  G={g} {m}x{k} done")
+        print(f"  G={g} {m}x{k} @ {k}x{n} done")
 
 
 # ---------------------------------------------------------------------------
@@ -342,22 +500,37 @@ def benchmark_grouped_gemm() -> None:
 # fp8_gemm: helion's fp8_gemm is plain fp8 matmul (no block scaling), so it
 # uses the same shape sweep as matmul (30 shapes).  Triton tutorial 10 is
 # block-scaled (mxfp4/nvfp4/mxfp8) which is structurally different.
-_FP8_SIZES = list(_MATMUL_SIZES)
+_FP8_BASE_SHAPES = list(_MATMUL_BASE_SHAPES)
+_FP8_EXTRA_SHAPES = list(_MATMUL_EXTRA_SHAPES)
 
 
-def _fp8_gemm_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+def _fp8_gemm_shapes(kind: str = "benchmark") -> list[tuple[int, int, int]]:
+    return _choose_shapes(_FP8_BASE_SHAPES, _FP8_EXTRA_SHAPES, kind)
+
+
+def _fp8_gemm_inputs(
+    kind: str = "benchmark",
+) -> list[tuple[torch.Tensor, torch.Tensor]]:
     return [
         (
-            torch.randn([n, n], device=DEVICE).to(torch.float8_e4m3fn),
-            torch.randn([n, n], device=DEVICE).to(torch.float8_e4m3fn),
+            torch.randn([m, k], device=DEVICE).to(torch.float8_e4m3fn),
+            torch.randn([k, n], device=DEVICE).to(torch.float8_e4m3fn),
         )
-        for n in _FP8_SIZES
+        for m, n, k in _fp8_gemm_shapes(kind)
     ]
 
 
+def _fp8_gemm_collect_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return _fp8_gemm_inputs("collect")
+
+
+def _fp8_gemm_measure_inputs() -> list[tuple[torch.Tensor, torch.Tensor]]:
+    return _fp8_gemm_inputs("measure")
+
+
 @helion.experimental.aot_kernel(
-    collect_fn=_fp8_gemm_inputs,
-    measure_fn=_fp8_gemm_inputs,
+    collect_fn=_fp8_gemm_collect_inputs,
+    measure_fn=_fp8_gemm_measure_inputs,
     static_shapes=True,
 )
 def fp8_gemm(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -375,7 +548,10 @@ def fp8_gemm(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 def benchmark_fp8_gemm() -> None:
     print("=== fp8_gemm ===")
-    for x, y in _fp8_gemm_inputs():
+    inputs = _fp8_gemm_inputs()
+    if _run_workflow_once(fp8_gemm, inputs):
+        return
+    for x, y in inputs:
         m, k = x.shape
         _, n = y.shape
         fp8_gemm(x, y)
