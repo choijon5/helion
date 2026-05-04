@@ -1,0 +1,715 @@
+{
+  "conflicts": [],
+  "hardware": "NVIDIA B200",
+  "hardware_id": "cuda_NVIDIA_B200_13.0",
+  "kernel_totals": {
+    "attention": {
+      "measurement_rows_total": 1000,
+      "runs": 4,
+      "runs_with_measurements": 4,
+      "unique_configs_across_runs": 40,
+      "unique_shapes_across_runs": 20
+    },
+    "cross_entropy": {
+      "measurement_rows_total": 441,
+      "runs": 1,
+      "runs_with_measurements": 1,
+      "unique_configs_across_runs": 21,
+      "unique_shapes_across_runs": 21
+    },
+    "fp8_gemm": {
+      "measurement_rows_total": 8989,
+      "runs": 5,
+      "runs_with_measurements": 5,
+      "unique_configs_across_runs": 131,
+      "unique_shapes_across_runs": 39
+    },
+    "grouped_gemm": {
+      "measurement_rows_total": 898,
+      "runs": 5,
+      "runs_with_measurements": 5,
+      "unique_configs_across_runs": 44,
+      "unique_shapes_across_runs": 20
+    },
+    "layer_norm": {
+      "measurement_rows_total": 8130,
+      "runs": 5,
+      "runs_with_measurements": 5,
+      "unique_configs_across_runs": 118,
+      "unique_shapes_across_runs": 82
+    },
+    "matmul": {
+      "measurement_rows_total": 3126,
+      "runs": 2,
+      "runs_with_measurements": 2,
+      "unique_configs_across_runs": 64,
+      "unique_shapes_across_runs": 39
+    },
+    "rms_norm": {
+      "measurement_rows_total": 839,
+      "runs": 1,
+      "runs_with_measurements": 1,
+      "unique_configs_across_runs": 28,
+      "unique_shapes_across_runs": 30
+    },
+    "softmax": {
+      "measurement_rows_total": 58868,
+      "runs": 4,
+      "runs_with_measurements": 4,
+      "unique_configs_across_runs": 256,
+      "unique_shapes_across_runs": 198
+    },
+    "vector_add": {
+      "measurement_rows_total": 1694,
+      "runs": 4,
+      "runs_with_measurements": 4,
+      "unique_configs_across_runs": 45,
+      "unique_shapes_across_runs": 20
+    }
+  },
+  "layout": "aot_pretune_data/b200/<kernel>/runs/<run_id>/",
+  "runs": [
+    {
+      "completed_at": "2026-05-01T00:14:03.673057",
+      "configs": 10,
+      "duplicate_shape_config_rows": 100,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "attention",
+      "measurement_rows": 200,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_192807_9a21c9",
+      "shapes": 10,
+      "started_at": "2026-04-30T19:28:07.487953",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T06:00:48.270653",
+      "configs": 10,
+      "duplicate_shape_config_rows": 100,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "attention",
+      "measurement_rows": 200,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_001858_d15c45",
+      "shapes": 10,
+      "started_at": "2026-05-01T00:18:59.033204",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T09:41:52.211019",
+      "configs": 10,
+      "duplicate_shape_config_rows": 100,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "attention",
+      "measurement_rows": 200,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_060054_3a4222",
+      "shapes": 10,
+      "started_at": "2026-05-01T06:00:54.227181",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-02T22:21:26.439072",
+      "configs": 20,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "attention",
+      "measurement_rows": 400,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260502_184658_expanded_attention_intermediate_full_benchsub_nopool_resume1",
+      "shapes": 20,
+      "started_at": "2026-05-02T22:15:34.067497",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-03T06:53:07.057373",
+      "configs": 21,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "cross_entropy",
+      "measurement_rows": 441,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260503_001250_cross_entropy_full_tutorial_gpu7",
+      "shapes": 21,
+      "started_at": "2026-05-03T02:13:29.337761",
+      "success": true
+    },
+    {
+      "completed_at": "2026-04-30T21:23:45.684182",
+      "configs": 30,
+      "duplicate_shape_config_rows": 900,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "fp8_gemm",
+      "measurement_rows": 1800,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_192807_699fa9",
+      "shapes": 30,
+      "started_at": "2026-04-30T19:28:07.836159",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T17:09:52.534837",
+      "configs": 31,
+      "duplicate_shape_config_rows": 961,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "fp8_gemm",
+      "measurement_rows": 1922,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_151413_cb87f1",
+      "shapes": 31,
+      "started_at": "2026-05-01T15:14:13.470975",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T21:55:29.062675",
+      "configs": 31,
+      "duplicate_shape_config_rows": 961,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "fp8_gemm",
+      "measurement_rows": 1922,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_180243_009304",
+      "shapes": 31,
+      "started_at": "2026-05-01T18:02:43.693210",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-02T02:20:12.195609",
+      "configs": 31,
+      "duplicate_shape_config_rows": 931,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "fp8_gemm",
+      "measurement_rows": 1862,
+      "missing_shape_config_cells": 30,
+      "run_id": "20260501_220932_cb0d7e",
+      "shapes": 31,
+      "started_at": "2026-05-01T22:09:32.768267",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-02T12:17:28.626462",
+      "configs": 39,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "fp8_gemm",
+      "measurement_rows": 1483,
+      "missing_shape_config_cells": 38,
+      "run_id": "20260502_110931_expanded_fp8_gemm",
+      "shapes": 39,
+      "started_at": "2026-05-02T11:09:35.912496",
+      "success": true
+    },
+    {
+      "completed_at": "2026-04-30T20:06:40.991576",
+      "configs": 8,
+      "duplicate_shape_config_rows": 64,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "grouped_gemm",
+      "measurement_rows": 128,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_192807_f6c76e",
+      "shapes": 8,
+      "started_at": "2026-04-30T19:28:07.298173",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T02:48:25.744872",
+      "configs": 8,
+      "duplicate_shape_config_rows": 64,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "grouped_gemm",
+      "measurement_rows": 128,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_021519_60091f",
+      "shapes": 8,
+      "started_at": "2026-05-01T02:15:19.666836",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T03:23:52.304113",
+      "configs": 8,
+      "duplicate_shape_config_rows": 57,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "grouped_gemm",
+      "measurement_rows": 114,
+      "missing_shape_config_cells": 7,
+      "run_id": "20260501_024832_d48a95",
+      "shapes": 8,
+      "started_at": "2026-05-01T02:48:32.410986",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T04:07:09.406642",
+      "configs": 8,
+      "duplicate_shape_config_rows": 64,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "grouped_gemm",
+      "measurement_rows": 128,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_032357_62ca6d",
+      "shapes": 8,
+      "started_at": "2026-05-01T03:23:57.715046",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-02T12:35:03.129677",
+      "configs": 20,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "grouped_gemm",
+      "measurement_rows": 400,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260502_110931_expanded_grouped_gemm",
+      "shapes": 20,
+      "started_at": "2026-05-02T11:09:35.936182",
+      "success": true
+    },
+    {
+      "completed_at": "2026-04-30T18:38:34.751422",
+      "configs": 28,
+      "duplicate_shape_config_rows": 812,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "layer_norm",
+      "measurement_rows": 1624,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_164937_3afc67",
+      "shapes": 29,
+      "started_at": "2026-04-30T16:49:37.230158",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T00:22:32.173270",
+      "configs": 27,
+      "duplicate_shape_config_rows": 810,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "layer_norm",
+      "measurement_rows": 1620,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_225347_8a2958",
+      "shapes": 30,
+      "started_at": "2026-04-30T22:53:47.311564",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T01:38:34.618033",
+      "configs": 28,
+      "duplicate_shape_config_rows": 840,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "layer_norm",
+      "measurement_rows": 1680,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_002231_5ddf09",
+      "shapes": 30,
+      "started_at": "2026-05-01T00:22:31.721039",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T03:03:02.972099",
+      "configs": 30,
+      "duplicate_shape_config_rows": 900,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "layer_norm",
+      "measurement_rows": 1800,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_013839_c93350",
+      "shapes": 30,
+      "started_at": "2026-05-01T01:38:39.826656",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-03T13:47:14.440616",
+      "configs": 37,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "layer_norm",
+      "measurement_rows": 1406,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260503_131231_layer_norm_full_tutorial_seed30_plus8_gpu7",
+      "shapes": 38,
+      "started_at": "2026-05-03T13:12:36.083437",
+      "success": true
+    },
+    {
+      "completed_at": "2026-04-30T21:21:17.413973",
+      "configs": 30,
+      "duplicate_shape_config_rows": 900,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "matmul",
+      "measurement_rows": 1800,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_192807_2dc612",
+      "shapes": 30,
+      "started_at": "2026-04-30T19:28:07.851422",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-02T12:19:45.135293",
+      "configs": 34,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "matmul",
+      "measurement_rows": 1326,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260502_110931_expanded_matmul",
+      "shapes": 39,
+      "started_at": "2026-05-02T11:09:35.932494",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-03T02:13:24.675001",
+      "configs": 28,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "rms_norm",
+      "measurement_rows": 839,
+      "missing_shape_config_cells": 1,
+      "run_id": "20260503_001250_rms_norm_full_tutorial_gpu7",
+      "shapes": 30,
+      "started_at": "2026-05-03T00:12:53.786961",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T04:28:13.521461",
+      "configs": 89,
+      "duplicate_shape_config_rows": 8722,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "softmax",
+      "measurement_rows": 17444,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_225346_8ed0c4",
+      "shapes": 98,
+      "started_at": "2026-04-30T22:53:46.801226",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T10:54:04.874506",
+      "configs": 88,
+      "duplicate_shape_config_rows": 8624,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "softmax",
+      "measurement_rows": 17248,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_042833_d11329",
+      "shapes": 98,
+      "started_at": "2026-05-01T04:28:33.669426",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-01T15:37:56.065370",
+      "configs": 81,
+      "duplicate_shape_config_rows": 7938,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "softmax",
+      "measurement_rows": 15876,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260501_105410_7a2c56",
+      "shapes": 98,
+      "started_at": "2026-05-01T10:54:11.049284",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-03T13:00:15.011198",
+      "configs": 83,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "softmax",
+      "measurement_rows": 8300,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260503_114301_softmax_full_tutorial_seed98_gpu7",
+      "shapes": 100,
+      "started_at": "2026-05-03T11:43:04.674645",
+      "success": true
+    },
+    {
+      "completed_at": "2026-04-30T17:04:17.886666",
+      "configs": 15,
+      "duplicate_shape_config_rows": 225,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "vector_add",
+      "measurement_rows": 450,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_164937_709d12",
+      "shapes": 15,
+      "started_at": "2026-04-30T16:49:37.339271",
+      "success": true
+    },
+    {
+      "completed_at": "2026-04-30T22:49:11.443101",
+      "configs": 12,
+      "duplicate_shape_config_rows": 192,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "vector_add",
+      "measurement_rows": 384,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_223347_51b26a",
+      "shapes": 16,
+      "started_at": "2026-04-30T22:33:47.596504",
+      "success": true
+    },
+    {
+      "completed_at": "2026-04-30T23:10:02.702980",
+      "configs": 15,
+      "duplicate_shape_config_rows": 240,
+      "files": [
+        "evaluation_cuda_NVIDIA_B200_13.0.json",
+        "heuristic_summary_cuda_NVIDIA_B200_13.0.json",
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "vector_add",
+      "measurement_rows": 480,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260430_225347_f4807c",
+      "shapes": 16,
+      "started_at": "2026-04-30T22:53:47.211147",
+      "success": true
+    },
+    {
+      "completed_at": "2026-05-02T11:23:43.671857",
+      "configs": 19,
+      "duplicate_shape_config_rows": 0,
+      "files": [
+        "measurements_cuda_NVIDIA_B200_13.0.csv",
+        "run_metadata.json",
+        "tuned_configs_cuda_NVIDIA_B200_13.0.json"
+      ],
+      "has_measurements": true,
+      "has_tuned_configs": true,
+      "kernel": "vector_add",
+      "measurement_rows": 380,
+      "missing_shape_config_cells": 0,
+      "run_id": "20260502_110931_expanded_vector_add",
+      "shapes": 20,
+      "started_at": "2026-05-02T11:09:35.861744",
+      "success": true
+    }
+  ],
+  "selection": "Only runs with measurements_cuda_NVIDIA_B200_13.0.csv are retained."
+}

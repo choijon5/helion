@@ -1,0 +1,16 @@
+{
+  "run_id": "20260502_110931_expanded_vector_add",
+  "hardware_id": "cuda_NVIDIA_B200_13.0",
+  "benchmark_cmd": [
+    "/home/jongsokchoi/.conda/envs/helion_2/bin/python",
+    "/tmp/helion_aot_pretune_data_all/examples/aot_pretune/tutorial_kernels.py",
+    "--kernel",
+    "vector_add"
+  ],
+  "goal_type": "max_slowdown",
+  "threshold": 1.1,
+  "max_configs": 10,
+  "started_at": "2026-05-02T11:09:35.861744",
+  "completed_at": "2026-05-02T11:23:43.671857",
+  "success": true
+}

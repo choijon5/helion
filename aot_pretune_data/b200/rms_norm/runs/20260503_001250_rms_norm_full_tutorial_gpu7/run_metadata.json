@@ -1,0 +1,14 @@
+{
+  "run_id": "20260503_001250_rms_norm_full_tutorial_gpu7",
+  "hardware_id": "cuda_NVIDIA_B200_13.0",
+  "benchmark_cmd": [
+    "/home/jongsokchoi/.conda/envs/helion_2/bin/python",
+    "tutorials/rms_norm/rms_norm.py"
+  ],
+  "goal_type": "max_slowdown",
+  "threshold": 1.1,
+  "max_configs": 10,
+  "started_at": "2026-05-03T00:12:53.786961",
+  "completed_at": "2026-05-03T02:13:24.675001",
+  "success": true
+}

@@ -1,0 +1,16 @@
+{
+  "run_id": "20260430_225347_8a2958",
+  "hardware_id": "cuda_NVIDIA_B200_13.0",
+  "benchmark_cmd": [
+    "/home/jongsokchoi/.conda/envs/helion/bin/python",
+    "/home/jongsokchoi/helion_2/examples/aot_pretune/tutorial_kernels.py",
+    "--kernel",
+    "layer_norm"
+  ],
+  "goal_type": "max_slowdown",
+  "threshold": 1.1,
+  "max_configs": 10,
+  "started_at": "2026-04-30T22:53:47.311564",
+  "completed_at": "2026-05-01T00:22:32.173270",
+  "success": true
+}
