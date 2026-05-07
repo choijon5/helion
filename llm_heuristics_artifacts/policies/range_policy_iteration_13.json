@@ -1,0 +1,108 @@
+{
+  "version": 13,
+  "objective": "Freeze prompt-only RMS/softmax range policy as useful heuristics and split attention d128 into separate seed-mechanism research.",
+  "scope": {
+    "active_prompt_only_policies": [
+      "row_norm_rms",
+      "row_softmax_narrow",
+      "row_softmax_mid"
+    ],
+    "frozen": true,
+    "mechanism_research_in_flight": [
+      "attention_d128_seed_mechanism"
+    ]
+  },
+  "prompt_mode": "first_round_only",
+  "llm_max_rounds": 1,
+  "harness_change_required": false,
+  "harness_change_rationale": "The existing seeds arm can test data-derived seed configs. A new combined seeds_plus_range_prompt arm may require harness work if it is not already available.",
+  "materiality": {
+    "perf_noise_threshold": 0.05,
+    "wall_time_noise_threshold": 0.20,
+    "interpretation": "Treat geomean perf deltas under 5% and wall-time deltas under 20% as noise."
+  },
+  "frozen_policies": {
+    "row_norm_rms": {
+      "status": "frozen",
+      "evidence_geomean": {
+        "perf": 0.979,
+        "time": 0.758,
+        "cfg": 1.099
+      }
+    },
+    "row_softmax_narrow": {
+      "status": "frozen",
+      "evidence_geomean": {
+        "perf": 0.985,
+        "time": 0.626,
+        "cfg": 1.025
+      }
+    },
+    "row_softmax_mid": {
+      "status": "frozen",
+      "evidence_geomean": {
+        "perf": 1.0,
+        "time": 0.54,
+        "cfg": 1.018
+      }
+    }
+  },
+  "blocked_classes": {
+    "attention_d128_prompt_only": {
+      "reason": "Prompt-only d128 guidance found faster kernels in iteration 11 but regressed wall time and compile total; iteration 12 no-guidance lost the perf win. Do not continue loose prompt-only d128 narrowing.",
+      "next_attempt_requires": "A seed or constrained-candidate mechanism."
+    },
+    "attention_d64_prompt_only": {
+      "reason": "No data-backed prompt-only win; keep blocked/no-guidance."
+    }
+  },
+  "mechanism_research": {
+    "attention_d128_seed_mechanism": {
+      "status": "planned_for_iteration_13",
+      "is_product_policy": false,
+      "primary_arm": "seeds",
+      "candidate_arms": [
+        "baseline",
+        "seeds",
+        "range_prompt",
+        "seeds_plus_range_prompt"
+      ],
+      "workloads": [
+        "attention_2k_d128",
+        "attention_4k_d128"
+      ],
+      "gpu": 2,
+      "llm_max_rounds": 1,
+      "gate": {
+        "perf_geo_max": 0.95,
+        "time_geo_max": 1.2,
+        "compile_total_max": 1.2,
+        "per_shape_perf_max": 1.0
+      },
+      "if_gate_passes": "Design and validate a constrained-candidate or seed-injection mechanism on held-out attention and non-attention shapes.",
+      "if_gate_fails": "Close attention d128 mechanism research for this loop and keep frozen RMS/softmax only."
+    }
+  },
+  "validation_design": {
+    "frozen_policy_iteration_13_runs": "None required unless the first-round prompt mechanism changes.",
+    "mechanism_research_iteration_13_runs": {
+      "arms": [
+        "baseline",
+        "seeds",
+        "range_prompt",
+        "seeds_plus_range_prompt"
+      ],
+      "workloads": [
+        "attention_2k_d128",
+        "attention_4k_d128"
+      ],
+      "metrics": [
+        "perf_geo",
+        "time_geo",
+        "cfg_geo",
+        "compile_total",
+        "per_shape_perf"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1351 @@
+{
+  "class_summary": {
+    "attention": {
+      "holdout_geomean_slowdown_geomean": 1.0049,
+      "holdout_p90_slowdown_max": 1.0199,
+      "rule_count": 5,
+      "shape_count": 11,
+      "template_count": 5
+    },
+    "elementwise": {
+      "holdout_geomean_slowdown_geomean": 1.0021,
+      "holdout_p90_slowdown_max": 1.0141,
+      "rule_count": 3,
+      "shape_count": 12,
+      "template_count": 7
+    },
+    "matmul": {
+      "holdout_geomean_slowdown_geomean": 1.0007,
+      "holdout_p90_slowdown_max": 1.0017,
+      "rule_count": 2,
+      "shape_count": 6,
+      "template_count": 3
+    },
+    "matmul_fp8": {
+      "holdout_geomean_slowdown_geomean": 1.0,
+      "holdout_p90_slowdown_max": 1.0,
+      "rule_count": 1,
+      "shape_count": 2,
+      "template_count": 1
+    },
+    "row_norm_layer": {
+      "holdout_geomean_slowdown_geomean": 1.0,
+      "holdout_p90_slowdown_max": 1.0,
+      "rule_count": 1,
+      "shape_count": 2,
+      "template_count": 1
+    },
+    "row_norm_rms": {
+      "holdout_geomean_slowdown_geomean": 1.0048,
+      "holdout_p90_slowdown_max": 1.0432,
+      "rule_count": 8,
+      "shape_count": 21,
+      "template_count": 10
+    },
+    "row_softmax": {
+      "holdout_geomean_slowdown_geomean": 1.0015,
+      "holdout_p90_slowdown_max": 1.0062,
+      "rule_count": 3,
+      "shape_count": 151,
+      "template_count": 7
+    }
+  },
+  "filters": {
+    "max_rule_holdout_geomean_slowdown": 1.05,
+    "max_rule_holdout_p90_slowdown": 1.1,
+    "max_template_geomean_slowdown": 1.01,
+    "max_template_p90_slowdown": 1.1,
+    "min_holdout_coverage": 0.75,
+    "min_rule_shapes": 2,
+    "min_template_shapes": 2
+  },
+  "rules": [
+    {
+      "kernel_class": "attention",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0038,
+        "median_slowdown": 1.0011,
+        "p90_slowdown": 1.0102,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "shape_bucket": {
+        "batch_heads_bin": "<=128",
+        "dtype": "fp16_bf16",
+        "head_dim_bin": "<=64",
+        "seq_bin": "<=16384"
+      },
+      "shape_count": 3,
+      "source_kernels": [
+        "attention"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0038,
+          "p90_slowdown": 1.0102,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              1,
+              128,
+              128
+            ],
+            "l2_groupings": [
+              8
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "attention",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "batch_heads_bin": "<=128",
+        "dtype": "fp16_bf16",
+        "head_dim_bin": "<=128",
+        "seq_bin": "<=2048"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "attention"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1,
+              128,
+              64
+            ],
+            "l2_groupings": [
+              16
+            ],
+            "num_sm_multiplier": 2,
+            "num_stages": 4,
+            "num_warps": 4,
+            "pid_type": "persistent_interleaved"
+          },
+          "win_count": 2
+        }
+      ]
+    },
+    {
+      "kernel_class": "attention",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "batch_heads_bin": "<=128",
+        "dtype": "fp16_bf16",
+        "head_dim_bin": "<=64",
+        "seq_bin": "<=2048"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "attention"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1,
+              128,
+              128
+            ],
+            "l2_groupings": [
+              8
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 0
+        }
+      ]
+    },
+    {
+      "kernel_class": "attention",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0117,
+        "median_slowdown": 1.0117,
+        "p90_slowdown": 1.0199,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0019,
+        "median_slowdown": 1.0019,
+        "p90_slowdown": 1.0027,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "batch_heads_bin": "<=128",
+        "dtype": "fp16_bf16",
+        "head_dim_bin": "<=64",
+        "seq_bin": "<=4096"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "attention"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0023,
+          "p90_slowdown": 1.0035,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1,
+              128,
+              128
+            ],
+            "l2_groupings": [
+              32
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "attention",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0089,
+        "median_slowdown": 1.0089,
+        "p90_slowdown": 1.0179,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0089,
+        "median_slowdown": 1.0089,
+        "p90_slowdown": 1.0179,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "batch_heads_bin": "<=128",
+        "dtype": "fp16_bf16",
+        "head_dim_bin": "<=64",
+        "seq_bin": "<=8192"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "attention"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0089,
+          "p90_slowdown": 1.0179,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1,
+              128,
+              128
+            ],
+            "l2_groupings": [
+              8
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "elementwise",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0038,
+        "median_slowdown": 1.0006,
+        "p90_slowdown": 1.0141,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0002,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0008,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "shape_bucket": {
+        "dtype": "fp32",
+        "numel_bin": "<=1048576"
+      },
+      "shape_count": 4,
+      "source_kernels": [
+        "vector_add"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0038,
+          "p90_slowdown": 1.0141,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              1024
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        },
+        {
+          "geomean_slowdown": 1.0039,
+          "p90_slowdown": 1.0148,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              2048
+            ],
+            "num_stages": 2,
+            "num_warps": 16,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "elementwise",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.002,
+        "median_slowdown": 1.0008,
+        "p90_slowdown": 1.0061,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0004,
+        "median_slowdown": 1.0002,
+        "p90_slowdown": 1.0013,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "shape_bucket": {
+        "dtype": "fp32",
+        "numel_bin": "<=16777216"
+      },
+      "shape_count": 4,
+      "source_kernels": [
+        "vector_add"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.002,
+          "p90_slowdown": 1.0061,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              1024
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat"
+          },
+          "win_count": 0
+        },
+        {
+          "geomean_slowdown": 1.0054,
+          "p90_slowdown": 1.0119,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              2048
+            ],
+            "num_stages": 2,
+            "num_warps": 16,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "elementwise",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0005,
+        "median_slowdown": 1.0005,
+        "p90_slowdown": 1.0011,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "shape_bucket": {
+        "dtype": "fp32",
+        "numel_bin": "<=65536"
+      },
+      "shape_count": 4,
+      "source_kernels": [
+        "vector_add"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0005,
+          "p90_slowdown": 1.0011,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              1024
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        },
+        {
+          "geomean_slowdown": 1.0006,
+          "p90_slowdown": 1.0013,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              2048
+            ],
+            "num_stages": 2,
+            "num_warps": 16,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        },
+        {
+          "geomean_slowdown": 1.0026,
+          "p90_slowdown": 1.0041,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              1024
+            ],
+            "num_stages": 4,
+            "num_warps": 8,
+            "pid_type": "flat"
+          },
+          "win_count": 0
+        }
+      ]
+    },
+    {
+      "kernel_class": "matmul",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "shape_bucket": {
+        "aspect": "balanced",
+        "dtype": "fp16_bf16",
+        "k_bin": "<=1024",
+        "m_bin": "<=1024",
+        "n_bin": "<=1024"
+      },
+      "shape_count": 4,
+      "source_kernels": [
+        "matmul"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0054,
+          "p90_slowdown": 1.0188,
+          "shape_coverage": 4,
+          "template": {
+            "block_sizes": [
+              128,
+              64,
+              128
+            ],
+            "l2_groupings": [
+              64
+            ],
+            "num_stages": 6,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 2
+        }
+      ]
+    },
+    {
+      "kernel_class": "matmul",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0015,
+        "median_slowdown": 1.0015,
+        "p90_slowdown": 1.0017,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "aspect": "balanced",
+        "dtype": "fp16_bf16",
+        "k_bin": "<=512",
+        "m_bin": "<=512",
+        "n_bin": "<=512"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "matmul"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0007,
+          "p90_slowdown": 1.0013,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              32,
+              64,
+              64
+            ],
+            "l2_groupings": [
+              2
+            ],
+            "num_stages": 4,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        },
+        {
+          "geomean_slowdown": 1.0008,
+          "p90_slowdown": 1.0017,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              32,
+              64,
+              64
+            ],
+            "l2_groupings": [
+              2
+            ],
+            "num_stages": 5,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "matmul_fp8",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "aspect": "balanced",
+        "dtype": "fp8",
+        "k_bin": "<=512",
+        "m_bin": "<=512",
+        "n_bin": "<=512"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "fp8_gemm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              128,
+              32,
+              128
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "num_stages": 5,
+            "num_warps": 8,
+            "pid_type": "flat"
+          },
+          "win_count": 2
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_layer",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "cols_bin": ">32768",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=2048"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "layer_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 2,
+            "num_warps": 16,
+            "pid_type": "flat",
+            "reduction_loops": [
+              4096
+            ]
+          },
+          "win_count": 2
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "shape_bucket": {
+        "cols_bin": "<=1024",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=2048"
+      },
+      "shape_count": 3,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              2
+            ],
+            "num_stages": 6,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 3
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0028,
+        "median_slowdown": 1.0026,
+        "p90_slowdown": 1.0039,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "shape_bucket": {
+        "cols_bin": "<=2048",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=2048"
+      },
+      "shape_count": 3,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.002,
+          "p90_slowdown": 1.0039,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              2
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              2048
+            ]
+          },
+          "win_count": 1
+        },
+        {
+          "geomean_slowdown": 1.0022,
+          "p90_slowdown": 1.0039,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              2
+            ],
+            "num_stages": 6,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0035,
+        "median_slowdown": 1.0052,
+        "p90_slowdown": 1.0052,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "shape_bucket": {
+        "cols_bin": "<=512",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=2048"
+      },
+      "shape_count": 3,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0017,
+          "p90_slowdown": 1.0052,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              2
+            ],
+            "num_stages": 1,
+            "num_warps": 1,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 0
+        },
+        {
+          "geomean_slowdown": 1.0017,
+          "p90_slowdown": 1.0052,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              2
+            ],
+            "num_stages": 8,
+            "num_warps": 1,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0093,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0281,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "shape_bucket": {
+        "cols_bin": "<=512",
+        "dtype": "fp16_bf16",
+        "rows_bin": ">262144"
+      },
+      "shape_count": 3,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0002,
+          "p90_slowdown": 1.0005,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              4
+            ],
+            "num_stages": 3,
+            "num_warps": 2,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "shape_bucket": {
+        "cols_bin": "<=8192",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=4096"
+      },
+      "shape_count": 3,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 4,
+            "num_warps": 16,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 2
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0214,
+        "median_slowdown": 1.0216,
+        "p90_slowdown": 1.0432,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "cols_bin": "<=4096",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=16384"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 2,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0016,
+        "median_slowdown": 1.0016,
+        "p90_slowdown": 1.0031,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "cols_bin": "<=4096",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=2048"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              2
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              2048
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0002,
+        "median_slowdown": 1.0002,
+        "p90_slowdown": 1.0004,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "cols_bin": "<=8192",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=16384"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 4,
+            "num_warps": 16,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_softmax",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.001,
+        "median_slowdown": 1.0005,
+        "p90_slowdown": 1.002,
+        "shape_coverage": 71,
+        "shape_total": 71
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0009,
+        "median_slowdown": 1.0003,
+        "p90_slowdown": 1.0013,
+        "shape_coverage": 71,
+        "shape_total": 71
+      },
+      "shape_bucket": {
+        "cols_bin": "<=16384",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=4096"
+      },
+      "shape_count": 71,
+      "source_kernels": [
+        "softmax"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0028,
+          "p90_slowdown": 1.0115,
+          "shape_coverage": 71,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 2,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 3
+        },
+        {
+          "geomean_slowdown": 1.001,
+          "p90_slowdown": 1.0016,
+          "shape_coverage": 35,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 6,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 0
+        },
+        {
+          "geomean_slowdown": 1.0029,
+          "p90_slowdown": 1.0122,
+          "shape_coverage": 71,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 4,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 4
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_softmax",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0031,
+        "median_slowdown": 1.0013,
+        "p90_slowdown": 1.0062,
+        "shape_coverage": 64,
+        "shape_total": 64
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.003,
+        "median_slowdown": 1.0012,
+        "p90_slowdown": 1.0062,
+        "shape_coverage": 64,
+        "shape_total": 64
+      },
+      "shape_bucket": {
+        "cols_bin": "<=8192",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=4096"
+      },
+      "shape_count": 64,
+      "source_kernels": [
+        "softmax"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0046,
+          "p90_slowdown": 1.0221,
+          "shape_coverage": 64,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 7,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 24
+        },
+        {
+          "geomean_slowdown": 1.0057,
+          "p90_slowdown": 1.0278,
+          "shape_coverage": 64,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 8,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 13
+        },
+        {
+          "geomean_slowdown": 1.0058,
+          "p90_slowdown": 1.026,
+          "shape_coverage": 64,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 2,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 3
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_softmax",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0004,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0018,
+        "shape_coverage": 16,
+        "shape_total": 16
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0003,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0014,
+        "shape_coverage": 16,
+        "shape_total": 16
+      },
+      "shape_bucket": {
+        "cols_bin": "<=2048",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=4096"
+      },
+      "shape_count": 16,
+      "source_kernels": [
+        "softmax"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0013,
+          "p90_slowdown": 1.0037,
+          "shape_coverage": 16,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 4,
+            "num_warps": 2,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 0
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "selection": "Runtime seed rules filtered from data-derived structural templates. Rules are keyed by inferred kernel class and compact shape bucket; templates intentionally omit noisy indexing and eviction-policy fields.",
+  "source": "B200 AOT measurement CSVs",
+  "template_fields": [
+    "block_sizes",
+    "num_warps",
+    "num_stages",
+    "pid_type",
+    "l2_groupings",
+    "reduction_loops",
+    "split_k",
+    "num_sm_multiplier"
+  ]
+}

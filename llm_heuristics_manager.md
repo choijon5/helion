@@ -26,9 +26,18 @@ experiment is explicitly about compile-time reduction or resource health.
 
 ## Hard Constraints
 
-- Work in `/home/jongsokchoi/helion_2_llm_priors`.
+- Live experiment workspace:
+  `/home/jongsokchoi/helion_2_llm_priors`. Use this for source inspection,
+  harness commands, and delegated benchmark work.
+- Archive/fork data branch:
+  `/home/jongsokchoi/helion_2_aot_pretune_data_all` on
+  `choijon5/aot-pretune-data`. Use this for manager docs, AOT data, and
+  archived derived heuristic artifacts. Do not run benchmarks from the archive
+  checkout.
 - Use GPU 3 for any delegated harness or benchmark work:
   `CUDA_VISIBLE_DEVICES=3` and `--gpu 3`.
+- GPU 3 overrides older GPU 2 references in `shared_context.md`, copied `/tmp`
+  artifacts, and previous reports for all future runs.
 - Do not silently switch GPUs. If GPU 3 is busy or unhealthy, ask the user.
 - Do not stage, commit, or push unless the user asks.
 - Do not revert or disturb unrelated local changes.
@@ -51,6 +60,12 @@ experiment is explicitly about compile-time reduction or resource health.
   `/tmp/helion_round0_objective_20260505_230436/hybrid_lfbo_round0_handoff/round0_summary.md`
 - Current plan:
   `llm_heuristics_plan.md`
+- Archive artifacts:
+  `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/`
+- H2 preferred no-source-edit mechanism:
+  set `HELION_LLM_OBSERVED_HEURISTICS_PATH` to a filtered observed-heuristics
+  JSON and run the existing `heuristics` arm. Start with
+  `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h2_attention_router_observed_heuristics_b200.json`.
 
 Latest known result: global observed heuristics help only about 5% geomean
 round-0, but useful buckets exist. Attention wins are strong for
@@ -60,12 +75,18 @@ Non-attention signals are smaller: BMM about 10.5%, `rms_norm_2048x4096` about
 9.2%, `softmax_4k_2k` about 9.8%, `softmax_2k_4k` about 5.8%, and most others
 neutral.
 
+Seed-only attention d128 is closed as a failed H2 direction: seeds on
+`attention_2k_d128` plus `attention_4k_d128` had aggregate perf/round0 around
+`1.03`, with `attention_4k_d128` around `1.058`. Do not repeat seed-only for
+H2.
+
 ## Delegation Workflow
 
 Run every cycle through gates from `llm_heuristics_plan.md`.
 
 1. Sync context.
-   Read the plan, shared context, latest summaries, and previous gate decision.
+   Read the plan, shared context, latest summaries, archive README, and
+   previous gate decision.
 2. Define the next gate.
    State the hypothesis, workloads, arms, objective, acceptance criteria, and
    artifacts before delegating.
@@ -102,6 +123,10 @@ metric correction, and small implementation proposals. Codex may inspect source
 and artifacts, but source edits should be delegated only after a gate explicitly
 requires implementation and the user has approved that scope.
 
+For H2, prefer the no-source-edit env-var path before any implementation
+proposal: review or create a filtered observed-heuristics JSON, set
+`HELION_LLM_OBSERVED_HEURISTICS_PATH`, and use the existing `heuristics` arm.
+
 Recommended pairing:
 
 - Claude proposal: "Given Hn, propose the smallest policy or mechanism change.
@@ -120,6 +145,7 @@ Task: <one sentence>
 Gate: H<n>
 Role: proposal | review | harness | analysis | implementation-design
 Repo: /home/jongsokchoi/helion_2_llm_priors
+Archive: /home/jongsokchoi/helion_2_aot_pretune_data_all
 GPU: 3 required for harness, otherwise not used
 Objective: round0_best_geo from generation==0,status==ok rows; lower is better
 Inputs:
@@ -219,6 +245,25 @@ Next unit:
 
 The manager writes command templates for subagents; the manager does not run
 them.
+
+For H2 attention-router runs, set the observed-heuristics path explicitly and
+use `baseline,heuristics`:
+
+```bash
+cd /home/jongsokchoi/helion_2_llm_priors
+HELION_LLM_OBSERVED_HEURISTICS_PATH=/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h2_attention_router_observed_heuristics_b200.json \
+CUDA_VISIBLE_DEVICES=3 /home/jongsokchoi/.conda/envs/helion_2/bin/python \
+  scripts/llm_heuristics_autoresearch.py \
+  --gpu 3 \
+  --suite core_rows \
+  --workloads attention_1k_d64,attention_2k_d128,attention_4k_d64,attention_4k_d128 \
+  --arms baseline,heuristics \
+  --autotuner LLMGuidedSearch \
+  --model gpt-5-2 \
+  --llm-max-rounds 1 \
+  --repeats 3 \
+  --output-root /tmp/helion_llm_autoresearch_attention_router_h2
+```
 
 ```bash
 CUDA_VISIBLE_DEVICES=3 /home/jongsokchoi/.conda/envs/helion_2/bin/python \

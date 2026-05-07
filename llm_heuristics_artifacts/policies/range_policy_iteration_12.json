@@ -1,0 +1,499 @@
+{
+  "version": 12,
+  "objective": "first_round_prompt_only",
+  "scope": "Initial LLM prompt only. Exact AOT template prompt section MUST be off and exact AOT template seeds (observed_heuristic_seed_configs) MUST be off. Range guidance enters via the Range-Based Heuristics prompt section only. No experimental design change vs iter-3 through iter-11. RMS / narrow softmax / mid softmax range entries are byte-identical to iter-11 (and to iter-3..iter-10 for matcher-relevant fields). attention_d128_short is REMOVED in iter-12: the bucket head_dim_bin_in=[\"<=128\"], seq_bin_in=[\"<=2048\"] moves from the active policy list to blocked_classes; attention_2k_d128 moves from main_workloads to sanity_workloads_list with a new attention_d128_short_unprompted_sanity reported-alongside gate (parallel structure to attention_d64_long_unprompted_sanity). Rationale: iter-11 tightening trial (candidate_count 4 -> 2, num_warps [4, 8] -> [4]) failed the user-facing wall-time/compile objective: time_geo=1.080 (past 1.02 gate ceiling), compile_total=1.523 (worse than iter-10's 1.250 -- 52% slower compile, MATERIAL per the >=20% rule), per-config compile mean=1.444 (44% slower per config). The compile bloat is not attributable to candidate_count or num_warps. Per the user's iter-12 brief, no clearly different minimal mechanism is justified, so REMOVE. iter-12 mandatory gates remain at 3 (RMS / narrow / mid regression guards). NO matcher or harness code change. 16-workload count unchanged; only the headline assignment of attention_2k_d128 changes from main_attention_d128_short to sanity_attention_d128_short_unprompted.",
+  "prompt_mode": "range_only",
+  "section_title": "Range-Based Heuristics",
+  "arms": ["baseline", "range_prompt"],
+  "arm_definitions": {
+    "baseline": {
+      "observed_heuristic_prompt": false,
+      "range_heuristic_prompt": false,
+      "observed_heuristic_seed_configs": false
+    },
+    "range_prompt": {
+      "observed_heuristic_prompt": false,
+      "range_heuristic_prompt": true,
+      "observed_heuristic_seed_configs": false
+    }
+  },
+  "materiality": {
+    "perf_improvement_min": 0.05,
+    "wall_time_improvement_min": 0.20,
+    "max_per_shape_perf_regression": 1.02,
+    "note": "shared_context.md threshold: a few percent is noise. Material means roughly >=5% perf or >=20% wall-time, with no material per-shape perf regression. iter-11 d128 outcome under the tightened policy: perf=0.806 (material 19.4% win), time=1.080 (8.0% regression -- NOT material per >=20% rule but past the 1.02 gate ceiling), compile_total=1.523 (52% compile regression -- MATERIAL per >=20% rule, WORSE than iter-10's 1.250). Because the user weighs wall-time/compile equally with kernel perf and no clearly different minimal mechanism is justified by the available telemetry, iter-12 REMOVES d128 from the active policy list and demotes attention_2k_d128 to a sanity workload."
+  },
+  "lifecycle_definitions": {
+    "validated_preserved": "Rule has cleared its breadth/material gate at least twice (or once on a multi-shape harness backed by prior single-shape passes) and is now treated as known-good. Its range/bucket/candidate_count must NOT be edited; its workloads remain in the harness for regression detection only. Mandatory gate per iteration: regression_guard. The full breadth/material gate is REPORTED ALONGSIDE but does not block iteration success.",
+    "validate_active": "Rule is under active validation. Mandatory gate per iteration: the rule's breadth/material gate. Failing the gate is iteration failure for this rule and triggers iter-N+1 investigation.",
+    "diagnostic": "Rule is probed but not gated. Reported alongside; pass/fail does not affect iteration success. Used for early-stage exploration, for validated-but-flaky regimes that need attribution work before promotion, or for active prompt-tightening trials where iteration success should not depend on whether the tightening succeeded. iter-11 used this for attention_d128_short during its tightening trial; iter-12 has no diagnostic policy entry because d128 has been removed.",
+    "removed": "iter-12 introduces the conceptual (not JSON-field) state for buckets that have been actively tested across multiple iterations and are now moved to blocked_classes after a failed tightening trial. attention_d128_short transitions to this state in iter-12. Distinguished from never-validated buckets in blocked_classes by full provenance (iter-3..iter-11 perf/time/compile trajectory) recorded in the blocked_classes entry."
+  },
+  "gates": {
+    "directional_gate": {
+      "description": "Weak signal -- worth another iteration but NOT an improvement claim.",
+      "perf_geomean_max": 0.99,
+      "wall_time_geomean_max": 0.95,
+      "per_shape_perf_max": 1.05,
+      "interpretation": "If only directional_gate passes, run a follow-up iteration; do not claim the heuristic works."
+    },
+    "material_gate": {
+      "description": "Required threshold to call a class/group's range guidance real per shared_context materiality.",
+      "logic": "perf_geomean_max <= 0.95 OR (wall_time_geomean_max <= 0.80 AND perf_geomean_max <= 1.02)",
+      "perf_geomean_max": 0.95,
+      "wall_time_geomean_max": 0.80,
+      "per_shape_perf_max": 1.02,
+      "interpretation": "Only the material_gate passing constitutes evidence the prompt-only range heuristic improves the first batch. NOTE: the material gate measures whether a heuristic delivers a real improvement on its driven dimension; it does NOT separately enforce that wall-time/compile must not regress when perf is the driving dimension. iter-10/iter-11 d128 passed material_gate via the perf branch (perf<=0.95) but failed the d128_short_replication_gate on wall-time and compile_total. iter-12 retires the d128_short_replication_gate (no policy entry) and replaces it with attention_d128_short_unprompted_sanity for the now-sanity attention_2k_d128 workload."
+    },
+    "rms_regression_guard": {
+      "description": "Catches a regression of the RMS sub-headline. RMS is `validated_preserved`; this is the only mandatory RMS gate.",
+      "rms_time_geomean_max": 0.85,
+      "rms_perf_geomean_max": 1.02,
+      "rms_per_shape_perf_max": 1.05,
+      "mandatory_in_iteration_12": true,
+      "interpretation": "If the RMS sub-headline regresses past these bounds, treat as a regression and roll back to iter-11 JSON. iter-11 RMS group: time_geo=0.735, perf_geo=0.972, max_shape_perf=1.012 -- guard passed cleanly. 8-iter time band {0.665, 0.669, 0.705, 0.719, 0.729, 0.735, 0.755, 0.779} mean 0.722 std 0.036."
+    },
+    "rms_material_reproduction": {
+      "description": "Reported-alongside: does the RMS material wall-time win still reproduce under iter-12 conditions?",
+      "rms_time_geomean_max": 0.80,
+      "rms_perf_geomean_max": 1.02,
+      "rms_per_shape_perf_max": 1.02,
+      "mandatory_in_iteration_12": false,
+      "interpretation": "If this passes, RMS continues to deliver the material time win. iter-11 result: time_geo=0.735 (under 0.80), perf_geo=0.972, max_shape_perf=1.012 -- material reproduction passed cleanly; per-shape max=1.012 just barely above the 1.02 strict ceiling but not material per the >=5% rule."
+    },
+    "softmax_narrow_regression_guard": {
+      "description": "Catches a regression of the narrow softmax sub-headline. Narrow softmax is `validated_preserved`; this is the only mandatory narrow gate.",
+      "softmax_narrow_time_geomean_max": 0.85,
+      "softmax_narrow_perf_geomean_max": 1.02,
+      "softmax_narrow_per_shape_perf_max": 1.05,
+      "softmax_narrow_min_shapes": 6,
+      "mandatory_in_iteration_12": true,
+      "interpretation": "If the narrow softmax 6-shape group regresses past these bounds, treat as a regression and roll back to iter-11 JSON. iter-11 narrow group: time_geo=0.635, perf_geo=0.989, max_shape_perf=1.003 -- guard passed cleanly. 7-iter time band {0.613, 0.635, 0.646, 0.702, 0.705, 0.738, 0.739} (iter-3 was diag-only)."
+    },
+    "softmax_narrow_breadth_gate": {
+      "description": "Reported-alongside: does the iter-6/iter-7/iter-8/iter-9/iter-10/iter-11 6-shape narrow breadth result still reproduce?",
+      "softmax_narrow_time_geomean_max": 0.80,
+      "softmax_narrow_perf_geomean_max": 1.02,
+      "softmax_narrow_per_shape_perf_max": 1.02,
+      "softmax_narrow_min_shapes": 6,
+      "mandatory_in_iteration_12": false,
+      "interpretation": "If this passes, narrow continues to deliver the breadth-validated material time win. iter-11 result: time_geo=0.635, perf_geo=0.989, max_shape_perf=1.003 -- breadth gate passed."
+    },
+    "softmax_mid_regression_guard": {
+      "description": "Catches a regression of the mid softmax sub-headline. Mid softmax is `validated_preserved`; this is the only mandatory mid gate.",
+      "softmax_mid_time_geomean_max": 0.85,
+      "softmax_mid_perf_geomean_max": 1.02,
+      "softmax_mid_per_shape_perf_max": 1.05,
+      "softmax_mid_min_shapes": 3,
+      "mandatory_in_iteration_12": true,
+      "interpretation": "If the mid softmax 3-shape group regresses past these bounds, treat as a regression and roll back to iter-11 JSON. iter-11 mid group: time_geo=0.501, perf_geo=0.999, max_shape_perf=1.000 -- guard passed cleanly. iter-11 perf_geo stepped down from iter-9/iter-10's 1.002 to 0.999 -- a small improvement; perf no longer hugs the 1.02 noise tolerance ceiling. Per-shape max=1.000 (vs 1.005 iter-10)."
+    },
+    "softmax_mid_breadth_gate": {
+      "description": "Reported-alongside: does the iter-7/iter-8/iter-9/iter-10/iter-11 3-shape mid breadth result still reproduce?",
+      "softmax_mid_time_geomean_max": 0.80,
+      "softmax_mid_perf_geomean_max": 1.02,
+      "softmax_mid_per_shape_perf_max": 1.02,
+      "softmax_mid_min_shapes": 3,
+      "mandatory_in_iteration_12": false,
+      "interpretation": "If this passes, mid continues to deliver the breadth-validated material time win. iter-11 result: time_geo=0.501, perf_geo=0.999, max_shape_perf=1.000 -- breadth gate passed cleanly (perf no longer at ceiling, max-shape well under 1.02 strict)."
+    },
+    "attention_d128_short_unprompted_sanity": {
+      "description": "NEW in iter-12. Reported-alongside sanity check on attention_2k_d128 after iter-12 REMOVES the d128_short policy entry. iter-12 policy excludes the d128_short bucket (head_dim_bin_in=[`<=128`] AND seq_bin_in=[`<=2048`]) from the active policy list, so attention_2k_d128 receives NO range guidance under range_prompt arm. range_prompt and baseline arms should produce statistically equivalent results modulo LLM API nondeterminism. Same band as the d64 sanity gate.",
+      "attention_d128_short_expected_time_min": 0.90,
+      "attention_d128_short_expected_time_max": 1.10,
+      "attention_d128_short_expected_perf_min": 0.95,
+      "attention_d128_short_expected_perf_max": 1.05,
+      "mandatory_in_iteration_12": false,
+      "interpretation": "iter-12 expectation: time_cost in [0.90, 1.10] AND perf_cost in [0.95, 1.05]. If iter-12 sanity holds in band: REMOVE worked as expected -- the iter-11 d128 wall-time/compile regression was prompt-attributable; iter-13 holds steady. If iter-12 sanity perf < 0.95 (better than band): the unprompted LLM finds strong d128 configs; the iter-3..iter-11 perf wins were partially LLM-baseline, not heuristic-attributable; iter-13 marks d128 as permanently REMOVE with no further mechanism work needed. If iter-12 sanity time > 1.10 OR perf > 1.05: the unprompted LLM produces wall-time-bad configs on this shape (intrinsically harder bucket); REMOVE was right; no further policy action. The iter-3..iter-11 d128 trajectory under the (then) prompt: iter-3 perf=0.976/time=1.078, iter-5 perf=0.781/time=0.948, iter-6 perf=0.799/time=1.021, iter-7 perf=0.800/time=1.006, iter-8 perf=0.776/time=0.859, iter-9 perf=0.876/time=0.896, iter-10 perf=0.822/time=1.106, iter-11 perf=0.806/time=1.080."
+    },
+    "attention_d64_long_unprompted_sanity": {
+      "description": "Carried over unchanged from iter-9/iter-10/iter-11. Reported-alongside sanity check on attention_4k_d64. iter-12 policy excludes the d64_long bucket (head_dim_bin=<=64 AND seq_bin=<=4096) from the active policy list, so attention_4k_d64 receives NO range guidance under range_prompt arm. range_prompt and baseline arms should produce statistically equivalent results modulo LLM API nondeterminism.",
+      "attention_d64_long_expected_time_min": 0.90,
+      "attention_d64_long_expected_time_max": 1.10,
+      "attention_d64_long_expected_perf_min": 0.95,
+      "attention_d64_long_expected_perf_max": 1.05,
+      "mandatory_in_iteration_12": false,
+      "interpretation": "iter-9 sanity result: time_geo=1.028, perf_geo=0.990, max=1.086 -- INSIDE [0.90, 1.10]. iter-10 sanity result: time_geo=1.032, perf_geo=0.999, max=1.161 -- group geomean INSIDE band but max time exceeded 1.10 (1.161 in repeat 1). iter-11 sanity result: time_geo=0.991, perf_geo=0.991, max=1.050 -- INSIDE band in ALL THREE repeats (cleanest of the three iters). 3 consecutive in-band sanities -- the d64_long block is empirically permanent. iter-12 expectation: time_cost in [0.90, 1.10] AND perf_cost in [0.95, 1.05] again. If iter-12 sanity stays in band -> 4 consecutive sanity passes; iter-13+ may drop attention_4k_d64 from harness to free a benchmark slot."
+    }
+  },
+  "data_sources": {
+    "aot_general_report": "/tmp/helion_heuristics_loop/codex/range_policy_data_snapshot/derived_general_heuristics.md",
+    "runtime_filtered_rules": "/tmp/helion_heuristics_loop/codex/range_policy_data_snapshot/runtime_observed_heuristics_b200.json",
+    "aggregated_dataset_summary": "/tmp/helion_heuristics_loop/codex/range_policy_data_snapshot/llm_heuristics_report.md",
+    "iteration_3_rms_results": "/tmp/helion_llm_autoresearch_range_prompt_rms_20260505_0648/aggregate_results.json",
+    "iteration_3_diagnostics_results": "/tmp/helion_llm_autoresearch_range_prompt_diagnostics_20260505_0705/aggregate_results.json",
+    "iteration_5_results": "/tmp/helion_llm_autoresearch_range_prompt_iter5_20260505_0731/aggregate_results.json",
+    "iteration_6_results": "/tmp/helion_llm_autoresearch_range_prompt_iter6_20260505_0812/aggregate_results.json",
+    "iteration_7_results": "/tmp/helion_llm_autoresearch_range_prompt_iter7_20260505_0907/aggregate_results.json",
+    "iteration_8_results": "/tmp/helion_llm_autoresearch_range_prompt_iter8_20260505_1024/aggregate_results.json",
+    "iteration_9_results": "/tmp/helion_llm_autoresearch_range_prompt_iter9_20260505_1112/aggregate_results.json",
+    "iteration_10_results": "/tmp/helion_llm_autoresearch_range_prompt_iter10_20260505_1211/aggregate_results.json",
+    "iteration_11_results": "/tmp/helion_llm_autoresearch_range_prompt_iter11_20260505_1313/aggregate_results.json"
+  },
+  "policies": [
+    {
+      "kernel_class": "row_norm_rms",
+      "bucket_match": {"dtype": "fp16_bf16"},
+      "status": "validate",
+      "lifecycle": "validated_preserved",
+      "headline_group": "main_rms",
+      "evidence_strength": "very_high",
+      "candidate_count": 8,
+      "ranges": {
+        "block_sizes": [[1, 2]],
+        "num_warps": [4, 8, 16],
+        "num_stages": [2, 4, 6],
+        "pid_type": ["flat"],
+        "reduction_loops": [[null, 2048, 4096]]
+      },
+      "anti_ranges": [],
+      "notes": [
+        "Carried over byte-identical from iteration 3/5/6/7/8/9/10/11. Eight consecutive material reproductions of the wall-time win (iter-3 time=0.755, iter-5 time=0.669, iter-6 time=0.705, iter-7 time=0.729, iter-8 time=0.665, iter-9 time=0.779, iter-10 time=0.719, iter-11 time=0.735; all with perf<=1.02 and per-shape perf max<=1.012). iter-12 keeps `validated_preserved`; range/bucket/candidate_count must NOT be edited.",
+        "iter-11 RMS time_geo=0.735 sits at the mean of the 8-iter band (0.722, std 0.036). iter-11 cfg_geo=1.096 is a step down from iter-10's 1.161 -- the prompt is steering toward fewer configs. iter-12 expects continued in-band performance.",
+        "rms_material_reproduction is reported_alongside, not mandatory. rms_regression_guard remains mandatory.",
+        "Central num_stages range is {2,4,6}. num_stages=1 nuance intentionally still omitted to keep prompt short."
+      ],
+      "data_gaps": [
+        "AOT corpus has 1 run for rms_norm (839 raw rows, 30 shapes, 28 unique configs); want 3+ runs.",
+        "No fp32 rms_norm AOT data; bucket_match excludes fp32.",
+        "AOT shows clear bucket structure (cols<=2048 prefers bs=[2]+stages=1-6+warps=4-8; cols>=4096 prefers bs=[1]+stages=2-8+warps=8-16). A bucket split is a possible future refinement, but eight iter passes with a single-bucket prompt argue against churning the locked validated_preserved entry."
+      ],
+      "provenance": {
+        "aot_class_summary": "derived_general_heuristics: rms_norm 30 shapes, 28 configs, 839 raw rows.",
+        "runtime_filtered": "runtime_observed_heuristics_b200: row_norm_rms 8 rules, 21 shapes, holdout geo 1.0048, p90 1.0432.",
+        "iteration_3_outcome": "Material gate cleared on RMS: time_geo=0.755, perf_geo=0.975, max per-shape perf=1.001.",
+        "iteration_5_outcome": "Material gate reproduced on RMS: time_geo=0.669, perf_geo=0.967, max per-shape perf=1.002.",
+        "iteration_6_outcome": "Material gate reproduced on RMS: time_geo=0.705, perf_geo=0.984, max per-shape perf=1.007.",
+        "iteration_7_outcome": "Regression guard passed and material gate reproduced on RMS: time_geo=0.729, perf_geo=0.971, max per-shape perf=1.000.",
+        "iteration_8_outcome": "Regression guard passed and material gate reproduced on RMS: time_geo=0.665, perf_geo=0.975, max per-shape perf=1.012.",
+        "iteration_9_outcome": "Regression guard passed; material gate marginally passed on RMS: time_geo=0.779 (0.021 under the 0.80 material threshold), perf_geo=0.975, max per-shape perf=1.000.",
+        "iteration_10_outcome": "Regression guard passed and material gate reproduced on RMS: time_geo=0.719, perf_geo=0.976, max per-shape perf=1.005.",
+        "iteration_11_outcome": "Regression guard passed and material gate reproduced on RMS: time_geo=0.735, perf_geo=0.972, max per-shape perf=1.012; cfg_geo=1.096 (down from 1.161 iter-10)."
+      },
+      "validation": {
+        "repeats": 3,
+        "min_shapes": 5,
+        "required_workloads": [
+          "rms_norm_2048x4096",
+          "rms_norm_4k",
+          "rms_norm_8192x2048",
+          "rms_norm_1024x16384",
+          "rms_norm_1024x8192"
+        ],
+        "mandatory_gates": ["rms_regression_guard"],
+        "reported_alongside_gates": ["directional_gate", "material_gate", "rms_material_reproduction"],
+        "success_definition": "rms_regression_guard MUST hold for iter-12 success. rms_material_reproduction is reported alongside."
+      }
+    },
+    {
+      "kernel_class": "row_softmax",
+      "bucket_match": {
+        "cols_bin_le": 2048,
+        "rows_bin_le": 4096,
+        "dtype": "fp16_bf16",
+        "name": "narrow"
+      },
+      "status": "validate",
+      "lifecycle": "validated_preserved",
+      "headline_group": "main_softmax_narrow",
+      "evidence_strength": "high",
+      "candidate_count": 6,
+      "ranges": {
+        "block_sizes": [[1]],
+        "num_warps": [2, 4, 8],
+        "num_stages": [2, 4],
+        "pid_type": ["flat"],
+        "reduction_loops": [[null]]
+      },
+      "anti_ranges": [],
+      "notes": [
+        "Carried over byte-identical from iteration 4/5/6/7/8/9/10/11. Iter-5 cleared the 2-shape material gate. Iter-6 cleared the 6-shape breadth gate. Iter-7 / iter-8 / iter-9 / iter-10 / iter-11 regression guards passed and breadth gates reproduced. iter-12 keeps `validated_preserved`.",
+        "iter-11 narrow time_geo=0.635 is the second-best 6-shape breadth result in the 7-iter run (best: iter-8 0.613). 7-iter band {0.613, 0.635, 0.646, 0.702, 0.705, 0.738, 0.739} all comfortably under both the 0.85 regression-guard ceiling and the 0.80 breadth-gate ceiling.",
+        "softmax_narrow_breadth_gate is reported_alongside, not mandatory. softmax_narrow_regression_guard is mandatory.",
+        "AOT support for narrow regime: cols<=2048 rows<=4096 has 16 shapes with holdout p90 1.0018 (the strongest single-bucket signal in the corpus). All 6 harness shapes fall well inside that regime."
+      ],
+      "data_gaps": [
+        "AOT corpus has no narrow shapes with rows>4096 (rows_bin>=`<=16384`). The narrow rule is therefore validated only inside rows_bin<=4096; expansion past that requires more AOT data, not more harness shapes.",
+        "AOT mid-bucket (cols<=4096) holdout p90 is 1.1208 -- softer signal than narrow; mid is also `validated_preserved` since iter-8."
+      ],
+      "provenance": {
+        "aot_runtime_rules": "runtime_observed_heuristics_b200: row_softmax 3 rules, 151 shapes, holdout geo 1.0015, p90 1.0062.",
+        "aot_general_narrow": "derived_general_heuristics: cols<=2048 rows<=4096 16 shapes holdout p90 1.0018; cols<=1024 rows<=4096 8 shapes holdout p90 1.0408.",
+        "iteration_3_outcome": "Diagnostic-only: softmax_4k_1k perf 0.999/time 0.651, softmax_4k_2k perf 0.919/time 0.705.",
+        "iteration_5_outcome": "Material gate cleared on the 2-shape narrow group: time_geo=0.639, perf_geo=0.959, per-shape perf max=1.019.",
+        "iteration_6_outcome": "Breadth gate cleared on the 6-shape narrow group: time_geo=0.705, perf_geo=0.991, per-shape perf max=1.011.",
+        "iteration_7_outcome": "Regression guard passed and breadth gate reproduced on the 6-shape narrow group: time_geo=0.646, perf_geo=0.983, per-shape perf max=0.999.",
+        "iteration_8_outcome": "Regression guard passed and breadth gate reproduced on the 6-shape narrow group: time_geo=0.613, perf_geo=0.986, per-shape perf max=1.001.",
+        "iteration_9_outcome": "Regression guard passed and breadth gate reproduced on the 6-shape narrow group: time_geo=0.738, perf_geo=0.985, per-shape perf max=1.005.",
+        "iteration_10_outcome": "Regression guard passed and breadth gate reproduced on the 6-shape narrow group: time_geo=0.702, perf_geo=0.981, per-shape perf max=0.999.",
+        "iteration_11_outcome": "Regression guard passed and breadth gate reproduced on the 6-shape narrow group: time_geo=0.635, perf_geo=0.989, per-shape perf max=1.003."
+      },
+      "validation": {
+        "repeats": 3,
+        "min_shapes": 6,
+        "required_workloads": [
+          "softmax_4k_1k",
+          "softmax_4k_2k",
+          "softmax_1k_1k",
+          "softmax_1k_2k",
+          "softmax_2k_1k",
+          "softmax_2k_2k"
+        ],
+        "mandatory_gates": ["softmax_narrow_regression_guard"],
+        "reported_alongside_gates": ["directional_gate", "material_gate", "softmax_narrow_breadth_gate"],
+        "success_definition": "softmax_narrow_regression_guard MUST hold for iter-12 success. softmax_narrow_breadth_gate is reported alongside."
+      }
+    },
+    {
+      "kernel_class": "row_softmax",
+      "bucket_match": {
+        "cols_bin": "<=4096",
+        "rows_bin_le": 4096,
+        "dtype": "fp16_bf16",
+        "name": "mid_probe"
+      },
+      "status": "validate",
+      "lifecycle": "validated_preserved",
+      "headline_group": "main_softmax_mid",
+      "evidence_strength": "high",
+      "candidate_count": 4,
+      "ranges": {
+        "block_sizes": [[1]],
+        "num_warps": [4, 8],
+        "num_stages": [1, 3, 7],
+        "pid_type": ["flat"],
+        "reduction_loops": [[null]]
+      },
+      "anti_ranges": [],
+      "notes": [
+        "Range, bucket_match, and candidate_count are byte-identical to iteration 5/6/7/8/9/10/11. iter-12 keeps `validated_preserved` after iter-7 mandatory 3-shape breadth pass and iter-8 / iter-9 / iter-10 / iter-11 regression-guard passes with breadth reproduction.",
+        "iter-11 mid perf_geo=0.999 stepped DOWN from iter-9/iter-10's 1.002 -- the small but persistent worry that mid was hugging the 1.02 ceiling has eased. Per-shape perf max=1.000 (vs 1.005 iter-10, 1.004 iter-9). iter-12 watch: if mid perf trends back to ~1.005 it is noise; if it climbs above 1.02 it is a real regression.",
+        "softmax_mid_breadth_gate is reported_alongside, not mandatory. softmax_mid_regression_guard is mandatory.",
+        "AOT cols<=4096 rows<=4096 has 32 shapes; winning template families are bs=[1] flat with stages in {1,3,7} warps=4. The mid_probe range covers all three winners."
+      ],
+      "data_gaps": [
+        "Mid widening to cols=`<=8192` is held bucket; iter-13+ scope (closure of one of the two mid data gaps).",
+        "Within the supported rows<=4096 cols=4096 regime, the natural lattice (rows in {1024, 2048, 4096}) x (cols in {4096}) -> 3 shapes is fully covered; no further mid expansion within this bucket is possible without duplicating shapes."
+      ],
+      "provenance": {
+        "aot_general_mid": "derived_general_heuristics: cols<=4096 rows<=4096 32 shapes; stages=1 warps=4 bs=[1] (15/32 wins, geo 1.0292), stages=3 warps=4 (7/32 wins, geo 1.0296), stages=7 warps=4 (geo 1.0279).",
+        "iteration_5_outcome": "Diagnostic on softmax_4k: perf=1.001, time=0.549 (single shape).",
+        "iteration_6_outcome": "Diagnostic on softmax_4k reproduced: perf=0.999, time=0.568, max repeat perf=1.000.",
+        "iteration_7_outcome": "Mandatory 3-shape breadth gate cleared: time_geo=0.602, perf_geo=0.997, per-shape max=1.000 across {softmax_4k, softmax_1k_4k, softmax_2k_4k}. Promoted to validated_preserved in iter-8.",
+        "iteration_8_outcome": "Regression guard passed and breadth gate reproduced: time_geo=0.520, perf_geo=0.999, per-shape max=1.003 across the same 3 shapes.",
+        "iteration_9_outcome": "Regression guard passed and breadth gate reproduced: time_geo=0.594, perf_geo=1.002, per-shape max=1.004 across the same 3 shapes.",
+        "iteration_10_outcome": "Regression guard passed and breadth gate reproduced: time_geo=0.572, perf_geo=1.002, per-shape max=1.005 across the same 3 shapes.",
+        "iteration_11_outcome": "Regression guard passed and breadth gate reproduced: time_geo=0.501, perf_geo=0.999, per-shape max=1.000 across the same 3 shapes; perf stepped down from iter-9/iter-10 ceiling-hug 1.002."
+      },
+      "validation": {
+        "repeats": 3,
+        "min_shapes": 3,
+        "required_workloads": ["softmax_4k", "softmax_1k_4k", "softmax_2k_4k"],
+        "mandatory_gates": ["softmax_mid_regression_guard"],
+        "reported_alongside_gates": ["directional_gate", "material_gate", "softmax_mid_breadth_gate"],
+        "success_definition": "softmax_mid_regression_guard MUST hold for iter-12 success. softmax_mid_breadth_gate is reported alongside."
+      }
+    }
+  ],
+  "sanity_workloads": [
+    {
+      "kernel_class": "attention",
+      "bucket": "d128_short (head_dim_bin_in=[`<=128`] AND seq_bin_in=[`<=2048`])",
+      "workloads": ["attention_2k_d128"],
+      "headline_group": "sanity_attention_d128_short_unprompted",
+      "policy_status": "no_policy_entry_iter_12_onward",
+      "expected_behavior": "iter-12 REMOVES the d128_short policy entry. range_prompt arm receives no Range-Based Heuristics section for this workload because no policy entry matches its bucket. range_prompt and baseline arms therefore produce statistically equivalent results modulo LLM API nondeterminism.",
+      "mandatory_gates": [],
+      "reported_alongside_gates": ["attention_d128_short_unprompted_sanity"],
+      "per_repeat_distribution_required": true,
+      "per_config_compile_time_required": true,
+      "per_batch_benchmark_time_required": true,
+      "purpose": "Two-fold attribution check. (1) Confirms REMOVE addresses the iter-10/iter-11 wall-time/compile regression -- if iter-12 d128 sanity time/compile are in band, the regression was prompt-attributable as inferred from iter-11 telemetry (compile_total=1.523, compile_mean=1.444). (2) Tests whether the iter-3..iter-11 d128 perf signal was prompt-attributable. If iter-12 d128 sanity perf is in [0.95, 1.05], the perf wins were prompt-attributable and the user has accepted losing them in exchange for the compile/wall-time fix. If perf is below 0.95 (e.g., 0.85-0.95), the LLM finds strong d128 configs unprompted; the iter-3..iter-11 wins were partially LLM-baseline; iter-13 marks d128 as permanently REMOVE with no further mechanism work needed.",
+      "interpretation": "iter-12 expectation: time_cost in [0.90, 1.10] AND perf_cost in [0.95, 1.05]. If iter-12 sanity holds in band: REMOVE worked as expected; iter-13 holds steady. If iter-12 sanity perf < 0.95: the prompt wasn't the perf driver; iter-13 marks d128 as permanently REMOVE. If iter-12 sanity time > 1.10: the unprompted LLM produces wall-time-bad configs on this shape (intrinsic d128 attention compile difficulty on B200). If iter-12 sanity perf > 1.05: the prompt was actively helpful for kernel perf; combined with the compile failure this still means REMOVE was right (cannot have the perf without the compile cost). iter-12 success does NOT depend on this gate."
+    },
+    {
+      "kernel_class": "attention",
+      "bucket": "d64_long (head_dim_bin=<=64 AND seq_bin=<=4096)",
+      "workloads": ["attention_4k_d64"],
+      "headline_group": "sanity_attention_d64_long_unprompted",
+      "policy_status": "no_policy_entry",
+      "expected_behavior": "range_prompt arm receives no Range-Based Heuristics section for this workload because no policy entry matches its bucket. range_prompt and baseline arms therefore produce statistically equivalent results modulo LLM API nondeterminism.",
+      "mandatory_gates": [],
+      "reported_alongside_gates": ["attention_d64_long_unprompted_sanity"],
+      "per_repeat_distribution_required": true,
+      "per_config_compile_time_required": true,
+      "per_batch_benchmark_time_required": true,
+      "purpose": "Empirical falsifier for the iter-8 BLOCK attribution. iter-3..iter-8 showed wall-time regression on attention_4k_d64 (time_geo: 1.151 iter-3, 1.185 iter-5, 1.071 iter-6, 1.191 iter-7, 1.120 iter-8). iter-9 sanity (no range guidance for d64_long bucket): time_geo=1.028, perf_geo=0.990, max time=1.086 -- INSIDE the [0.90, 1.10] expected band. iter-10 sanity: time_geo=1.032, perf_geo=0.999, max time=1.161 -- group geomean inside band but max time slightly past 1.10 in repeat 1. iter-11 sanity: time_geo=0.991, perf_geo=0.991, max time=1.050 -- INSIDE band in ALL THREE repeats; cleanest of the three iters. THREE consecutive in-band sanities -- the d64_long block is empirically permanent. iter-12 expects a fourth in-band geomean.",
+      "interpretation": "iter-12 expectation: time_cost in [0.90, 1.10] AND perf_cost in [0.95, 1.05]. If iter-12 sanity holds in band again (4 consecutive sanity passes): the d64_long block remains empirically permanent and iter-13+ may drop attention_4k_d64 from the harness, freeing one workload slot. If iter-12 sanity time > 1.10: investigate LLM API drift / harness state / B200 SMEM behavior on 4k*64 attention -- and check if the new d128 sanity also drifted (cross-shape attention drift suggests external cause). iter-12 success does NOT depend on this gate."
+    }
+  ],
+  "blocked_classes": [
+    {
+      "kernel_class": "attention_d128_short",
+      "reason": "NEW in iter-12. Sub-bucket of `attention` kernel class: head_dim_bin_in=[`<=128`] AND seq_bin_in=[`<=2048`]. REMOVED from active policy list in iter-12 after iter-11 tightening trial failed wall-time/compile objective. Iter-3..iter-11 history: iter-3 perf=0.976 time=1.078 (diag); iter-5 perf=0.781 time=0.948; iter-6 perf=0.799 time=1.021; iter-7 perf=0.800 time=1.006; iter-8 perf=0.776 time=0.859 compile=1.047; iter-9 perf=0.876 time=0.896 compile=0.962; iter-10 perf=0.822 time=1.106 compile=1.250; iter-11 (tightened candidate_count 4->2, num_warps [4,8]->[4]) perf=0.806 time=1.080 compile=1.523 compile_mean=1.444. The 5-iter perf signal (iter-5..iter-11 mean perf=0.806) is real and material; the wall-time/compile regression is also real and material per the >=20% rule (iter-10 compile=1.250 = 25% slower; iter-11 compile=1.523 = 52% slower). Per-config compile mean=1.444 in iter-11 means individual configs the prompt suggests are 44% slower to compile than baseline configs -- the cost is intrinsic to the suggested config space, not to the count or to num_warps choice. No clearly different minimal mechanism is justified by the available telemetry: candidate_count is at 2 (further reduction is meaningless guidance), num_warps is at [4] (already AOT-aligned), l2_groupings narrowing is the same prompt-tightening mechanism class that has now failed twice (iter-9..10 broad, iter-11 narrowed two axes), hard-execution-cap or anti_ranges would require code changes or telemetry not currently in scope. Per the user's iter-12 brief, REMOVE. attention_2k_d128 retained as sanity workload (parallel to d64_long pattern since iter-9). iter-13+ may revisit d128 if (a) per-config compile-time attribution telemetry identifies a specific compile-cost mechanism, or (b) iter-12 d128 sanity result shows the perf signal was not actually prompt-attributable (REMOVE costs us nothing).",
+      "iter_3_through_iter_11_provenance": {
+        "iter_3": {"perf_geo": 0.976, "time_geo": 1.078, "lifecycle": "diagnostic"},
+        "iter_5": {"perf_geo": 0.781, "time_geo": 0.948, "lifecycle": "diagnostic"},
+        "iter_6": {"perf_geo": 0.799, "time_geo": 1.021, "lifecycle": "diagnostic"},
+        "iter_7": {"perf_geo": 0.800, "time_geo": 1.006, "lifecycle": "diagnostic"},
+        "iter_8": {"perf_geo": 0.776, "time_geo": 0.859, "compile_total": 1.047, "lifecycle": "diagnostic"},
+        "iter_9": {"perf_geo": 0.876, "time_geo": 0.896, "compile_total": 0.962, "lifecycle": "validate_active", "note": "first mandatory replication-gate run; passed all 4 thresholds"},
+        "iter_10": {"perf_geo": 0.822, "time_geo": 1.106, "compile_total": 1.250, "lifecycle": "validate_active", "note": "replication gate FAILED on time_geo > 1.02 ceiling; compile material per >=20% rule"},
+        "iter_11": {"perf_geo": 0.806, "time_geo": 1.080, "compile_total": 1.523, "compile_mean": 1.444, "lifecycle": "diagnostic", "note": "tightening trial: candidate_count 4->2, num_warps [4,8]->[4]. Failed objective: time_geo still > 1.02; compile WORSE than iter-10 (52% slower). Per-config compile cost worse, ruling out count and warps as the compile-cost driver."}
+      }
+    },
+    {
+      "kernel_class": "attention_d64_long",
+      "reason": "Sub-bucket of `attention` kernel class: head_dim_bin=<=64 AND seq_bin=<=4096. Excluded from the active policy list (no policy entry -> no range guidance), since iter-9. Evidence: iter-3 through iter-8 consistent wall-time regression on attention_4k_d64 (time_geo: 1.151 iter-3, 1.185 iter-5, 1.071 iter-6, 1.191 iter-7, 1.120 iter-8). iter-9 sanity (no range guidance): time_geo=1.028, perf_geo=0.990, max=1.086 -- INSIDE [0.90, 1.10] band. iter-10 sanity: time_geo=1.032, perf_geo=0.999, max=1.161 -- group geomean inside band. iter-11 sanity: time_geo=0.991, perf_geo=0.991, max=1.050 -- INSIDE in all 3 repeats (cleanest of three). 3 consecutive in-band sanities; the d64_long block is empirically permanent. iter-12 continues the exclusion as a 4th expected confirmation."
+    },
+    {
+      "kernel_class": "row_norm_layer",
+      "reason": "Holdout p90 1.2497 on the fresh snapshot. Re-derivation alone insufficient; needs better bucket features (mean/variance split, affine flag, cols bands)."
+    },
+    {
+      "kernel_class": "row_cross_entropy",
+      "reason": "Holdout p90 1.2457; ~1 unique config per shape. Corpus too sparse to stabilize ranges. Overnight wall-time wins lacked matched_observed_rule, so they are LFBO trajectory noise."
+    },
+    {
+      "kernel_class": "matmul",
+      "reason": "Aspect classifier already exists. Missing piece is product-metric evidence per regime plus compile/SMEM validation. Not a prompt-policy problem."
+    },
+    {
+      "kernel_class": "matmul_fp8",
+      "reason": "Same family as matmul; no product evidence; runtime filter retains only 1 rule / 2 shapes."
+    },
+    {
+      "kernel_class": "batched_matmul",
+      "reason": "Overnight bmm time wins lacked matched_observed_rule -- LFBO trajectory noise, not heuristic evidence."
+    },
+    {
+      "kernel_class": "split_k_matmul",
+      "reason": "AOT corpus does not include split_k matmul templates."
+    },
+    {
+      "kernel_class": "grouped_matmul",
+      "reason": "AOT has 5 runs / 20 shapes / 44 configs but no rules survive runtime filters."
+    },
+    {
+      "kernel_class": "elementwise",
+      "reason": "Only vector_add AOT data exists; exp_1m regressed when vector_add-derived rules fired in earlier overnight runs. Widening to de-anchor is hypothesis, not data. Held across all dtypes."
+    },
+    {
+      "kernel_class": "row_softmax_wide",
+      "reason": "Earlier overnight time geomean 1.123 across 7 shapes was a regression. Held until narrow (validated_preserved iter-7+) and mid (validated_preserved iter-8+) accumulate enough evidence to revisit; even then, separating prompt vs LFBO trajectory needs investigation first."
+    },
+    {
+      "kernel_class": "attention_small_short",
+      "reason": "Bucket non-coherent: attention_512_d64 perf 1.114 vs attention_1k_d64 perf 0.913 share a matched rule with opposite signs. Needs split mechanism."
+    },
+    {
+      "kernel_class": "attention_large_or_long",
+      "reason": "Only 2 AOT shapes in this regime; insufficient for ranges."
+    },
+    {
+      "kernel_class": "sum_or_null",
+      "reason": "classify_runtime_kernel returns None for sum/mean/max-only kernels. Mechanism work (sum classifier) needed before any policy can fire."
+    }
+  ],
+  "validation_design": {
+    "experimental_design": "First-round prompt-only, unchanged from iteration 3 through 11. Two arms: baseline and range_prompt. Range prompt is the only delta in the LLM-input space. iter-12 deltas vs iter-11: (a) policy version 11 -> 12; (b) iter-11 evidence rolled into all three preserved policy provenance blocks; (c) attention_d128_short policy entry DELETED; (d) new blocked_classes entry attention_d128_short with iter-3..iter-11 trajectory; (e) new sanity_workloads entry for attention_2k_d128 with attention_d128_short_unprompted_sanity gate (parallel structure to attention_4k_d64); (f) attention_d128_short_replication_gate DELETED (no longer applies); (g) main_attention_d128_short headline group renamed to sanity_attention_d128_short_unprompted; (h) attention_2k_d128 moved from main_workloads list to sanity_workloads_list (workload count unchanged at 16). NO matcher / harness / autotuner code change. NO new workloads. NO range edits to RMS / narrow / mid. NO change to other blocked_classes entries. CANONICAL GPU continues at CUDA_VISIBLE_DEVICES=2.",
+    "max_rounds": 1,
+    "repeats": 3,
+    "model": "gpt-5-2",
+    "autotuner": "LLMGuidedSearch",
+    "main_workloads": [
+      "rms_norm_2048x4096",
+      "rms_norm_4k",
+      "rms_norm_8192x2048",
+      "rms_norm_1024x16384",
+      "rms_norm_1024x8192",
+      "softmax_4k_1k",
+      "softmax_4k_2k",
+      "softmax_1k_1k",
+      "softmax_1k_2k",
+      "softmax_2k_1k",
+      "softmax_2k_2k",
+      "softmax_4k",
+      "softmax_1k_4k",
+      "softmax_2k_4k"
+    ],
+    "sanity_workloads_list": [
+      "attention_2k_d128",
+      "attention_4k_d64"
+    ],
+    "headline_groups": {
+      "main_rms": [
+        "rms_norm_2048x4096",
+        "rms_norm_4k",
+        "rms_norm_8192x2048",
+        "rms_norm_1024x16384",
+        "rms_norm_1024x8192"
+      ],
+      "main_softmax_narrow": [
+        "softmax_4k_1k",
+        "softmax_4k_2k",
+        "softmax_1k_1k",
+        "softmax_1k_2k",
+        "softmax_2k_1k",
+        "softmax_2k_2k"
+      ],
+      "main_softmax_mid": ["softmax_4k", "softmax_1k_4k", "softmax_2k_4k"],
+      "sanity_attention_d128_short_unprompted": ["attention_2k_d128"],
+      "sanity_attention_d64_long_unprompted": ["attention_4k_d64"]
+    },
+    "reporting": "Aggregate output reports geomean separately for each headline group. iter-12 success requires: rms_regression_guard MUST hold AND softmax_narrow_regression_guard MUST hold AND softmax_mid_regression_guard MUST hold. (Three mandatory gates; same count as iter-11, since iter-11 already had d128 demoted to diagnostic.) Reported alongside (do not gate iter-12 success): rms_material_reproduction, softmax_narrow_breadth_gate, softmax_mid_breadth_gate, attention_d128_short_unprompted_sanity (NEW), attention_d64_long_unprompted_sanity, per-config compile_time / per-batch benchmark_time stats per workload-arm. If any mandatory regression guard fails, that is a real regression -- roll back to iter-11 JSON before continuing. attention_d128_short_unprompted_sanity result feeds the iter-13 stability classifier.",
+    "noise_floor": "Optional baseline-vs-baseline N=3 noise floor probe on representative shapes (e.g., rms_norm_4k, softmax_4k, softmax_1k_4k, attention_2k_d128). Useful but not blocking. With per-repeat distribution and per-config compile_time stats already in place since iter-7/iter-8, this remains optional.",
+    "per_repeat_distribution_reporting": "Iter-7 added p25 and p75 keys to summary_by_workload_arm.<workload>:<arm>.{time_cost,perf_cost} for ALL workloads. iter-12 keeps that.",
+    "compile_time_per_config_reporting": "Iter-8 added compile_time_per_config_stats per workload-arm. iter-12 keeps that. Source: read search._all_benchmark_results post-autotune; each BenchmarkResult has compile_time: float | None. Aggregate non-None values to {count, count_long_compile, mean_s, max_s, p75_s, p90_s} where count_long_compile = sum(t > 5.0 for t in compile_times).",
+    "benchmark_time_per_batch_reporting": "Iter-8 added benchmark_time_per_batch_stats per workload-arm. iter-12 keeps that. Source: search._benchmark_times. Aggregate to {count, mean_s, max_s, p75_s, p90_s, total_s}."
+  },
+  "harness_requirements": [
+    {
+      "item": "no harness code changes",
+      "description": "iter-12 introduces NO new harness or matcher code changes. The matcher already supports buckets with no policy entry as no-guidance (the d64_long pattern since iter-9). attention_2k_d128 will join attention_4k_d64 in receiving no Range-Based Heuristics section. iter-7's p25/p75 per-repeat distribution and iter-8's per-config compile_time and per-batch benchmark_time aggregation are already in place and stay. No new env vars. No autotuner change.",
+      "blocking": false
+    },
+    {
+      "item": "policy JSON refresh",
+      "description": "Codex regenerates `helion/autotuner/llm/data/range_heuristics_b200.json` from this iteration-12 policy before running the benchmark. Note: the matcher filters policies to status in {`validate`, `diagnostic`}; iter-12 has 3 status=validate entries (RMS, narrow, mid) -- no diagnostic entry. The `lifecycle` field is metadata only -- the matcher does not read it. The validation.* keys are also metadata for the harness, not for the matcher. The top-level `sanity_workloads` field is metadata for Codex's gate evaluation; the matcher does not read it.",
+      "blocking": true
+    },
+    {
+      "item": "matcher sanity-check before running",
+      "description": "iter-12 has ONE matcher-relevant routing edit relative to iter-11: the d128_short policy entry is DELETED. The matcher routing must still produce: rms_norm_* -> ['row_norm_rms']; softmax_4k_1k / softmax_4k_2k / softmax_1k_1k / softmax_1k_2k / softmax_2k_1k / softmax_2k_2k -> ['narrow']; softmax_4k / softmax_1k_4k / softmax_2k_4k -> ['mid_probe']; attention_2k_d128 -> [] (NEW: was ['d128_short'] in iter-11); attention_4k_d64 -> [] (no match). Re-run the matcher sanity-check before benchmarking. If attention_2k_d128 still routes to ['d128_short'], the JSON refresh did not pick up the iter-12 deletion. Additionally, manually verify the Range-Based Heuristics section is ABSENT in the repeat_01 log for attention_2k_d128 (it should look identical to attention_4k_d64 in this respect).",
+      "blocking": true
+    },
+    {
+      "item": "no new workloads",
+      "description": "iter-12 does not add new workloads. The harness retains the same 16-workload set as iter-11 (5 RMS + 6 narrow + 3 mid + 1 attention d128 + 1 attention d64). The headline assignment of attention_2k_d128 changes from main_attention_d128_short to sanity_attention_d128_short_unprompted; the workload itself is the same. iter-13+ may drop one or both attention sanity workloads if their sanities are stable.",
+      "blocking": false
+    },
+    {
+      "item": "headline group rename",
+      "description": "If Codex's evaluation script uses headline-group keys to pick which gates to apply, iter-12's headline group rename (`main_attention_d128_short` -> `sanity_attention_d128_short_unprompted`) is the only signal-routing change. If the evaluation script auto-derives headline group from `headline_group` in the policy JSON or from sanity_workloads metadata, no script change is needed. If the evaluation script has a hardcoded list of headline groups, the change required is one keys list edit.",
+      "blocking": false
+    },
+    {
+      "item": "benchmark command",
+      "description": "Run `scripts/llm_heuristics_autoresearch.py` with arms=[baseline, range_prompt], llm_max_rounds=1, repeats=3, workloads=union(main_workloads, sanity_workloads_list) (16 total), CUDA_VISIBLE_DEVICES=2, model=gpt-5-2, autotuner=LLMGuidedSearch, range-heuristics-path=/tmp/helion_heuristics_loop/claude/range_policy_iteration_12.json. Identical command shape to iter-11 except for the policy path."
+    },
+    {
+      "item": "no other harness changes",
+      "description": "The wiring (range_prompt arm, prompt-mode env, range section builder, baseline definition, separated reporting, per-config compile_time aggregation, per-batch benchmark_time aggregation, attention markdown auto-rendered by workload-name prefix) is unchanged from iteration 3 through iter-11. iter-12 has zero harness deltas."
+    }
+  ],
+  "decisions_for_iteration_12": {
+    "validated_preserved_set": "Decision: RMS, narrow softmax, mid softmax all preserved as `validated_preserved` for iter-12. RMS now has eight consecutive material/regression reproductions (iter-3 / 5 / 6 / 7 / 8 / 9 / 10 / 11); narrow has seven (iter-5 2-shape, iter-6 6-shape, iter-7 / 8 / 9 / 10 / 11 6-shape); mid has seven (iter-5 single-shape, iter-6 single-shape, iter-7 mandatory 3-shape breadth, iter-8 / 9 / 10 / 11 3-shape regression-guard). All three keep regression guards as the only mandatory gate; their material/breadth gates are reported_alongside. Range/bucket/candidate_count for all three are byte-identical to iter-11. iter-12 watch items: iter-11 mid perf=0.999 stepped DOWN from iter-9/iter-10 1.002 (an improvement -- mid no longer hugs the 1.02 ceiling); iter-11 narrow time=0.635 was the second-best 6-shape result in the 7-iter run; iter-11 RMS time=0.735 sat at the 8-iter mean.",
+    "attention_d128_short_decision": "Decision: REMOVE attention_d128_short from the active policy list. Move bucket head_dim_bin_in=[`<=128`] AND seq_bin_in=[`<=2048`] to blocked_classes with full iter-3..iter-11 trajectory provenance. Demote attention_2k_d128 from main_workloads to sanity_workloads_list with new attention_d128_short_unprompted_sanity reported-alongside gate (same band as attention_d64_long_unprompted_sanity). NO matcher code change required (the matcher treats no-policy buckets as no-guidance, identical to the d64_long pattern since iter-9).",
+    "attention_d128_short_decision_rationale": "iter-11 d128 result under tightened policy (candidate_count 4 -> 2, num_warps [4, 8] -> [4]): perf_geo=0.806 (still material 19.4% win, in iter-5..iter-11 band {0.776, 0.781, 0.799, 0.800, 0.806, 0.822, 0.876}), time_geo=1.080 (FAILED gate ceiling 1.02 by 0.060), per-shape median time=1.125 (FAILED 1.05 ceiling by 0.075), max_repeat_time=1.198, compile_total=1.523 (52% slower compile -- MATERIAL per >=20% rule, WORSE than iter-10's 1.250), per-config compile mean=1.444 (44% slower per config). The iter-11 stability classifier put this outcome in PATH B (PARTIAL -- TIME); the iter-11 plan offered 'further tighten' or 'REMOVE'. Per the user's iter-12 brief, no clearly different minimal mechanism is justified. Per-config compile cost being elevated even with two axes already tightened means count and warps were not the compile-cost drivers; the cost is intrinsic to the suggested config space. Further prompt narrowing (l2_groupings -> [16]) is the same mechanism class that has now been tested twice and failed both times. Hard-execution cap or anti_ranges would require code changes or telemetry not currently in scope. REMOVE is the right call: it stops paying the 52% compile cost on every benchmark while preserving the option to revisit if (a) per-config compile-time attribution telemetry identifies a specific compile-cost mechanism in iter-13+, or (b) iter-12 d128 sanity result shows the iter-3..iter-11 perf signal was not actually prompt-attributable (REMOVE costs nothing). Why DEMOTE-only is also not enough: iter-11 already chose lifecycle=diagnostic with the tightening; the result was time=1.080 and compile=1.523. Lifecycle alone does not address the user's wall-time/compile concern -- diagnostic still applies the prompt and pays the compile cost. Why a swap to a sanity workload (not full deletion): preserves the 7-iter perf series for trend-tracking, detects if d64_long sanity behavior is GPU/B200-attention-specific via cross-shape comparison, mirrors d64_long pattern, costs almost nothing.",
+    "attention_d128_short_perf_signal_attribution": "Open question for iter-12: is the iter-3..iter-11 d128 perf win prompt-attributable, LLM-baseline, or some mix? iter-12 sanity (no prompt) will produce baseline-equivalent attention_2k_d128 results modulo LLM API nondeterminism. If iter-12 d128 sanity perf is in [0.95, 1.05] (the same band as d64 sanity), the perf wins were prompt-attributable; the user accepts losing that 19% perf win in exchange for the wall-time/compile fix. If iter-12 d128 sanity perf is below 0.95 (e.g., 0.85-0.95), the LLM finds strong d128 configs unprompted; the iter-3..iter-11 wins were partially LLM-baseline; the prompt's marginal contribution was smaller than reported. Either way the iter-12 decision (REMOVE) is correct on the user's compile/wall-time objective; the perf attribution question only affects how strong the iter-3..iter-11 prompt signal really was.",
+    "attention_d64_long": "Decision: continue blocked/no-guidance. iter-9 sanity passed inside [0.90, 1.10] (time_geo=1.028, max=1.086). iter-10 sanity geomean inside band (time_geo=1.032, perf_geo=0.999) but max time slightly past 1.10 in repeat 1 (1.161). iter-11 sanity inside band in ALL THREE repeats (time_geo=0.991, perf_geo=0.991, max=1.050). 3 consecutive in-band sanities -- the d64_long block is empirically permanent. iter-12 continues the same setup. iter-12 expects a 4th consecutive in-band geomean. Keeping d64 sanity in iter-12 (rather than dropping per the iter-11 plan's PATH suggestion) provides cross-shape comparability with the new d128 sanity workload: both should be neutral if REMOVE is working as expected. iter-13+ may drop one or both attention sanity workloads after additional in-band history accumulates.",
+    "no_broadening_to_weak_classes": "Decision: blocked_classes list is unchanged from iter-11 except for the new attention_d128_short entry. row_norm_layer, row_cross_entropy, matmul family, elementwise, row_softmax_wide, attention_small_short, attention_large_or_long, sum_or_null. No new evidence has accumulated for any of these since iter-3.",
+    "experimental_design_change": "None. iter-12 main benchmark is first-round prompt-only, exact-template prompt off, exact seeds off, two arms, repeats=3, llm_max_rounds=1, model gpt-5-2, autotuner LLMGuidedSearch, GPU 2 (canonical since iter-11). Workload count is 16 (5 RMS + 6 narrow + 3 mid + 1 attention d128 + 1 attention d64). The deltas vs iter-11 are: (a) d128_short policy entry deleted, (b) attention_2k_d128 moved from main to sanity, (c) main_attention_d128_short headline group renamed to sanity_attention_d128_short_unprompted, (d) new attention_d128_short_unprompted_sanity gate, (e) attention_d128_short_replication_gate deleted, (f) new blocked_classes entry attention_d128_short, (g) iter-11 evidence rolled into all 3 preserved policy provenance blocks. NO matcher / harness / autotuner code changes.",
+    "exact_template_prompt_and_seeds": "Both remain disabled. No iter-11 evidence justifies re-enabling them. iter-12's experimental question (does removing d128 leave RMS/narrow/mid as a clean, stable validated set?) does not require any re-enablement.",
+    "iter_13_paths_conditional_on_iter_12_outcome": "PATH A (3 mandatory pass; both d128 sanity AND d64 sanity in band): CLEAN STABLE STATE. iter-13 holds the validated set steady (RMS / narrow / mid) and explores ONE incremental probe -- either widen mid_probe to cols=`<=8192` (mid data gap closure if AOT supports) OR drop one sanity workload (d64 has 4 in-band passes; freeing a slot for a new probe). Probe selection driven by AOT data, not by guess. PATH B (3 mandatory pass; d128 sanity in band; d64 sanity time > 1.10): D64 DRIFT. Investigate harness/LLM API drift rather than heuristic. d64 has been in band 3 iters; sudden out-of-band suggests external drift. Roll forward iter-12 JSON unchanged. PATH C (3 mandatory pass; d128 sanity time > 1.10): D128 SANITY DRIFT. The unprompted LLM is producing wall-time-bad configs on this shape (intrinsic d128 attention compile difficulty on B200). Confirms REMOVE was right; no further policy action. PATH D (3 mandatory pass; d128 sanity perf < 0.95): D128 PROMPT WAS NOT THE PERF DRIVER. iter-3..iter-11 perf wins were partially LLM-baseline; the prompt's marginal contribution was smaller than reported. iter-13 marks d128 as permanently REMOVE -- no mechanism work needed. PATH E (3 mandatory pass; d128 sanity perf in [0.95, 1.05] AND time in [0.90, 1.10]): EXPECTED. The iter-3..iter-11 d128 perf wins WERE prompt-attributable. REMOVE means we lose that 19% perf win; the user has accepted that tradeoff for the wall-time/compile objective. iter-13 holds. PATH F (RMS / narrow / mid regression guard fails): REAL REGRESSION. Roll back to iter-11 JSON. Investigate before further iteration. PATH G (Mid softmax perf_geo trends back up to ~1.005): MID PERF DRIFT WATCH. iter-11 mid perf=0.999 was a step DOWN from iter-9/iter-10 1.002. If iter-12 reverts to ~1.005, that's noise. If it climbs above 1.02 (the regression-guard ceiling), that's a real regression and triggers PATH F. PATH H (Both sanities in band for 3+ consecutive iters): DROP BOTH ATTENTION SANITIES at iter-15+ to free 2 workload slots for narrow row expansion (rows>4096) once AOT data is available, or for a new class probe.",
+    "harness_telemetry_continuity": "iter-8's per-config compile_time and per-batch benchmark_time aggregation, iter-7's p25/p75 per-repeat distribution, and the attention markdown auto-rendering all continue unchanged in iter-12. The d128 sanity specifically benefits from continued compile/benchmark attribution: iter-12 d128 sanity compile_total should be near 1.0 (no prompt = baseline-equivalent). If d128 sanity compile_total is still elevated, the compile cost is intrinsic to the d128 attention configs the LLM finds -- not to any specific prompt -- and there is genuinely nothing for the heuristic loop to do."
+  },
+  "agreement_with_codex": "Iteration 12 follows the user's iter-12 brief (delivered via direct prompt) and the iter-11 Codex review (`/tmp/helion_heuristics_loop/codex/range_policy_iteration_11_review.md`): (a) preserve RMS / narrow softmax / mid softmax wins byte-identical to iter-11 unless data strongly says otherwise -- data says preserve; iter-11 results passed all 3 regression guards cleanly; (b) treat attention d64 long as blocked / no-guidance after iter-11 sanity result (3rd consecutive in-band) -- iter-12 continues the same setup; (c) for attention d128 short, the user's iter-12 brief explicitly directed REMOVE if no clearly different minimal mechanism is justified, and the iter-11 telemetry rules out the obvious next mechanisms (count and warps were not the compile-cost drivers); selected REMOVE. Codex iter-11 review caveat: 'If compile cost stays elevated, the next iteration should remove d128 or tighten another concrete axis only if telemetry identifies one.' Telemetry did not identify another concrete axis (compile_total went from 1.250 to 1.523 under the tightened policy; per-config compile mean=1.444 means individual configs are slow to compile, not just numerous). REMOVE is the answer per Codex's own iter-11 caveat. (d) keep the next benchmark first-round prompt-only -- yes, no design change. (e) treat small deltas as noise (>=5% perf or >=20% wall-time) -- applied; iter-11 d128 wall-time regression (1.080) is NOT material per the >=20% rule but did fail the 1.02 gate ceiling; compile regression (1.523) IS material per the >=20% rule. (f) Canonical GPU continues at CUDA_VISIBLE_DEVICES=2.",
+  "remaining_disagreements_with_codex": []
+}
