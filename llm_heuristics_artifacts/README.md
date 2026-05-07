@@ -15,6 +15,13 @@ Provenance:
   `attention_1k_d64`, `attention_2k_d128`, and `attention_4k_d64`, while
   omitting the known bad `attention_4k_d128` bucket for env-var testing with
   `HELION_LLM_OBSERVED_HEURISTICS_PATH`.
+- `h1_round0_verification_20260507.md`: copied from
+  `/tmp/helion_h1_round0_verification_20260507.md`.
+- `h2_attention_router_20260507/aggregate_summary.md` and
+  `h2_attention_router_20260507/aggregate_results.json`: copied from
+  `/tmp/helion_llm_autoresearch_attention_router_h2_20260507/`.
+- `claude_h2_policy_critique.md`: records the Claude Opus 4.7 no-tools H2
+  critique supplied with the 2026-05-07 manager update.
 - `policies/range_policy_iteration_12.*` and
   `policies/range_policy_iteration_13.*`: copied from
   `/tmp/helion_heuristics_loop/claude/`.

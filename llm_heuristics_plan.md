@@ -50,6 +50,16 @@ The seed-only attention d128 check is closed as a failed direction. Seeds on
 handoff target: aggregate perf/round0 was not useful, around `1.03`, and
 `attention_4k_d128` was about `1.058`. Do not repeat seed-only as H2.
 
+Latest gate decisions:
+
+- H1 PASS on 2026-05-07. The verification subagent recomputed the corrected
+  objective from metadata and `_stage1_llm.csv` selection with zero trace or
+  ratio errors.
+- H2 PASS on 2026-05-07 for primary objective and routing safety. The filtered
+  observed-heuristics router reached corrected `round0_best_geo=0.802236`
+  overall on attention, with `attention_4k_d128` unmatched by any observed
+  rule in all repeats.
+
 ## Data Sources
 
 - `/tmp/helion_heuristics_loop/input/shared_context.md`
@@ -62,6 +72,14 @@ handoff target: aggregate perf/round0 was not useful, around `1.03`, and
   round-0 summaries, and shared context.
 - H2 env-path prototype:
   `llm_heuristics_artifacts/h2_attention_router_observed_heuristics_b200.json`
+- H1 verification:
+  `llm_heuristics_artifacts/h1_round0_verification_20260507.md`
+- H2 benchmark archive:
+  `llm_heuristics_artifacts/h2_attention_router_20260507/aggregate_summary.md`
+  and
+  `llm_heuristics_artifacts/h2_attention_router_20260507/aggregate_results.json`
+- H2 policy critique:
+  `llm_heuristics_artifacts/claude_h2_policy_critique.md`
 - Derived snapshot, if useful for policy review:
   `/tmp/helion_heuristics_loop/codex/range_policy_data_snapshot/runtime_observed_heuristics_b200.json`
 - Existing policy artifacts under `/tmp/helion_heuristics_loop/claude` and
@@ -111,10 +129,24 @@ Acceptance:
 - A subagent can identify the CSV source for every row through JSON metadata.
 - The manager has an accepted report template and gate decision format.
 
-Status: docs/report template created, but H1 is not PASS yet. A subagent still
-needs metadata-based re-scoring or verification of the existing corrected
-summaries with the corrected analyzer before H1 can be marked PASS. H1 should
-not use a GPU.
+Status: PASS on 2026-05-07.
+
+Artifact: `llm_heuristics_artifacts/h1_round0_verification_20260507.md`.
+
+Exact computed aggregates:
+
+| run | arm | n | computed round0_best_geo | rounded |
+|---|---|---:|---:|---:|
+| guided iter11 | heuristics | 57 | 0.952684747 | 0.953 |
+| guided iter11 | range_prompt | 57 | 0.959271664 | 0.959 |
+| guided iter11 | seeds | 57 | 0.968517931 | 0.969 |
+| guided iter12 | range_prompt | 57 | 0.974486583 | 0.974 |
+| hybrid LFBO | heuristics | 24 | 0.948877958 | 0.949 |
+| hybrid LFBO | range_prompt | 24 | 0.999182870 | 0.999 |
+| hybrid LFBO | seeds | 24 | 0.987971432 | 0.988 |
+
+The verification inspected 438 metadata rows, resolved 438 CSV paths, used 96
+hybrid `_stage1_llm.csv` rows, and reported zero trace or ratio errors.
 
 ### H2: Design a Bucket Router Starting with Attention
 
@@ -168,20 +200,60 @@ Acceptance:
 - Compile/wall diagnostics are `<=1.20x` unless explained by a better primary
   objective and accepted by the user.
 
-Next experiment-sized unit:
+Status: PASS on 2026-05-07 for primary objective and routing safety, with
+caveats.
 
-- Review the filtered observed-heuristics JSON against the existing matching
-  logic, then delegate the exact GPU 3 command above. If a true
-  `routed_heuristics` or equivalent arm is needed, stop at an implementation
-  design and ask for user approval before source edits.
+Artifacts:
 
-### H3: Convert Exact Observed Configs into Candidate Families and Ranges
+- `llm_heuristics_artifacts/h2_attention_router_20260507/aggregate_summary.md`
+- `llm_heuristics_artifacts/h2_attention_router_20260507/aggregate_results.json`
+- `llm_heuristics_artifacts/claude_h2_policy_critique.md`
 
-Hypothesis: exact observed winners can be generalized into candidate families
-that preserve most wins without hardcoding individual shapes.
+Corrected H2 `round0_best_geo` results:
+
+| workload | corrected round0_geo | observed-rule match |
+|---|---:|---|
+| all attention | 0.802236 | mixed |
+| attention_1k_d64 | 0.805943 | true |
+| attention_2k_d128 | 0.822007 | true |
+| attention_4k_d64 | 0.728283 | true |
+| attention_4k_d128 | 0.858477 | false in all repeats |
+
+Script aggregate diagnostics: `perf_geo=0.804`, `time_geo=0.802`,
+`cfg_geo=0.993`.
+
+Caveats:
+
+- Repeat 1 had compile/wall spikes despite aggregate time improving:
+  `attention_4k_d128` wall `1.632x`, compile_total `2.619x`;
+  `attention_2k_d128` wall `1.549x`, compile_total `3.622x`.
+- `attention_4k_d128` improved while `observed_rule_match=false`. This is safe
+  for routing, because the bad bucket did not receive observed-rule guidance,
+  but H3 must attribute whether the improvement came from baseline noise,
+  prompt/seeding side effects, or unrelated first-round LLM behavior.
+
+Matcher review recommended PASS: `attention_4k_d128` did not match under the
+current semantics. Claude Opus 4.7 also recommended H2 PASS with the caveat
+above and advised staying on attention for H3 coverage/attribution before
+broadening.
+
+### H3: Attribute Attention Router and Generalize Held-Out Shapes
+
+Hypothesis: the H2 attention win is real, but must be attributed by
+observed-rule matched versus unmatched behavior before converting exact observed
+winners into candidate families or broadening beyond attention.
+
+Attention is first because it has the strongest signal and tests the routing
+mechanism. This is not a plan to focus only on attention forever; H4 still
+broadens to RMS, softmax, and BMM after H3 resolves coverage and attribution.
 
 Work:
 
+- Split H2 corrected `round0_best_geo` contribution by
+  `matched_observed_rule=true` versus `false`.
+- Re-run or analyze `attention_4k_d128` unmatched behavior to explain why it
+  improved with no observed-rule match. Treat the explanation as required
+  before promoting broader router logic.
 - For attention buckets that pass H2, extract common config features:
   block sizes, warps, stages, indexing, pid type, range parameters, and
   num-sm multiplier.
@@ -192,6 +264,10 @@ Work:
 Acceptance:
 
 - Candidate families retain at least 80% of the H2 bucket win on known shapes.
+- Matched versus unmatched attribution accounts for the H2 aggregate and does
+  not hide a bad routed bucket.
+- `attention_4k_d128` remains routed away from observed-rule guidance or has a
+  data-backed safe mechanism before any promotion.
 - Holdouts do not regress by more than 2% round-0 unless explicitly demoted.
 - The rule is explainable by workload features, not just shape names.
 
@@ -264,7 +340,7 @@ Acceptance:
 |---|---|---|---|---:|---|
 | H1 | existing `/tmp` outputs | existing | existing | existing | objective lock |
 | H2 | attention_1k_d64, attention_2k_d128, attention_4k_d64, attention_4k_d128 | baseline plus `heuristics` with env-path filtered observed JSON | LLMGuidedSearch | 3 | route attention buckets |
-| H3 | H2 plus attention_512_d64, attention_2k_d64, nearby d128 holdouts | baseline plus candidate families | LLMGuidedSearch | 3 | generalize exact configs |
+| H3 | H2 plus attention_512_d64, attention_2k_d64, nearby d128 holdouts when available | baseline plus router/family candidates | LLMGuidedSearch | 3 | attribute matched/unmatched attention wins and test holdouts |
 | H4 | RMS, softmax, BMM targets plus neutral controls | baseline plus candidate | LLMGuidedSearch | 3 | broaden non-attention value |
 | H5 | 8-workload hybrid handoff matrix | baseline plus promoted candidate | LLMSeededLFBOTreeSearch | 3 | validate handoff |
 | H6 | corrected broad/full matrix | baseline plus final policy | selected final autotuner | 3 | package decision |
@@ -280,18 +356,21 @@ Acceptance:
   instructions for new runs.
 - Compile/wall-time noise can distract from the primary objective, but large
   compile spikes still indicate system or mechanism problems.
+- Unmatched improvements can make a router look better than it is; H3 must
+  split matched versus unmatched contribution before broadening.
 - Existing local source changes mean implementation work must avoid unrelated
   edits and needs explicit approval.
 
 ## Next Unit
 
-Finish H1/H2 planning before source work:
+Run H3 attention attribution and coverage before broadening:
 
-1. Have a proposal subagent design the attention bucket router and state whether
-   the env-path filtered observed JSON is sufficient or needs a true
-   `routed_heuristics` arm.
-2. Have an independent review subagent check objective, GPU 3, harness arms, and
-   `attention_4k_d128` protection.
-3. If no new source is needed, delegate the exact GPU 3 H2 command through the
-   harness subagent. If a new arm is needed, stop with a commit-sized
-   implementation design and ask the user before editing source.
+1. Analyze the archived H2 output root and split corrected `round0_best_geo` by
+   `matched_observed_rule=true` and `false`.
+2. Attribute `attention_4k_d128` improvement while unmatched; rerun only if
+   analysis cannot explain it from existing metadata and CSVs.
+3. Test held-out attention shapes such as `attention_512_d64` and
+   `attention_2k_d64` if the harness exposes them.
+4. After H3, broaden in H4 to RMS, softmax, and BMM. Do not skip H4; attention
+   is first because it validates the routing mechanism and has the strongest
+   signal.

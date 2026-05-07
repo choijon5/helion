@@ -75,6 +75,11 @@ Non-attention signals are smaller: BMM about 10.5%, `rms_norm_2048x4096` about
 9.2%, `softmax_4k_2k` about 9.8%, `softmax_2k_4k` about 5.8%, and most others
 neutral.
 
+Latest gate state: H1 PASS and H2 PASS on 2026-05-07. H2 corrected
+`round0_best_geo=0.802236` overall for attention, with
+`attention_4k_d128=0.858477` while `observed_rule_match=false` in all repeats.
+H3 must report matched-versus-unmatched attribution before broadening.
+
 Seed-only attention d128 is closed as a failed H2 direction: seeds on
 `attention_2k_d128` plus `attention_4k_d128` had aggregate perf/round0 around
 `1.03`, with `attention_4k_d128` around `1.058`. Do not repeat seed-only for
@@ -185,8 +190,14 @@ definition: generation==0,status==ok,min(perf_ms), geomean vs baseline
 |---|---:|---:|---:|---:|---:|
 
 ## Per Workload
-| workload | arm | round0_best_geo | round0_range | verified_geo | note |
-|---|---|---:|---|---:|---|
+| workload | arm | matched_observed_rule | round0_best_geo | round0_range | verified_geo | note |
+|---|---|---|---:|---|---:|---|
+
+## H3 Matched Attribution
+| match group | n | round0_best_geo | workloads | note |
+|---|---:|---:|---|---|
+| matched_observed_rule=true | <n> | <value> | <list> | <note> |
+| matched_observed_rule=false | <n> | <value> | <list> | <note> |
 
 ## Gate Decision Input
 - pass criteria met: yes | no
