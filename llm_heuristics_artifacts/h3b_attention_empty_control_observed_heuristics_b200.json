@@ -1,0 +1,33 @@
+{
+  "class_summary": {
+    "attention": {
+      "rule_count": 0,
+      "shape_count": 0,
+      "template_count": 0,
+      "notes": "H3b empty/no-match control artifact: intentionally contains no positive attention rules or templates, so the heuristics arm should route all attention workloads to no observed guidance."
+    }
+  },
+  "filters": {
+    "max_rule_holdout_geomean_slowdown": 1.05,
+    "max_rule_holdout_p90_slowdown": 1.1,
+    "max_template_geomean_slowdown": 1.01,
+    "max_template_p90_slowdown": 1.1,
+    "min_holdout_coverage": 0.75,
+    "min_rule_shapes": 2,
+    "min_template_shapes": 2
+  },
+  "rules": [],
+  "schema_version": 1,
+  "selection": "H3b empty/no-match control derived from h2_attention_router_observed_heuristics_b200.json schema for env-var testing with HELION_LLM_OBSERVED_HEURISTICS_PATH. Generated without benchmarks; future runs must use GPU 3.",
+  "source": "B200 AOT measurement CSVs",
+  "template_fields": [
+    "block_sizes",
+    "num_warps",
+    "num_stages",
+    "pid_type",
+    "l2_groupings",
+    "reduction_loops",
+    "split_k",
+    "num_sm_multiplier"
+  ]
+}

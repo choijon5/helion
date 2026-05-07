@@ -1,0 +1,353 @@
+{
+  "class_summary": {
+    "row_norm_rms": {
+      "rule_count": 4,
+      "shape_count": 8,
+      "template_count": 4,
+      "notes": "H4 candidate artifact: active RMS rules are exact-ish target buckets only, avoiding class-level or dtype-only broadening."
+    },
+    "row_softmax": {
+      "rule_count": 2,
+      "shape_count": 48,
+      "template_count": 4,
+      "notes": "H4 candidate artifact: active softmax rules cover narrow and mid row regimes only; wider softmax remains a guardrail/no-match path."
+    }
+  },
+  "filters": {
+    "max_rule_holdout_geomean_slowdown": 1.05,
+    "max_rule_holdout_p90_slowdown": 1.1,
+    "max_template_geomean_slowdown": 1.01,
+    "max_template_p90_slowdown": 1.1,
+    "min_holdout_coverage": 0.75,
+    "min_rule_shapes": 2,
+    "min_template_shapes": 2
+  },
+  "rules": [
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0016,
+        "median_slowdown": 1.0016,
+        "p90_slowdown": 1.0031,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "cols_bin": "<=4096",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=2048"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              2
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              2048
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0214,
+        "median_slowdown": 1.0216,
+        "p90_slowdown": 1.0432,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 2,
+        "shape_total": 2
+      },
+      "shape_bucket": {
+        "cols_bin": "<=4096",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=16384"
+      },
+      "shape_count": 2,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 2,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 3,
+        "shape_total": 3
+      },
+      "shape_bucket": {
+        "cols_bin": "<=8192",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=4096"
+      },
+      "shape_count": 3,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 4,
+            "num_warps": 16,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 2
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_norm_rms",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 1,
+        "shape_total": 1
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 1,
+        "shape_total": 1
+      },
+      "shape_bucket": {
+        "cols_bin": "<=16384",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=2048"
+      },
+      "shape_count": 1,
+      "source_kernels": [
+        "rms_norm"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 3,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              8192
+            ]
+          },
+          "win_count": 1
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_softmax",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0004,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0018,
+        "shape_coverage": 16,
+        "shape_total": 16
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0003,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0014,
+        "shape_coverage": 16,
+        "shape_total": 16
+      },
+      "shape_bucket": {
+        "cols_bin": "<=2048",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=4096"
+      },
+      "shape_count": 16,
+      "source_kernels": [
+        "softmax"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0013,
+          "p90_slowdown": 1.0037,
+          "shape_coverage": 16,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 4,
+            "num_warps": 2,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 0
+        }
+      ]
+    },
+    {
+      "kernel_class": "row_softmax",
+      "leave_one_shape_out": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0031,
+        "median_slowdown": 1.0013,
+        "p90_slowdown": 1.0062,
+        "shape_coverage": 32,
+        "shape_total": 32
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.003,
+        "median_slowdown": 1.0012,
+        "p90_slowdown": 1.0062,
+        "shape_coverage": 32,
+        "shape_total": 32
+      },
+      "shape_bucket": {
+        "cols_bin": "<=4096",
+        "dtype": "fp16_bf16",
+        "rows_bin": "<=4096"
+      },
+      "shape_count": 32,
+      "source_kernels": [
+        "softmax"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0046,
+          "p90_slowdown": 1.0221,
+          "shape_coverage": 32,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 7,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 24
+        },
+        {
+          "geomean_slowdown": 1.0057,
+          "p90_slowdown": 1.0278,
+          "shape_coverage": 32,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 8,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 13
+        },
+        {
+          "geomean_slowdown": 1.0058,
+          "p90_slowdown": 1.026,
+          "shape_coverage": 32,
+          "template": {
+            "block_sizes": [
+              1
+            ],
+            "num_stages": 2,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "reduction_loops": [
+              null
+            ]
+          },
+          "win_count": 3
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "selection": "H4 non-attention candidate artifact for paired-no-match testing with RMS and narrow/mid softmax active. BMM, cross-entropy, matmul/split_k_matmul, layer_norm, attention, elementwise, fp8, and grouped matmul remain guardrail/no-match classes.",
+  "source": "B200 AOT measurement CSVs and H4 proposer target templates; generated without benchmarks.",
+  "template_fields": [
+    "block_sizes",
+    "num_warps",
+    "num_stages",
+    "pid_type",
+    "reduction_loops"
+  ]
+}

@@ -18,18 +18,62 @@ The manager may run lightweight verification only:
 - validate JSON or markdown outputs;
 - summarize existing CSVs when that is explicitly an analysis-only task.
 
-Primary objective is `round0_best_geo`: geometric mean of `min(perf_ms)` over
-autotune CSV rows with `generation == 0` and `status == ok`, compared to the
-baseline arm. Lower is better. For hybrid/LFBO, score `_stage1_llm.csv` when it
-exists. Compile time and wall time are secondary diagnostics unless the
-experiment is explicitly about compile-time reduction or resource health.
+## Objective and Score
+
+Primary objective: improve circuit/kernel performance of the best config
+produced after LLM round 0 when heuristics are enabled, compared against the
+non-heuristics baseline arm from the same experiment.
+
+Exact metric: `round0_best_geo` is the geometric mean over workload/repeat
+pairs of:
+
+```text
+min(perf_ms where generation == 0 and status == ok in heuristics arm autotune CSV)
+/
+min(perf_ms where generation == 0 and status == ok in baseline arm autotune CSV)
+```
+
+Lower is better. A material win requires at least 10% better circuit/kernel
+performance, i.e. `round0_best_geo <= 0.90`, unless a specific experiment sets
+a stricter gate.
+Do not continuously raise the base acceptance threshold as results improve.
+Keep `round0_best_geo <= 0.90` as the material-win floor unless a gate
+explicitly sets a stricter target. Track stretch levels separately, such as
+strong `<=0.85` and excellent `<=0.80`, especially for a kernel class already
+clearing the base gate.
+
+This is not comparing against PyTorch, AOT pretune CSVs, or final full-autotune
+winners. The AOT CSVs are input data for deriving heuristics; the score compares
+heuristics vs non-heuristics arms produced by the live experiment.
+
+For hybrid/LFBO, score `_stage1_llm.csv` when it exists because that is the LLM
+seed batch handed to LFBO. Compile time and wall time are secondary diagnostics
+unless an experiment is explicitly about compile-time/resource reduction; still
+report them, but do not optimize against them over `round0_best_geo` in this
+loop.
+Serious compile failures, missing rows, illegal-memory failures, or accuracy
+failures also block promotion until rerun or diagnosed.
+
+## Regression Guardrails
+
+- Every analysis must report overall geomean, per-kernel-class geomeans, and
+  per-workload geomeans.
+- No promoted policy may have a promoted/matched workload geomean `>1.03`
+  unless a focused rerun proves it is measurement noise.
+- No guardrail/no-match workload geomean should exceed `1.05`.
+- Any repeat-level ratio `>1.10` on a guardrail/no-match workload triggers a
+  focused rerun before broadening or promotion.
+- If the focused rerun still has repeat-level ratio `>1.10` or workload geo
+  `>1.05`, treat the policy as HOLD unless the heuristic did not fire and the
+  experiment can prove the swing is baseline/LLM stochasticity, not policy
+  leakage.
 
 ## Hard Constraints
 
-- Live experiment workspace:
-  `/home/jongsokchoi/helion_2_llm_priors`. Use this for source inspection,
-  harness commands, and delegated benchmark work.
-- Archive/fork data branch:
+- Current live experiments may still run from
+  `/home/jongsokchoi/helion_2_llm_priors` until scripts are consolidated. Use
+  this for source inspection, harness commands, and delegated benchmark work.
+- Fork/data/archive branch:
   `/home/jongsokchoi/helion_2_aot_pretune_data_all` on
   `choijon5/aot-pretune-data`. Use this for manager docs, AOT data, and
   archived derived heuristic artifacts. Do not run benchmarks from the archive
@@ -62,23 +106,62 @@ experiment is explicitly about compile-time reduction or resource health.
   `llm_heuristics_plan.md`
 - Archive artifacts:
   `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/`
+- Latest H3d archive:
+  `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h3d_attention_paired_no_match_20260507/`
+- Latest H4 archive:
+  `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h4_non_attention_paired_no_match_20260507/`
+- Latest H5 archive:
+  `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h5_attention_hybrid_lfbo_paired_no_match_20260507/`
+- Latest H5b archive:
+  `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h5b_attention_hybrid_lfbo_l2_1_8_16_paired_no_match_20260507/`
 - H2 preferred no-source-edit mechanism:
   set `HELION_LLM_OBSERVED_HEURISTICS_PATH` to a filtered observed-heuristics
   JSON and run the existing `heuristics` arm. Start with
   `/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h2_attention_router_observed_heuristics_b200.json`.
 
 Latest known result: global observed heuristics help only about 5% geomean
-round-0, but useful buckets exist. Attention wins are strong for
+round-0, below the current material-win gate, but useful buckets exist.
+Attention wins are strong for
 `attention_1k_d64` (+19.8%), `attention_2k_d128` (+15.9%), and
 `attention_4k_d64` (+27.8%), while `attention_4k_d128` regresses (-19.4%).
 Non-attention signals are smaller: BMM about 10.5%, `rms_norm_2048x4096` about
 9.2%, `softmax_4k_2k` about 9.8%, `softmax_2k_4k` about 5.8%, and most others
-neutral.
+neutral. The H4 paired-no-match test confirmed the broad RMS/softmax policy is
+not a material win.
 
-Latest gate state: H1 PASS and H2 PASS on 2026-05-07. H2 corrected
-`round0_best_geo=0.802236` overall for attention, with
+Latest gate state: H1 PASS, H2 PASS, H3d PASS, H4 HOLD, H5 HOLD, and H5b HOLD
+for packaging on 2026-05-07. H2 corrected `round0_best_geo=0.802236` overall for attention, with
 `attention_4k_d128=0.858477` while `observed_rule_match=false` in all repeats.
-H3 must report matched-versus-unmatched attribution before broadening.
+H3d paired-no-match scored corrected overall `round0_best_geo=0.822`, matched
+geo `0.791`, no-match `attention_4k_d128` geo `1.001`, no-match median
+`0.9996`, and max repeat `1.0048`. H4 scored overall `0.993`, matched active
+non-attention `0.989`, no-match guardrails `0.998`, `row_norm_rms=0.989`, and
+`row_softmax=0.988`; best active buckets were `rms_norm_1024x16384=0.958` and
+`softmax_2k_4k=0.955`, below the material-win threshold. Replay validation
+passed with baseline records 80/80, no-match replays 40/40, matched arms using
+`off_matched_heuristic` 40/40, and no fatal errors. H5 attention hybrid/LFBO
+paired-no-match scored round-0 overall `0.830`, matched attention `0.799`, and
+no-match `attention_4k_d128` `1.001`; final verified overall `0.896`, matched
+attention `0.882`, and no-match `attention_4k_d128` `0.971`, but
+`attention_512_d64` regressed to `1.025`. Do not keep broad RMS/softmax.
+H5b added `l2_groupings=[1]` to the d64 `seq<=2048` family. It improved the
+corrected seed objective (round-0 overall `0.815`, matched `0.782`, no-match
+`1.001`) and fixed `attention_512_d64` final verified performance (`0.948`),
+but final hybrid/LFBO was weaker than H5 overall (`0.928` vs H5 `0.896`).
+Attention remains the only clean material win, but H5c must polish the split
+d64 policy before packaging.
+
+Attention generality state: the current candidate is bucket-based, not
+workload-name based, and is validated only for B200 fp16/bf16 standard
+attention through 4k d64 and 2k d128. It is not validated for long d128,
+8k/16k, causal variants, GQA/MQA, paged attention, cross-attention, or other
+GPUs. Some selected-oracle evidence has only two supporting shapes, so gather
+more shapes before turning it into product defaults.
+
+Next candidate: split d64 attention by sequence bin. Add an exact
+`seq_bin="<=1024"` d64 rule with `l2_groupings=[1,8,16]`; restore the
+`seq_bin="<=2048"` d64 rule to H3b `l2_groupings=[8,16]`; leave d64 4k and
+d128 short unchanged; keep `attention_4k_d128` as no-match.
 
 Seed-only attention d128 is closed as a failed H2 direction: seeds on
 `attention_2k_d128` plus `attention_4k_d128` had aggregate perf/round0 around
@@ -152,7 +235,8 @@ Role: proposal | review | harness | analysis | implementation-design
 Repo: /home/jongsokchoi/helion_2_llm_priors
 Archive: /home/jongsokchoi/helion_2_aot_pretune_data_all
 GPU: 3 required for harness, otherwise not used
-Objective: round0_best_geo from generation==0,status==ok rows; lower is better
+Objective: round0_best_geo from generation==0,status==ok heuristics/baseline
+  min(perf_ms); lower is better; material win <=0.90 unless stricter gate
 Inputs:
 - <artifact paths>
 Allowed actions:
@@ -179,7 +263,8 @@ output_root: /tmp/<path or none>
 
 ## Objective
 primary: round0_best_geo
-definition: generation==0,status==ok,min(perf_ms), geomean vs baseline
+definition: geomean over workload/repeat of generation==0,status==ok
+  heuristics arm min(perf_ms) divided by matching baseline arm min(perf_ms)
 
 ## Summary
 - <highest-signal finding>
@@ -188,6 +273,10 @@ definition: generation==0,status==ok,min(perf_ms), geomean vs baseline
 ## Metrics
 | arm | round0_best_geo | verified_geo | wall_time_geo | compile_total_geo | n |
 |---|---:|---:|---:|---:|---:|
+
+## Per Kernel Class
+| kernel_class | arm | round0_best_geo | promoted_or_guardrail | note |
+|---|---|---:|---|---|
 
 ## Per Workload
 | workload | arm | matched_observed_rule | round0_best_geo | round0_range | verified_geo | note |
@@ -290,9 +379,10 @@ CUDA_VISIBLE_DEVICES=3 /home/jongsokchoi/.conda/envs/helion_2/bin/python \
   --output-root /tmp/<descriptive-run-name>
 ```
 
-For hybrid handoff gates, use:
+For hybrid handoff gates, use paired-no-match mode when guardrails are present:
 
 ```bash
+HELION_LLM_OBSERVED_HEURISTICS_PATH=/home/jongsokchoi/helion_2_aot_pretune_data_all/llm_heuristics_artifacts/h3b_attention_strict_family_no_r4_observed_heuristics_b200.json \
 CUDA_VISIBLE_DEVICES=3 /home/jongsokchoi/.conda/envs/helion_2/bin/python \
   scripts/llm_heuristics_autoresearch.py \
   --gpu 3 \
@@ -301,6 +391,7 @@ CUDA_VISIBLE_DEVICES=3 /home/jongsokchoi/.conda/envs/helion_2/bin/python \
   --autotuner LLMSeededLFBOTreeSearch \
   --model gpt-5-2 \
   --llm-max-rounds 1 \
+  --llm-round0-mode paired-no-match \
   --repeats 3 \
   --output-root /tmp/<descriptive-run-name>
 ```
