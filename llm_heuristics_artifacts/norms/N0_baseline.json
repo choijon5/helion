@@ -1,0 +1,141 @@
+{
+  "layer_norm_single": {
+    "tag": "layer_norm_single",
+    "source_csv": "aot_pretune_data/b200/layer_norm/runs/20260503_131231_layer_norm_full_tutorial_seed30_plus8_gpu7/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "n_shapes": null,
+    "n_configs_selected": 5,
+    "max_slowdown": 1.0769231038312046,
+    "geomean_slowdown": 1.0117398248769869,
+    "avg_slowdown": 1.0119850157225614,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 0.9736842105263158,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1",
+      "arg0_numel"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg2_ndim",
+      "arg2_dtype_size",
+      "arg2_dtype_cat",
+      "arg1_dim0",
+      "arg1_numel",
+      "arg2_dim0",
+      "arg2_numel"
+    ]
+  },
+  "rms_norm_single": {
+    "tag": "rms_norm_single",
+    "source_csv": "aot_pretune_data/b200/rms_norm/runs/20260503_001250_rms_norm_full_tutorial_gpu7/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "n_shapes": null,
+    "n_configs_selected": 7,
+    "max_slowdown": 1.005208297016706,
+    "geomean_slowdown": 1.0005553167794148,
+    "avg_slowdown": 1.0005563446610657,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1",
+      "arg0_numel"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg1_dim0",
+      "arg1_numel"
+    ]
+  },
+  "softmax_single": {
+    "tag": "softmax_single",
+    "source_csv": "aot_pretune_data/b200/softmax/runs/20260503_114301_softmax_full_tutorial_seed98_gpu7/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "n_shapes": null,
+    "n_configs_selected": 5,
+    "max_slowdown": 1.028824859601444,
+    "geomean_slowdown": 1.0013750846339495,
+    "avg_slowdown": 1.001384850339128,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg0_numel"
+    ]
+  },
+  "layer_norm_pooled": {
+    "tag": "layer_norm_pooled",
+    "source_csv": "/tmp/norm_baseline_single/layer_norm_pooled.csv",
+    "n_shapes": null,
+    "n_configs_selected": 9,
+    "max_slowdown": 1.0932162309207276,
+    "geomean_slowdown": 1.017173056590855,
+    "avg_slowdown": 1.0175529825712843,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 0.8292682926829268,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1",
+      "arg0_numel"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg2_ndim",
+      "arg2_dtype_size",
+      "arg2_dtype_cat",
+      "arg1_dim0",
+      "arg1_numel",
+      "arg2_dim0",
+      "arg2_numel"
+    ],
+    "pooled_rows": 8130,
+    "pooled_runs": 5
+  },
+  "softmax_pooled": {
+    "tag": "softmax_pooled",
+    "source_csv": "/tmp/norm_baseline_single/softmax_pooled.csv",
+    "n_shapes": null,
+    "n_configs_selected": 7,
+    "max_slowdown": 1.096153794490242,
+    "geomean_slowdown": 1.005246885016561,
+    "avg_slowdown": 1.0053409986312558,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 0.9040404040404041,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg0_numel"
+    ],
+    "pooled_rows": 58868,
+    "pooled_runs": 4
+  }
+}

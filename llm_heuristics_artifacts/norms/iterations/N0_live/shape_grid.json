@@ -1,0 +1,425 @@
+{
+  "version": 1,
+  "seed": 20260508,
+  "split_ratio": "7/5",
+  "dtype": "bfloat16",
+  "kernels": {
+    "layer_norm": {
+      "kernel_module": "examples.layer_norm",
+      "kernel_entry": "layer_norm_fwd",
+      "args_template": "x: Tensor[rows, cols](bfloat16), normalized_shape: [cols], weight: Tensor[cols](bfloat16), bias: Tensor[cols](bfloat16) or None, eps: 1e-5",
+      "shapes": [
+        {
+          "id": "LA_001",
+          "split": "train",
+          "args": {
+            "rows": 256,
+            "cols": 1024,
+            "numel": 262144,
+            "dtype": "bfloat16"
+          },
+          "label": "256x1024"
+        },
+        {
+          "id": "LA_002",
+          "split": "train",
+          "args": {
+            "rows": 256,
+            "cols": 4096,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "256x4096"
+        },
+        {
+          "id": "LA_003",
+          "split": "train",
+          "args": {
+            "rows": 512,
+            "cols": 2048,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "512x2048"
+        },
+        {
+          "id": "LA_004",
+          "split": "train",
+          "args": {
+            "rows": 1024,
+            "cols": 4096,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "1024x4096"
+        },
+        {
+          "id": "LA_005",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 2048,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x2048"
+        },
+        {
+          "id": "LA_006",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 3072,
+            "numel": 6291456,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x3072"
+        },
+        {
+          "id": "LA_007",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 5120,
+            "numel": 10485760,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x5120"
+        },
+        {
+          "id": "LA_101",
+          "split": "heldout",
+          "args": {
+            "rows": 1024,
+            "cols": 1024,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "1024x1024"
+        },
+        {
+          "id": "LA_102",
+          "split": "heldout",
+          "args": {
+            "rows": 4096,
+            "cols": 1024,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x1024"
+        },
+        {
+          "id": "LA_103",
+          "split": "heldout",
+          "args": {
+            "rows": 4096,
+            "cols": 2048,
+            "numel": 8388608,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x2048"
+        },
+        {
+          "id": "LA_104",
+          "split": "heldout",
+          "args": {
+            "rows": 4096,
+            "cols": 4096,
+            "numel": 16777216,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x4096"
+        },
+        {
+          "id": "LA_105",
+          "split": "heldout",
+          "args": {
+            "rows": 3072,
+            "cols": 2048,
+            "numel": 6291456,
+            "dtype": "bfloat16"
+          },
+          "label": "3072x2048"
+        }
+      ]
+    },
+    "rms_norm": {
+      "kernel_module": "examples.rms_norm",
+      "kernel_entry": "rms_norm_fwd",
+      "args_template": "x: Tensor[rows, cols](bfloat16), weight: Tensor[cols](bfloat16), eps: 1e-5",
+      "shapes": [
+        {
+          "id": "RM_001",
+          "split": "train",
+          "args": {
+            "rows": 256,
+            "cols": 1024,
+            "numel": 262144,
+            "dtype": "bfloat16"
+          },
+          "label": "256x1024"
+        },
+        {
+          "id": "RM_002",
+          "split": "train",
+          "args": {
+            "rows": 1024,
+            "cols": 4096,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "1024x4096"
+        },
+        {
+          "id": "RM_003",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 2048,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x2048"
+        },
+        {
+          "id": "RM_004",
+          "split": "train",
+          "args": {
+            "rows": 4096,
+            "cols": 1024,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x1024"
+        },
+        {
+          "id": "RM_005",
+          "split": "train",
+          "args": {
+            "rows": 4096,
+            "cols": 2048,
+            "numel": 8388608,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x2048"
+        },
+        {
+          "id": "RM_006",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 3072,
+            "numel": 6291456,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x3072"
+        },
+        {
+          "id": "RM_007",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 5120,
+            "numel": 10485760,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x5120"
+        },
+        {
+          "id": "RM_101",
+          "split": "heldout",
+          "args": {
+            "rows": 256,
+            "cols": 4096,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "256x4096"
+        },
+        {
+          "id": "RM_102",
+          "split": "heldout",
+          "args": {
+            "rows": 512,
+            "cols": 2048,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "512x2048"
+        },
+        {
+          "id": "RM_103",
+          "split": "heldout",
+          "args": {
+            "rows": 1024,
+            "cols": 1024,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "1024x1024"
+        },
+        {
+          "id": "RM_104",
+          "split": "heldout",
+          "args": {
+            "rows": 4096,
+            "cols": 4096,
+            "numel": 16777216,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x4096"
+        },
+        {
+          "id": "RM_105",
+          "split": "heldout",
+          "args": {
+            "rows": 3072,
+            "cols": 2048,
+            "numel": 6291456,
+            "dtype": "bfloat16"
+          },
+          "label": "3072x2048"
+        }
+      ]
+    },
+    "softmax": {
+      "kernel_module": "examples.softmax",
+      "kernel_entry": "softmax_two_pass",
+      "args_template": "x: Tensor[rows, cols](bfloat16) \u2014 softmax row-reduces over cols axis",
+      "shapes": [
+        {
+          "id": "SO_001",
+          "split": "train",
+          "args": {
+            "rows": 256,
+            "cols": 4096,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "256x4096"
+        },
+        {
+          "id": "SO_002",
+          "split": "train",
+          "args": {
+            "rows": 512,
+            "cols": 2048,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "512x2048"
+        },
+        {
+          "id": "SO_003",
+          "split": "train",
+          "args": {
+            "rows": 1024,
+            "cols": 1024,
+            "numel": 1048576,
+            "dtype": "bfloat16"
+          },
+          "label": "1024x1024"
+        },
+        {
+          "id": "SO_004",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 2048,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x2048"
+        },
+        {
+          "id": "SO_005",
+          "split": "train",
+          "args": {
+            "rows": 4096,
+            "cols": 2048,
+            "numel": 8388608,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x2048"
+        },
+        {
+          "id": "SO_006",
+          "split": "train",
+          "args": {
+            "rows": 4096,
+            "cols": 4096,
+            "numel": 16777216,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x4096"
+        },
+        {
+          "id": "SO_007",
+          "split": "train",
+          "args": {
+            "rows": 2048,
+            "cols": 5120,
+            "numel": 10485760,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x5120"
+        },
+        {
+          "id": "SO_101",
+          "split": "heldout",
+          "args": {
+            "rows": 256,
+            "cols": 1024,
+            "numel": 262144,
+            "dtype": "bfloat16"
+          },
+          "label": "256x1024"
+        },
+        {
+          "id": "SO_102",
+          "split": "heldout",
+          "args": {
+            "rows": 1024,
+            "cols": 4096,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "1024x4096"
+        },
+        {
+          "id": "SO_103",
+          "split": "heldout",
+          "args": {
+            "rows": 4096,
+            "cols": 1024,
+            "numel": 4194304,
+            "dtype": "bfloat16"
+          },
+          "label": "4096x1024"
+        },
+        {
+          "id": "SO_104",
+          "split": "heldout",
+          "args": {
+            "rows": 2048,
+            "cols": 3072,
+            "numel": 6291456,
+            "dtype": "bfloat16"
+          },
+          "label": "2048x3072"
+        },
+        {
+          "id": "SO_105",
+          "split": "heldout",
+          "args": {
+            "rows": 3072,
+            "cols": 2048,
+            "numel": 6291456,
+            "dtype": "bfloat16"
+          },
+          "label": "3072x2048"
+        }
+      ]
+    }
+  }
+}
