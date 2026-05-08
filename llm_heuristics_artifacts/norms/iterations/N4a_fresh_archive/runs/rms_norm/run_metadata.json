@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "kernel": "rms_norm",
+  "shape_grid_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/norms/iterations/N0_live/shape_grid.json",
+  "only_split": "train",
+  "only_shape": null,
+  "n_shapes_run": 7,
+  "n_rows_written": 2232,
+  "per_shape_unique_configs": {
+    "RM_001": 199,
+    "RM_002": 330,
+    "RM_003": 250,
+    "RM_004": 254,
+    "RM_005": 346,
+    "RM_006": 451,
+    "RM_007": 402
+  },
+  "max_generations": 20,
+  "copies": 5,
+  "initial_population": 100,
+  "autotuner": "LFBOTreeSearch",
+  "csv_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/norms/iterations/N4a_fresh_archive/runs/rms_norm/measurements_cuda_NVIDIA_B200_13.0.csv",
+  "wall_elapsed_s": 982.2715496460441,
+  "torch_version": "2.13.0.dev20260507+cu130",
+  "cuda_device": "NVIDIA B200"
+}

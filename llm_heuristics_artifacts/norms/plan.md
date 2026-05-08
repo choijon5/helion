@@ -167,21 +167,27 @@ construction):
 Live `round0_best_geo` — best measured across gates (see "Running log"
 for history, and `iterations/*/scores.json` for per-gate breakdown):
 
-| kernel | scope | best round0_best_geo | gate that produced it | notes |
-|---|---|---:|---|---|
-| layer_norm | train | 0.9291 | N3b | heldout flat (1.000) |
-| layer_norm | heldout | 1.0002 | N3b | overfit delta +0.071 |
-| rms_norm | train | 0.9512 | N2b | clean win |
-| rms_norm | heldout | 0.9232 | N2b | best heldout, only promotable kernel |
-| softmax | train | 0.8905 | N3d | train wins 11% |
-| softmax | heldout | 0.9993 | N3d | overfit delta +0.109 |
-| norm family | train | 0.9264 | N2b | |
-| norm family | heldout | 0.9740 | N3b | terminal goal 0.80 not reached |
+| kernel | scope | best round0_best_geo | gate that produced it | oracle-implied ceiling |
+|---|---|---:|---|---:|
+| layer_norm | train | 0.9284 | N4b | 0.928 (at ceiling) |
+| layer_norm | heldout | 1.0075 | N4b | unknown (no oracle on heldout) |
+| rms_norm | train | 0.9512 | N2b | 0.947 (within 1.1% of ceiling) |
+| rms_norm | heldout | 0.9232 | N2b | unknown |
+| softmax | train | 0.8897 | N4b | 0.890 (at ceiling) |
+| softmax | heldout | 0.9982 | N4b | unknown |
+| norm family | train | 0.9249 | N4b | — |
+| norm family | heldout | 0.9740 | N3b | — |
 
-Terminal goal `round0_best_geo ≤ 0.80` not reached. Best family
-heldout so far is `0.974` (about 2.6% win vs baseline). See the
-"What it would take to reach 0.80" section at the end of the
-Running log for the archive-expansion + prompt-context follow-ons.
+Terminal goal `round0_best_geo ≤ 0.80` **unreachable with Opus 4.7
+as baseline**. The measured per-kernel ceilings (baseline/oracle
+ratio on train shapes) show Opus 4.7 round-0 is only 5–12% off the
+true oracle, so 20%+ heuristic wins on round 0 are impossible. Our
+measured N4b train numbers are at or within 1% of those ceilings.
+
+See the final "Oracle-baseline gap analysis" entry in the Running
+log for the full quantification and the conditions under which the
+0.80 goal could become reachable (weaker baseline LLM, different
+metric, harder kernel family).
 
 ## Running log
 
@@ -340,6 +346,63 @@ would need one of:
    from `LLMGuidedSearch` to `LLMSeededLFBOTreeSearch` and let
    stage-2 surrogate search explore around library configs). Not
    a round-0 metric win, but drives final verified perf down.
+
+- **2026-05-08 N4a (LFBOTreeSearch full-effort archive expansion) —
+  done.** rms_norm 2232 unique configs (199–451/shape, 7.7× old),
+  layer_norm 2826 (280–694/shape, 7.0×), softmax 2138 (221–413/shape).
+  ~64 minutes across all train shapes. Plan rule change: archive
+  expansion must always use default LFBOTreeSearch at full effort.
+
+- **2026-05-08 Heuristic rebuild on fresh archive.** With the fresh
+  dense archive and `threshold=1.05`, `heuristic_generator` now
+  selects only 4–5 configs per kernel with max_slowdown 1.004–1.018
+  (vs 7–9 configs at 1.093 max_slowdown on the old archive).
+
+- **2026-05-08 N4b (library + prompt-context evidence) — measured.**
+  Top-5-per-shape library (31–35 configs) + evidence block describing
+  the nearest archived shapes in the round-0 prompt. Family train
+  `0.925`, heldout `0.976`. Per kernel:
+  - layer_norm: train `0.928`, heldout `1.008`, delta `+0.079`
+  - rms_norm: train `0.958`, heldout `0.924`, delta `−0.034`
+  - softmax: train `0.890`, heldout `0.998`, delta `+0.109`
+
+  N4b is essentially identical to N2b. The bigger library and
+  evidence block do not move the needle on heldout.
+
+- **2026-05-08 Oracle-baseline gap analysis — explains the plateau.**
+  For each train shape we computed `baseline_ms / oracle_ms` where
+  `oracle_ms` is the fastest time in the N4a fresh archive (top of
+  ~2500 configs per kernel). Result:
+
+  | kernel | train geomean baseline/oracle | implied heuristic ceiling |
+  |---|---:|---:|
+  | layer_norm | 1.077 | 0.928 |
+  | rms_norm | 1.056 | 0.947 |
+  | softmax | 1.123 | 0.890 |
+
+  The implied ceiling is how low `round0_best_geo` can possibly go
+  given that the baseline arm's LLM already finds a config within
+  5–12% of the true oracle. Our measured N4b numbers (train 0.928,
+  0.958, 0.890) are at or within 1% of those ceilings.
+
+  **Conclusion:** the 0.80 terminal goal was unreachable *given
+  Opus 4.7 as the baseline LLM*. Claude Opus 4.7 with extended
+  thinking is already a strong autotuner: its round-0 best config
+  is within 5–12% of the actual per-shape oracle. No AOT heuristic
+  can take more than that from it.
+
+  For the 0.80 goal to become reachable, one of these has to change:
+  - **Weaker baseline LLM.** Using a model that is 20%+ off oracle
+    on round 0 (e.g. Haiku, or gpt-5-2 without reasoning) leaves
+    room for the heuristic to win.
+  - **Different scoring metric.** `verified_geo` (final best after
+    LFBO refinement) would let N4c's LFBO handoff contribute real
+    gains that round-0 cannot.
+  - **Harder kernel family.** Norms are a regular row-reduction
+    pattern; a stronger LLM finds them easily. Kernels where the
+    LLM is weak (e.g. irregular fused ops, unusual indexing) would
+    show a larger baseline/oracle gap and therefore a larger
+    heuristic ceiling.
 
 ## Current best policy (end of this session)
 

@@ -1,0 +1,26 @@
+{
+  "rms_norm": {
+    "kernel": "rms_norm",
+    "pooled_csv": "llm_heuristics_artifacts/norms/iterations/N4a_fresh_archive/runs/rms_norm/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "selected_configs": 4,
+    "max_slowdown": 1.0176055623566969,
+    "geomean_slowdown": 1.0080557849243013,
+    "model_accuracy": 1.0
+  },
+  "layer_norm": {
+    "kernel": "layer_norm",
+    "pooled_csv": "llm_heuristics_artifacts/norms/iterations/N4a_fresh_archive/runs/layer_norm/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "selected_configs": 4,
+    "max_slowdown": 1.0044843391697826,
+    "geomean_slowdown": 1.0033204296660172,
+    "model_accuracy": 1.0
+  },
+  "softmax": {
+    "kernel": "softmax",
+    "pooled_csv": "llm_heuristics_artifacts/norms/iterations/N4a_fresh_archive/runs/softmax/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "selected_configs": 5,
+    "max_slowdown": 1.0044444783629833,
+    "geomean_slowdown": 1.0012743731441325,
+    "model_accuracy": 1.0
+  }
+}
