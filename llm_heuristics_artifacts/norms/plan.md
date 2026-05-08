@@ -404,6 +404,37 @@ would need one of:
     show a larger baseline/oracle gap and therefore a larger
     heuristic ceiling.
 
+- **2026-05-08 N5 (A/B vs upstream pretuned_kernels/*_sm100.py) —
+  measured.** Cloned upstream heuristic files from
+  `pytorch/helion@main:pretuned_kernels/{kernel}/_helion_aot_{kernel}_cuda_sm100.py`
+  and ran them as library seeds on the same shape grid. Result:
+
+  | kernel | scope   | N4b ours | N5 upstream | diff |
+  |---|---|---:|---:|---|
+  | layer_norm | train   | 0.928 | 0.947 | ours 1.9 pp better |
+  | layer_norm | heldout | 1.008 | 1.000 | upstream 0.8 pp better |
+  | rms_norm   | train   | 0.958 | 0.944 | upstream 1.4 pp better |
+  | rms_norm   | heldout | 0.924 | 0.924 | tied |
+  | softmax    | train   | 0.890 | 0.896 | ours 0.6 pp better |
+  | softmax    | heldout | 0.998 | 0.999 | tied |
+  | family     | train   | 0.925 | 0.929 | ours 0.4 pp better |
+  | family     | heldout | 0.976 | 0.974 | upstream 0.2 pp better |
+
+  Differences are within measurement noise. Upstream and ours are
+  structurally identical (same `heuristic_generator.py` template)
+  and within 0.5 pp on every scope. Upstream has more configs (7 vs
+  our 4-5) tuned on older Triton/torch; ours has fewer configs at
+  tighter max_slowdown from the fresh LFBO archive. Neither clearly
+  dominates.
+
+  **Conclusion on value:** Upstream's pretuned files already
+  capture most of the available value for norm kernels. The
+  measured oracle ceiling (0.89-0.95 per kernel on train) is less
+  than 1 pp away from upstream's score. Our session's contribution
+  is infrastructure + methodology (Bedrock provider, evidence-block
+  prompting, fresh-archive pipeline, oracle-gap measurement), not
+  a materially better heuristic for this kernel family.
+
 ## Current best policy (end of this session)
 
 For packaging, **rms_norm** is the only kernel with a clean,
