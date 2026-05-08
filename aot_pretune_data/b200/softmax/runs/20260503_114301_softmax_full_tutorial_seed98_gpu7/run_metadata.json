@@ -1,0 +1,14 @@
+{
+  "run_id": "20260503_114301_softmax_full_tutorial_seed98_gpu7",
+  "hardware_id": "cuda_NVIDIA_B200_13.0",
+  "benchmark_cmd": [
+    "/home/jongsokchoi/.conda/envs/helion_2/bin/python",
+    "tutorials/softmax/softmax.py"
+  ],
+  "goal_type": "max_slowdown",
+  "threshold": 1.1,
+  "max_configs": 10,
+  "started_at": "2026-05-03T11:43:04.674645",
+  "completed_at": "2026-05-03T13:00:15.011198",
+  "success": true
+}

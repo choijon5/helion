@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import os
 import textwrap
 from typing import TYPE_CHECKING
+
+import torch
 
 from .configs import describe_config_space
 from .feedback import MAX_CHANGED_FIELDS_PER_CONFIG
@@ -104,6 +108,85 @@ def _bullet_section(title: str, lines: Sequence[str]) -> str:
 def _join_sections(*sections: str) -> str:
     """Join non-empty prompt sections with a blank line."""
     return "\n\n".join(section for section in sections if section)
+
+
+def _build_observed_heuristics_section(args: Sequence[object]) -> str:
+    """Load and format observed heuristics for LLM prompt.
+
+    Reads JSON file specified by HELION_LLM_OBSERVED_HEURISTICS_PATH env var.
+    Finds the dimension bucket matching the workload and formats the top
+    observed configs for inclusion in the prompt.
+
+    Returns empty string if no observed heuristics available or workload
+    doesn't match expected structure.
+    """
+    observed_path = os.getenv("HELION_LLM_OBSERVED_HEURISTICS_PATH")
+    if not observed_path or not os.path.exists(observed_path):
+        return ""
+
+    # Extract workload dimension from input tensor
+    # Assumes first arg is the input tensor with shape (batch, dim)
+    if not args or not isinstance(args[0], torch.Tensor) or args[0].ndim < 2:
+        return ""
+
+    dim = args[0].shape[1]
+
+    # Load observed heuristics JSON
+    try:
+        with open(observed_path) as f:
+            observed = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+    # Find matching bucket
+    for bucket_name, examples in observed.items():
+        if not examples:
+            continue
+
+        # Parse bucket range (e.g., "1024-4096" or "10000+")
+        if "+" in bucket_name:
+            # Handle "10000+" format
+            try:
+                dim_min = int(bucket_name.replace("+", ""))
+                dim_max = float("inf")
+            except ValueError:
+                continue
+        else:
+            # Handle "1024-4096" format
+            parts = bucket_name.split("-")
+            if len(parts) != 2:
+                continue
+            try:
+                dim_min = int(parts[0])
+                dim_max = int(parts[1])
+            except ValueError:
+                continue
+
+        if dim_min <= dim < dim_max:
+            # Build prompt section
+            lines = [
+                "## Previously Observed Configs",
+                "",
+                f"For similar shapes (dim range {bucket_name}), these configs performed well in training:",
+                "",
+            ]
+            for i, ex in enumerate(examples[:3], 1):
+                cfg = ex["config"]
+                lines.append(
+                    f"{i}. Shape {ex['shape_id']} (dim={ex['dim']}) → {ex['timing_ms']}ms"
+                )
+                lines.append(
+                    f"   num_warps={cfg.get('num_warps')}, num_stages={cfg.get('num_stages')}, block_sizes={cfg.get('block_sizes')}"
+                )
+                lines.append(
+                    f"   pid_type={cfg.get('pid_type')}, indexing={cfg.get('indexing', [])[:3]}..."
+                )
+                if cfg.get("reduction_loops"):
+                    lines.append(f"   reduction_loops={cfg.get('reduction_loops')}")
+                lines.append("")
+            return "\n".join(lines)
+
+    return ""
 
 
 def _initial_strategy_lines(
@@ -217,6 +300,7 @@ def build_initial_prompt(
         _section("Default Configuration", format_config_for_prompt(default_config))
         + workload_hints
     )
+    observed_section = _build_observed_heuristics_section(args)
     task_section = (
         "Suggest the first batch of configs. Include both near-default and exploratory candidates. "
         f"{RETURN_JSON_ONLY}"
@@ -225,6 +309,7 @@ def build_initial_prompt(
         describe_kernel(kernel, args),
         _section("Configuration Space", describe_config_space(config_spec)),
         default_section,
+        observed_section,
         guidance,
         _section("Task", task_section),
     )

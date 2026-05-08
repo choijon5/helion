@@ -1,0 +1,15 @@
+{
+  "matmul": {
+    "num_configs": 7,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.0901988882998304,
+      "geomean_slowdown": 1.0123588533094316,
+      "avg_slowdown": 1.0125987155802503,
+      "satisfied_ratio": 1.0,
+      "num_configs": 7,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}

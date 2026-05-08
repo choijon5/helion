@@ -1,0 +1,15 @@
+{
+  "softmax": {
+    "num_configs": 3,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.0386847905289713,
+      "geomean_slowdown": 1.0033370175913576,
+      "avg_slowdown": 1.0033667571636273,
+      "satisfied_ratio": 1.0,
+      "num_configs": 3,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}

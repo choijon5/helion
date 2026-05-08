@@ -1,0 +1,15 @@
+{
+  "cross_entropy": {
+    "num_configs": 3,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.0621431347683212,
+      "geomean_slowdown": 1.016742553382345,
+      "avg_slowdown": 1.016914067106046,
+      "satisfied_ratio": 1.0,
+      "num_configs": 3,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}

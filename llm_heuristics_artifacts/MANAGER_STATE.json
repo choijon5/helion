@@ -1,0 +1,50 @@
+{
+  "project": "llm_heuristics_softmax",
+  "goal": "round0_best_geo <= 0.80",
+  "status": "in_progress",
+
+  "progress": {
+    "iteration": 2,
+    "current_phase": "Phase 2B - Testing Approach B",
+    "approaches_tested": [
+      {
+        "name": "Approach A (decision tree)",
+        "score": 1.0376,
+        "status": "failed",
+        "completed_at": "2026-05-08T06:15:00Z"
+      }
+    ],
+    "current_best_score": 1.0376,
+    "baseline_score": 1.0
+  },
+
+  "resources": {
+    "time_invested_hours": 0.3,
+    "time_budget_hours": 40,
+    "time_remaining_hours": 39.7,
+    "iterations_run": 2
+  },
+
+  "active_work": {
+    "subagent_type": "Measurement",
+    "subagent_id": "a45504a5a651b41b0",
+    "task": "Testing Approach B (observed examples)",
+    "started_at": "2026-05-08T06:20:00Z",
+    "expected_duration_minutes": 7
+  },
+
+  "escalation_tracking": {
+    "consecutive_failures": 1,
+    "consecutive_stuck_count": 0,
+    "approaches_exhausted": false,
+    "proposal_spawned": false
+  },
+
+  "metadata": {
+    "kernel": "softmax",
+    "shapes": 12,
+    "repeats": 3,
+    "last_updated": "2026-05-08T06:20:00Z",
+    "manager_version": "1.0"
+  }
+}

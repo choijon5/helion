@@ -10,12 +10,23 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import TypeVar
 
-from rich.progress import BarColumn
-from rich.progress import MofNCompleteColumn
-from rich.progress import Progress
-from rich.progress import ProgressColumn
-from rich.progress import TextColumn
-from rich.text import Text
+try:
+    from rich.progress import BarColumn
+    from rich.progress import MofNCompleteColumn
+    from rich.progress import Progress
+    from rich.progress import ProgressColumn
+    from rich.progress import TextColumn
+    from rich.text import Text
+    HAS_RICH = True
+except ImportError:
+    HAS_RICH = False
+    BarColumn = None
+    MofNCompleteColumn = None
+    Progress = None
+    ProgressColumn = None
+    TextColumn = None
+    Text = None
+
 import torch
 
 from helion._dist_utils import is_master_rank
@@ -29,14 +40,17 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class SpeedColumn(ProgressColumn):
-    """Render the processing speed in configs per second."""
+if HAS_RICH:
+    class SpeedColumn(ProgressColumn):
+        """Render the processing speed in configs per second."""
 
-    def render(self, task: Task) -> Text:
-        return Text(
-            f"{task.speed:.1f} configs/s" if task.speed is not None else "- configs/s",
-            style="magenta",
-        )
+        def render(self, task: Task) -> Text:
+            return Text(
+                f"{task.speed:.1f} configs/s" if task.speed is not None else "- configs/s",
+                style="magenta",
+            )
+else:
+    SpeedColumn = None
 
 
 def iter_with_progress(
@@ -56,7 +70,7 @@ def iter_with_progress(
         When ``False`` the iterable is returned unchanged so there is zero
         overhead; when ``True`` a Rich progress bar is rendered.
     """
-    if (not enabled) or torch._utils_internal.is_fb_unit_test() or not is_master_rank():
+    if (not enabled) or not HAS_RICH or torch._utils_internal.is_fb_unit_test() or not is_master_rank():
         yield from iterable
         return
 

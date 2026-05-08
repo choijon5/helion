@@ -22,7 +22,13 @@ from typing import cast
 import unittest
 from unittest.mock import patch
 
-import pytest
+try:
+    import pytest
+    HAS_PYTEST = True
+except ImportError:
+    pytest = None
+    HAS_PYTEST = False
+
 import torch
 import torch.distributed as dist
 from torch.utils._pytree import tree_map

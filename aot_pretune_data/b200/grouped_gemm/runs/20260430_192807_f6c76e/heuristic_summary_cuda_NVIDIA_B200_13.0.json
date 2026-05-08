@@ -1,0 +1,15 @@
+{
+  "grouped_gemm": {
+    "num_configs": 3,
+    "model_accuracy": 1.0,
+    "performance_stats": {
+      "max_slowdown": 1.0362559421126016,
+      "geomean_slowdown": 1.004461694161924,
+      "avg_slowdown": 1.0045319927640752,
+      "satisfied_ratio": 1.0,
+      "num_configs": 3,
+      "num_partitions": 1
+    },
+    "backend": "decision_tree"
+  }
+}
