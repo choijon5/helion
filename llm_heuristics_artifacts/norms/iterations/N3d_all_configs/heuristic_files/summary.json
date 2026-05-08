@@ -1,0 +1,17 @@
+{
+  "layer_norm": {
+    "kernel": "layer_norm",
+    "n_unique": 9,
+    "n_kept": 9
+  },
+  "rms_norm": {
+    "kernel": "rms_norm",
+    "n_unique": 7,
+    "n_kept": 7
+  },
+  "softmax": {
+    "kernel": "softmax",
+    "n_unique": 256,
+    "n_kept": 30
+  }
+}

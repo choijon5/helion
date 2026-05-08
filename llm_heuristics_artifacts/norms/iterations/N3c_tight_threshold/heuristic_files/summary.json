@@ -1,0 +1,23 @@
+{
+  "layer_norm": {
+    "kernel": "layer_norm",
+    "selected_configs": 9,
+    "max_slowdown": 1.0,
+    "geomean_slowdown": 1.0000000001,
+    "model_accuracy": 0.8292682926829268
+  },
+  "rms_norm": {
+    "kernel": "rms_norm",
+    "selected_configs": 7,
+    "max_slowdown": 1.0,
+    "geomean_slowdown": 1.0000000001,
+    "model_accuracy": 1.0
+  },
+  "softmax": {
+    "kernel": "softmax",
+    "selected_configs": 14,
+    "max_slowdown": 1.0078431972305022,
+    "geomean_slowdown": 1.0005862867357895,
+    "model_accuracy": 0.6616161616161617
+  }
+}

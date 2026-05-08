@@ -1,0 +1,29 @@
+{
+  "layer_norm": {
+    "kernel": "layer_norm",
+    "backend": "nearest_neighbor",
+    "max_configs_target": 20,
+    "selected_configs": 9,
+    "max_slowdown": 1.0,
+    "geomean_slowdown": 1.0000000001,
+    "model_accuracy": 0.5853658536585366
+  },
+  "rms_norm": {
+    "kernel": "rms_norm",
+    "backend": "nearest_neighbor",
+    "max_configs_target": 20,
+    "selected_configs": 7,
+    "max_slowdown": 1.0,
+    "geomean_slowdown": 1.0000000001,
+    "model_accuracy": 0.5
+  },
+  "softmax": {
+    "kernel": "softmax",
+    "backend": "nearest_neighbor",
+    "max_configs_target": 20,
+    "selected_configs": 7,
+    "max_slowdown": 1.096153794490242,
+    "geomean_slowdown": 1.005246885016561,
+    "model_accuracy": 0.803030303030303
+  }
+}

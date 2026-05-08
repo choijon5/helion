@@ -65,30 +65,112 @@ def _load_round0_heuristic_config(
     spec.loader.exec_module(module)
     autotune_fn = getattr(module, f"autotune_{kernel_name}", None)
     if autotune_fn is None:
-        return None
+        # Fall back to the first autotune_* function in the module. The
+        # archive-side kernel name (e.g. "rms_norm") can differ from the
+        # Python function name (e.g. "rms_norm_fwd"), so looking up by the
+        # exact live-kernel name may miss.
+        for attr in dir(module):
+            if attr.startswith("autotune_") and callable(getattr(module, attr)):
+                autotune_fn = getattr(module, attr)
+                break
+    if autotune_fn is None:
+        raise RuntimeError(
+            f"No autotune_* function found in heuristic module {heuristic_path}"
+        )
     cfg_dict = autotune_fn(*args)
     if cfg_dict is None:
         return None
     return Config(**cfg_dict)
 
 
-class _SeededLLMGuidedSearch(LLMGuidedSearch):
-    """LLMGuidedSearch variant that adds a heuristic-picked seed config."""
+def _load_round0_heuristic_library(heuristic_path: Path) -> list[Config]:
+    """Extract the full list of candidate configs (``_C = [...]``) from a
+    generated AOT heuristic file.
 
-    def __init__(self, *args, seed_config: Config | None = None, **kwargs):
+    The tree-chosen config from ``_load_round0_heuristic_config`` is
+    always one of these; using the whole list as seeds gives round 0
+    many good starting points instead of one.
+    """
+    import ast
+
+    tree = ast.parse(heuristic_path.read_text())
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "_C"
+            and isinstance(node.value, ast.List)
+        ):
+            configs: list[Config] = []
+            for elt in node.value.elts:
+                if not isinstance(elt, ast.Dict):
+                    continue
+                try:
+                    cfg_dict = ast.literal_eval(elt)
+                except (ValueError, SyntaxError):
+                    continue
+                configs.append(Config(**cfg_dict))
+            if configs:
+                return configs
+    raise RuntimeError(
+        f"Could not extract _C config list from heuristic module {heuristic_path}"
+    )
+
+
+class _SeededLLMGuidedSearch(LLMGuidedSearch):
+    """LLMGuidedSearch variant that adds heuristic-picked seed configs.
+
+    Two modes:
+      - ``seed_config`` (single config): inserted at the front of the seed
+        list; default + random seeds are preserved.
+      - ``seed_library`` (list of configs): ALL library configs are
+        inserted at the front of the seed list. This mode is intended
+        for "heuristic dominates round 0" experiments (N2b onwards)
+        where we also drop ``initial_random_configs`` to 0 at the caller.
+    """
+
+    def __init__(
+        self,
+        *args,
+        seed_config: Config | None = None,
+        seed_library: list[Config] | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._extra_seed_config = seed_config
+        self._extra_seed_library: list[Config] = list(seed_library or [])
+        self._seed_config_compile_failed = False
 
     def _build_seed_configs(self):
         seeds = super()._build_seed_configs()
-        if self._extra_seed_config is None:
+        extras: list[Config] = []
+        if self._extra_seed_library:
+            extras.extend(self._extra_seed_library)
+        elif self._extra_seed_config is not None:
+            extras.append(self._extra_seed_config)
+        if not extras:
             return seeds
-        # Put the heuristic seed at the front; dedupe by flatten key.
         seen = {self._config_key(c) for c in seeds}
-        extra_key = self._config_key(self._extra_seed_config)
-        if extra_key in seen:
-            return seeds
-        return [self._extra_seed_config, *seeds]
+        out: list[Config] = []
+        for cfg in extras:
+            key = self._config_key(cfg)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(cfg)
+        return [*out, *seeds]
+
+    def _ingest_results(self, results):
+        """Detect whether the heuristic-seeded config compiled and ran ok."""
+        super()._ingest_results(results)
+        if self._extra_seed_config is None:
+            return
+        seed_key = self._config_key(self._extra_seed_config)
+        for r in results:
+            if self._config_key(r.config) == seed_key and r.status != "ok":
+                self._seed_config_compile_failed = True
+                break
 
 
 def _run_one_shape(
@@ -97,6 +179,7 @@ def _run_one_shape(
     dtype_name: str,
     *,
     heuristic_path: Path | None,
+    heuristic_mode: str,
     llm_model: str,
     llm_provider: str,
     configs_per_round: int,
@@ -106,38 +189,66 @@ def _run_one_shape(
     kernel_fn, args = build_kernel_and_args(kernel_name, shape_entry, dtype_name)
     bound = kernel_fn.bind(args)
     seed_config = None
+    seed_library: list[Config] = []
+    effective_randoms = initial_random_configs
     if heuristic_path is not None:
-        seed_config = _load_round0_heuristic_config(
-            heuristic_path, kernel_fn.name, args
-        )
+        if heuristic_mode == "library":
+            seed_library = _load_round0_heuristic_library(heuristic_path)
+            effective_randoms = 0
+            # Tree-picked config: prepend so it is still first after dedupe.
+            picked = _load_round0_heuristic_config(
+                heuristic_path, kernel_fn.name, args
+            )
+            if picked is not None:
+                lib_keys = {json.dumps(dict(c), sort_keys=True) for c in seed_library}
+                pk = json.dumps(dict(picked), sort_keys=True)
+                if pk in lib_keys:
+                    # reorder: picked first, then others
+                    seed_library = [picked] + [
+                        c
+                        for c in seed_library
+                        if json.dumps(dict(c), sort_keys=True) != pk
+                    ]
+                else:
+                    seed_library = [picked, *seed_library]
+                seed_config = picked
+        else:  # "tree" (single tree-picked config)
+            seed_config = _load_round0_heuristic_config(
+                heuristic_path, kernel_fn.name, args
+            )
     search = _SeededLLMGuidedSearch(
         bound,
         args,
         provider=llm_provider,
         model=llm_model,
         configs_per_round=configs_per_round,
-        initial_random_configs=initial_random_configs,
+        initial_random_configs=effective_randoms,
         max_rounds=1,
         finishing_rounds=0,
         request_timeout_s=request_timeout_s,
-        seed_config=seed_config,
+        seed_config=seed_config if not seed_library else None,
+        seed_library=seed_library,
     )
     search.autotune()
     rows: list[dict[str, Any]] = []
+    library_hashes = {_config_hash(c) for c in seed_library}
     for res in search._all_benchmark_results:
         perf_ms = res.perf * 1000.0 if res.status == "ok" else float("inf")
+        ch = _config_hash(res.config)
+        seeded = "0"
+        if seed_library and ch in library_hashes:
+            seeded = "1"
+        elif seed_config is not None and ch == _config_hash(seed_config):
+            seeded = "1"
         rows.append(
             {
                 "generation": 0,
-                "config_hash": _config_hash(res.config),
+                "config_hash": ch,
                 "config": json.dumps(dict(res.config), sort_keys=True),
                 "status": res.status,
                 "perf_ms": perf_ms,
                 "compile_time_s": res.compile_time if res.compile_time is not None else "",
-                "seeded_by_heuristic": "1"
-                if seed_config is not None
-                and _config_hash(res.config) == _config_hash(seed_config)
-                else "0",
+                "seeded_by_heuristic": seeded,
             }
         )
     return rows
@@ -163,6 +274,14 @@ def main(argv: list[str] | None = None) -> int:
         "--only-shape",
         default=None,
         help="Run only shapes with matching id (comma-separated for multiple).",
+    )
+    parser.add_argument(
+        "--heuristic-mode",
+        choices=["tree", "library"],
+        default="tree",
+        help="How to consume the heuristic. 'tree' injects only the "
+             "decision-tree-chosen config; 'library' injects all configs "
+             "from the heuristic's _C list and drops random seeds.",
     )
     args = parser.parse_args(argv)
 
@@ -228,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
                         shape_entry,
                         grid.get("dtype", "bfloat16"),
                         heuristic_path=heuristic_path,
+                        heuristic_mode=args.heuristic_mode,
                         llm_model=llm_model,
                         llm_provider=llm_provider,
                         configs_per_round=args.configs_per_round,
@@ -288,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         "llm_model": llm_model,
         "llm_provider": llm_provider,
         "heuristic_path": str(heuristic_path) if heuristic_path else None,
+        "heuristic_mode": args.heuristic_mode,
         "helion_anthropic_thinking_budget": os.environ.get(
             "HELION_LLM_ANTHROPIC_THINKING_BUDGET"
         ),

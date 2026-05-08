@@ -77,6 +77,11 @@ Secondary metrics reported on every gate but not optimized against:
 - **Overfit alarm:** `round0_best_geo_heldout − round0_best_geo_train >
   0.05` on any kernel is a FAIL, even if both numbers are below `0.90`. The
   gate demotes the candidate and goes back to propose.
+- **Integrity check:** on any heuristics-arm run, the seeded config hash
+  must appear in at least 80% of `(shape, repeat)` benchmark sets. If
+  it's missing in most repeats, the heuristic is failing silently — the
+  run is marked BLOCKED and the bug is fixed before any score is
+  trusted.
 
 ## Autotuner Configuration
 
@@ -159,18 +164,193 @@ construction):
 | softmax single run | 5 | 1.0288 | 1.0014 | 1.000 |
 | softmax 4-run pooled | 7 | 1.0962 | 1.0052 | 0.904 |
 
-Live `round0_best_geo` (to be measured in N0-live):
+Live `round0_best_geo` — best measured across gates (see "Running log"
+for history, and `iterations/*/scores.json` for per-gate breakdown):
 
-| kernel | scope | baseline | heuristics | round0_best_geo |
-|---|---|---:|---:|---:|
-| layer_norm | train | | | |
-| layer_norm | heldout | | | |
-| rms_norm | train | | | |
-| rms_norm | heldout | | | |
-| softmax | train | | | |
-| softmax | heldout | | | |
-| norm family (geomean) | train | | | |
-| norm family (geomean) | heldout | | | |
+| kernel | scope | best round0_best_geo | gate that produced it | notes |
+|---|---|---:|---|---|
+| layer_norm | train | 0.9291 | N3b | heldout flat (1.000) |
+| layer_norm | heldout | 1.0002 | N3b | overfit delta +0.071 |
+| rms_norm | train | 0.9512 | N2b | clean win |
+| rms_norm | heldout | 0.9232 | N2b | best heldout, only promotable kernel |
+| softmax | train | 0.8905 | N3d | train wins 11% |
+| softmax | heldout | 0.9993 | N3d | overfit delta +0.109 |
+| norm family | train | 0.9264 | N2b | |
+| norm family | heldout | 0.9740 | N3b | terminal goal 0.80 not reached |
+
+Terminal goal `round0_best_geo ≤ 0.80` not reached. Best family
+heldout so far is `0.974` (about 2.6% win vs baseline). See the
+"What it would take to reach 0.80" section at the end of the
+Running log for the archive-expansion + prompt-context follow-ons.
+
+## Running log
+
+Every gate updates this log with what ran, what we learned, and what
+changed in the plan. The plan above is the latest-truth; this log is the
+history behind it.
+
+- **2026-05-08 N0-live baseline** — ran 3 × 12 × 3 = 108 autotuning runs
+  on B200 via `LLMSeededSearch(max_rounds=1)` with Opus 4.7 + adaptive
+  reasoning. Reproducibility noise per shape:
+  layer_norm max spread 0.45%, rms_norm max 21% (one shape), softmax
+  max 92%. Softmax noise is high because the LLM picks different configs
+  each repeat; the ratio metric should tolerate it in expectation, but
+  some ratios will be noisy.
+
+- **2026-05-08 softmax kernel mismatch discovered** — `workloads.py`
+  wired softmax to `softmax_two_pass` (2 block_sizes), but the archive
+  was tuned against the simpler `softmax` (1 block_size). Fixed workloads
+  to use `softmax`, re-ran softmax baseline, dropped the old softmax
+  heuristics CSV. **Plan change**: added a compile-filter step to the
+  heuristic-build pipeline (N2) so stale/incompatible configs cannot
+  silently poison the seed.
+
+- **2026-05-08 N2 v1 failed — seed injection bug** — first N2 run produced
+  tiny changes (+/- 1-5%) rather than the expected win. Audit found the
+  heuristic seed was never in any benchmarked config: the `run_live.py`
+  seed-loader called `autotune_<kernel_fn.name>` where `kernel_fn.name`
+  is the Python function name (e.g. `rms_norm_fwd`), while the generated
+  heuristic exports `autotune_<csv_kernel_name>` (e.g. `autotune_rms_norm`).
+  Silent `None` return meant the heuristics arm effectively ran as
+  baseline + noise. **Plan change**: runner now falls back to the first
+  `autotune_*` callable in the module and raises if none found. New gate
+  acceptance bullet: "heuristics arm seed config hash must appear in at
+  least 80% of (shape, repeat) benchmark sets; otherwise treat as
+  invalid run."
+
+- **2026-05-08 Triton compile failures on archive configs** — some
+  archived configs with `num_stages=6 + indexing=tensor_descriptor`
+  fail Triton MLIR pipelining on the current nightly
+  (`ttg.local_alloc op does not have expected attribute ttg.partition`).
+  Compile-filter step catches and drops them before they reach the
+  seed path. rms_norm + layer_norm all compile; softmax archive uses
+  the 1-block-size `softmax` kernel so those configs also compile once
+  workloads.py points at the right entry.
+
+- **2026-05-08 N2 v2 (bugfix rerun) — measured** —
+  family train `0.972`, heldout `0.987`. Per kernel:
+  - layer_norm: train `0.949`, heldout `1.014`, delta `+0.065`
+    **overfit FAIL**.
+  - rms_norm: train `0.967`, heldout `0.948`, delta `−0.019` (clean
+    train+heldout win, but only 3–5%).
+  - softmax: train/heldout both `1.000` (no signal; the heuristic's
+    selected configs are not preferred over what the LLM finds).
+  Seed integrity: 100% of pairs contained the heuristic seed. Target
+  is `0.80` heldout family; we are at `0.987`. Gap = ~19 percentage
+  points.
+
+  **Takeaways:**
+  1. Single-seed injection is too weak: round 0 still benchmarks the
+     default + 3 random + 5 LLM configs, so the heuristic seed is
+     one of ~9 candidates. If any of the other 8 is near-oracle, the
+     heuristic contributes little.
+  2. layer_norm fails the 0.05 overfit rule: train and heldout have
+     different best-config patterns, suggesting the generated tree is
+     memorizing the archive's training shape set rather than
+     learning a transferable rule.
+  3. softmax archive-selected configs do not beat what the live LLM
+     picks on any shape. This matches the archived max_slowdown of
+     ~1.09 — the archive's "best" configs only win by 1% or so on
+     archive shapes, not enough to beat LLM-proposed configs on our
+     different grid.
+
+  **Plan change for N2b**: inject all configs from the heuristic's
+  selected set as seeds (not just the single tree-picked winner), and
+  reduce `initial_random_configs` to zero when the heuristic is
+  active. This shifts the heuristics arm from "one good guess + LLM"
+  to "good config library + LLM". Expected direction: strictly
+  better than N2 because the heuristic-picked tree leaf is *always*
+  in the seed library, plus the other 6–8 library configs give
+  broader coverage.
+
+- **2026-05-08 N2b (library injection) — measured** —
+  family train `0.926`, heldout `0.976`. Per kernel:
+  - layer_norm: train `0.929`, heldout `1.008`, delta `+0.079`
+    **overfit, worse than N2**.
+  - rms_norm: train `0.951`, heldout `0.923`, delta `−0.028`
+    **clean win, best heldout so far**.
+  - softmax: train `0.899`, heldout `0.999`, delta `+0.100`
+    **big train win, no heldout transfer**.
+
+  Library mode beats tree mode on all three kernels for train
+  performance, but held-out performance only improves meaningfully on
+  rms_norm. The problem is feature coverage: the 7–9 configs the
+  generator selects cover archived-training shapes well, but the
+  held-out slot in our grid hits shapes that need a different
+  config not in the library.
+
+  **Plan change for N3**: two parallel directions.
+    (a) **More diverse library** — re-run `heuristic_generator` with
+    `max_configs=20` so the library has richer shape-coverage.
+    (b) **NearestNeighbor backend** — swap
+    `backend='decision_tree'` for `backend='nearest_neighbor'`. NN
+    maps each new shape to the closest archive shape's winning
+    config; expected to generalize better on held-out than trees do.
+    Run (a) and (b) independently; pick whichever performs better on
+    layer_norm heldout (the weakest kernel).
+
+- **2026-05-08 N3a skipped** — raising `max_configs=10→20` produced
+  identical heuristics. The greedy set-cover already stopped at 7–9
+  because threshold=1.10 was satisfied; bigger budget didn't add
+  configs. No re-run needed; N3a=N2b.
+
+- **2026-05-08 N3b (NN, library) — measured** —
+  family train `0.932`, heldout `0.974`. Per-kernel nearly identical
+  to N2b (delta < 0.003). Conclusion: backend swap doesn't change
+  outcomes when the library is the same 7–9 configs — all library
+  configs are benchmarked, so whichever is best wins regardless of
+  selection rule.
+
+- **2026-05-08 N3c (tight threshold=1.01) + N3d (top-30 archive
+  configs) — measured** —
+  - N3c: layer_norm and rms_norm pools are *already* set-cover
+    minimal; tightening threshold added no configs. softmax grew
+    7 → 14 configs.
+  - N3d: dumped all unique configs from archive CSVs.
+    layer_norm has 9 unique total, rms_norm 7 total, softmax 256.
+    Taking top 30 for softmax: N3d softmax train `0.891`, heldout
+    `1.000`. No meaningful change over N2b.
+
+  **Finding that stops the loop**: the layer_norm archive only
+  contains **9 unique configs** post compile-filter; rms_norm only 7.
+  Those libraries have already been exhausted (both tree and NN
+  return the same library; tight threshold doesn't add to it; direct
+  dump tops out at 9/7). The LLM round-0 baseline already finds
+  configs that tie the library on most held-out shapes. The only
+  shapes where heuristics win decisively are the 2–3 shapes where
+  the library contains a specific good config the LLM doesn't
+  propose. The family heldout floor with this archive is about
+  **0.95**, not `0.80`.
+
+## What it would take to reach 0.80
+
+The bottleneck is archive size, not mechanism. A follow-on effort
+would need one of:
+
+1. **Expand the archive.** Run fresh autotune on this B200 / Triton
+   nightly for a broader shape grid (both train and extra held-out
+   "archive" shapes), producing 30–50 unique configs per kernel. The
+   existing `heuristic_generator` machinery consumes this directly.
+   Expected time: ~hours per kernel.
+2. **Give the LLM the archive-measurement CSV in the prompt** so
+   Opus 4.7 can propose library-aware configs on live shapes. This
+   is a core-source change to `helion/autotuner/llm/prompting.py`
+   and requires user approval.
+3. **Combine the library with 1-2 LFBO refinement rounds** (move
+   from `LLMGuidedSearch` to `LLMSeededLFBOTreeSearch` and let
+   stage-2 surrogate search explore around library configs). Not
+   a round-0 metric win, but drives final verified perf down.
+
+## Current best policy (end of this session)
+
+For packaging, **rms_norm** is the only kernel with a clean,
+promotable N2b heuristic (train 0.951, heldout 0.923, delta
+−0.028). layer_norm and softmax show train wins but heldout is
+flat; they should not be promoted without more archive data.
+
+Not at the 0.80 terminal goal — current family heldout best is
+**0.974** (N3b). Honest stopping point; next unit is archive
+expansion.
 
 ## Gates
 

@@ -41,11 +41,11 @@ def _args_rms_norm(shape_args: dict[str, Any], dtype: torch.dtype, device: str):
 
 
 def _args_softmax(shape_args: dict[str, Any], dtype: torch.dtype, device: str):
-    from examples.softmax import softmax_two_pass
+    from examples.softmax import softmax
 
     rows, cols = shape_args["rows"], shape_args["cols"]
     x = torch.randn(rows, cols, device=device, dtype=dtype)
-    return softmax_two_pass, (x,)
+    return softmax, (x,)
 
 
 _BUILDERS: dict[str, Callable[..., Any]] = {

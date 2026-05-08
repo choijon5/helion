@@ -1,0 +1,49 @@
+{
+  "layer_norm": {
+    "kernel": "layer_norm",
+    "pooled_csv": "llm_heuristics_artifacts/norms/iterations/N2_seed/heuristic_files/layer_norm_pooled.csv",
+    "pooled_rows": 8130,
+    "n_configs_selected": 9,
+    "max_slowdown": 1.0932162309207276,
+    "geomean_slowdown": 1.017173056590855,
+    "avg_slowdown": 1.0175529825712843,
+    "model_accuracy": 0.8292682926829268,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1",
+      "arg0_numel"
+    ]
+  },
+  "rms_norm": {
+    "kernel": "rms_norm",
+    "pooled_csv": "llm_heuristics_artifacts/norms/iterations/N2_seed/heuristic_files/rms_norm_pooled.csv",
+    "pooled_rows": 839,
+    "n_configs_selected": 7,
+    "max_slowdown": 1.005208297016706,
+    "geomean_slowdown": 1.0005553167794148,
+    "avg_slowdown": 1.0005563446610657,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1",
+      "arg0_numel"
+    ]
+  },
+  "softmax": {
+    "kernel": "softmax",
+    "pooled_csv": "llm_heuristics_artifacts/norms/iterations/N2_seed/heuristic_files/softmax_pooled.csv",
+    "pooled_rows": 58868,
+    "n_configs_selected": 7,
+    "max_slowdown": 1.096153794490242,
+    "geomean_slowdown": 1.005246885016561,
+    "avg_slowdown": 1.0053409986312558,
+    "model_accuracy": 0.9040404040404041,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1"
+    ]
+  }
+}
