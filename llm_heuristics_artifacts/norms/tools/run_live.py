@@ -47,6 +47,7 @@ from llm_heuristics_artifacts.norms.tools.workloads import build_kernel_and_args
 import helion
 from helion.autotuner.base_search import BenchmarkResult
 from helion.autotuner.llm_search import LLMGuidedSearch
+from helion.autotuner.llm_seeded_lfbo import LLMSeededLFBOTreeSearch
 from helion.runtime.config import Config
 
 
@@ -81,6 +82,131 @@ def _load_round0_heuristic_config(
     if cfg_dict is None:
         return None
     return Config(**cfg_dict)
+
+
+def _load_archive_evidence(
+    archive_csvs: list[Path],
+    args: tuple[Any, ...],
+    *,
+    k_nearest_shapes: int = 4,
+    top_k_configs: int = 3,
+) -> str | None:
+    """Build a compact evidence block for the round-0 prompt.
+
+    Finds the ``k_nearest_shapes`` archived shapes closest to the live
+    args (by log(numel) + log(row/col ratio)) and lists the
+    ``top_k_configs`` fastest archived configs per match. Returns a
+    human-readable block suitable to prepend to the LLM prompt, or
+    ``None`` if the archive has no compatible shapes.
+
+    The match uses only shape features, never config hashes or
+    archive-only identifiers, so the output is safe to include in a
+    prompt without feature-audit hits.
+    """
+    import csv as _csv
+    import math as _math
+
+    if not archive_csvs:
+        return None
+
+    # Extract live-shape features
+    live_tensor = args[0] if args and isinstance(args[0], torch.Tensor) else None
+    if live_tensor is None or live_tensor.ndim < 2:
+        return None
+    live_rows = int(live_tensor.shape[0])
+    live_cols = int(live_tensor.shape[1])
+    if live_rows <= 0 or live_cols <= 0:
+        return None
+
+    live_log_numel = _math.log2(live_rows * live_cols)
+    live_log_ratio = _math.log2(max(live_cols, 1) / max(live_rows, 1))
+
+    # Group archive rows by (shape_hash, rows, cols); pick fastest config per hash
+    shape_info: dict[str, dict[str, Any]] = {}
+    for csv_path in archive_csvs:
+        try:
+            with open(csv_path) as f:
+                reader = _csv.DictReader(f)
+                for row in reader:
+                    try:
+                        features = json.loads(row["shape_features"])
+                        cfg = json.loads(row["config"])
+                        perf = float(row["timing_ms"])
+                    except (KeyError, ValueError, json.JSONDecodeError):
+                        continue
+                    rows_a = features.get("arg0_dim0")
+                    cols_a = features.get("arg0_dim1")
+                    if rows_a is None or cols_a is None:
+                        continue
+                    h = row.get("shape_hash", "")
+                    if h not in shape_info:
+                        shape_info[h] = {
+                            "rows": int(rows_a),
+                            "cols": int(cols_a),
+                            "configs": [],
+                        }
+                    shape_info[h]["configs"].append((perf, cfg))
+        except (FileNotFoundError, OSError):
+            continue
+
+    if not shape_info:
+        return None
+
+    # Rank shapes by distance to live shape
+    def _dist(entry: dict[str, Any]) -> float:
+        r, c = entry["rows"], entry["cols"]
+        if r <= 0 or c <= 0:
+            return float("inf")
+        return abs(_math.log2(r * c) - live_log_numel) + abs(
+            _math.log2(c / r) - live_log_ratio
+        )
+
+    ranked = sorted(shape_info.items(), key=lambda kv: _dist(kv[1]))[
+        :k_nearest_shapes
+    ]
+    if not ranked:
+        return None
+
+    lines: list[str] = [
+        "",
+        "## Archived measurements for similar shapes",
+        "",
+        "The following configs were tuned offline on this kernel for "
+        "shapes near the one you are about to propose configs for, on "
+        "NVIDIA B200. Lower timing is better. Use these as evidence, "
+        "not a constraint. Prefer 3-5 configs that look like these or "
+        "like plausible refinements, plus 1-2 that try a different "
+        "family.",
+        "",
+        f"Live shape: rows={live_rows}, cols={live_cols}, "
+        f"numel={live_rows * live_cols}, dtype={live_tensor.dtype}.",
+        "",
+    ]
+    for _, entry in ranked:
+        top_cfgs = sorted(entry["configs"], key=lambda t: t[0])[:top_k_configs]
+        if not top_cfgs:
+            continue
+        lines.append(
+            f"Archived shape rows={entry['rows']}, cols={entry['cols']} "
+            f"(numel={entry['rows'] * entry['cols']}):"
+        )
+        for perf, cfg in top_cfgs:
+            brief = {
+                k: cfg.get(k)
+                for k in (
+                    "block_sizes",
+                    "num_warps",
+                    "num_stages",
+                    "pid_type",
+                    "indexing",
+                    "reduction_loops",
+                    "range_warp_specializes",
+                )
+                if k in cfg
+            }
+            lines.append(f"  - {brief}  {perf:.3f} ms")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def _load_round0_heuristic_library(heuristic_path: Path) -> list[Config]:
@@ -135,12 +261,20 @@ class _SeededLLMGuidedSearch(LLMGuidedSearch):
         *args,
         seed_config: Config | None = None,
         seed_library: list[Config] | None = None,
+        evidence_block: str | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self._extra_seed_config = seed_config
         self._extra_seed_library: list[Config] = list(seed_library or [])
+        self._evidence_block = evidence_block
         self._seed_config_compile_failed = False
+
+    def _build_initial_prompt(self) -> str:
+        base = super()._build_initial_prompt()
+        if not self._evidence_block:
+            return base
+        return f"{base}\n{self._evidence_block}"
 
     def _build_seed_configs(self):
         seeds = super()._build_seed_configs()
@@ -185,12 +319,16 @@ def _run_one_shape(
     configs_per_round: int,
     initial_random_configs: int,
     request_timeout_s: float,
+    evidence_archives: list[Path] | None = None,
 ) -> list[dict[str, Any]]:
     kernel_fn, args = build_kernel_and_args(kernel_name, shape_entry, dtype_name)
     bound = kernel_fn.bind(args)
     seed_config = None
     seed_library: list[Config] = []
     effective_randoms = initial_random_configs
+    evidence_block: str | None = None
+    if evidence_archives:
+        evidence_block = _load_archive_evidence(evidence_archives, args)
     if heuristic_path is not None:
         if heuristic_mode == "library":
             seed_library = _load_round0_heuristic_library(heuristic_path)
@@ -228,6 +366,7 @@ def _run_one_shape(
         request_timeout_s=request_timeout_s,
         seed_config=seed_config if not seed_library else None,
         seed_library=seed_library,
+        evidence_block=evidence_block,
     )
     search.autotune()
     rows: list[dict[str, Any]] = []
@@ -283,6 +422,14 @@ def main(argv: list[str] | None = None) -> int:
              "decision-tree-chosen config; 'library' injects all configs "
              "from the heuristic's _C list and drops random seeds.",
     )
+    parser.add_argument(
+        "--evidence-archive",
+        default=None,
+        help="Comma-separated list of archive measurement CSVs. When set, "
+             "the round-0 prompt includes top configs from the nearest "
+             "archived shapes. Env var HELION_LLM_PROMPT_EVIDENCE_CSVS has "
+             "the same effect.",
+    )
     args = parser.parse_args(argv)
 
     grid = json.loads(args.shape_grid.read_text())
@@ -314,6 +461,19 @@ def main(argv: list[str] | None = None) -> int:
 
     llm_model = os.environ.get("HELION_LLM_MODEL", "us.anthropic.claude-opus-4-7")
     llm_provider = os.environ.get("HELION_LLM_PROVIDER", "bedrock")
+
+    # Evidence archive CSVs: CLI flag OR HELION_LLM_PROMPT_EVIDENCE_CSVS env.
+    evidence_arg = args.evidence_archive or os.environ.get(
+        "HELION_LLM_PROMPT_EVIDENCE_CSVS"
+    )
+    evidence_archives: list[Path] | None = None
+    if evidence_arg:
+        evidence_archives = [
+            Path(p.strip()) for p in evidence_arg.split(",") if p.strip()
+        ]
+        for p in evidence_archives:
+            if not p.exists():
+                raise RuntimeError(f"evidence archive CSV does not exist: {p}")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = args.output_dir / f"{args.kernel}_{args.arm}.csv"
@@ -353,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
                         configs_per_round=args.configs_per_round,
                         initial_random_configs=args.initial_random_configs,
                         request_timeout_s=args.request_timeout_s,
+                        evidence_archives=evidence_archives,
                     )
                 except Exception as e:  # noqa: BLE001
                     tb = traceback.format_exc()
@@ -409,6 +570,7 @@ def main(argv: list[str] | None = None) -> int:
         "llm_provider": llm_provider,
         "heuristic_path": str(heuristic_path) if heuristic_path else None,
         "heuristic_mode": args.heuristic_mode,
+        "evidence_archives": [str(p) for p in (evidence_archives or [])],
         "helion_anthropic_thinking_budget": os.environ.get(
             "HELION_LLM_ANTHROPIC_THINKING_BUDGET"
         ),

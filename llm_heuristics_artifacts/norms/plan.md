@@ -524,6 +524,29 @@ Each gate:
 - Do not modify `heuristic_generator.py`'s public API. Extensions live in
   new files in `helion/autotuner/llm/` or in a wrapper script.
 
+## Archive Expansion Rule
+
+When generating extra measurement data to feed the heuristic (e.g. N4a and
+any future archive-expansion gate), always use the **default autotuner
+(`LFBOTreeSearch`) with full autotuning effort**. Do not substitute
+`PatternSearch`, `DifferentialEvolutionSearch`, or any reduced-effort
+configuration just because it produces more raw (config, timing) pairs
+faster. The goal of archive expansion is to capture configs that full
+autotuning would actually select on this hardware; using a lighter
+autotuner biases the archive toward configs the lighter search happens
+to visit.
+
+Concretely, for archive expansion:
+
+- Autotuner: `LFBOTreeSearch` (Helion's default when nothing is overridden).
+- Effort: full (no `HELION_AUTOTUNE_EFFORT=none` or `=quick`).
+- Capture every benchmarked (config, timing) pair, not just the final best,
+  so downstream `heuristic_generator` has a full measurement matrix.
+
+N4a originally ran with `PatternSearch(max_generations=8, copies=4)` and
+has been re-run with full `LFBOTreeSearch`. The rule applies to all
+future archive-expansion gates.
+
 ## Out of Scope
 
 - Changing the LLM provider away from Anthropic Opus-4.7.

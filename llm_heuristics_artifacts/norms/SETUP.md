@@ -101,6 +101,26 @@ print(call_provider(
 PY
 ```
 
+## Expanding the archive
+
+If you need more measurement data than what's on
+`origin/choijon5/aot-pretune-data`, use the fresh-archive driver. Per
+`plan.md` "Archive Expansion Rule", it uses Helion's default autotuner
+(`LFBOTreeSearch`) at full effort:
+
+```bash
+# Train shapes only (typical use)
+python llm_heuristics_artifacts/norms/tools/fresh_archive.py \
+  --kernel rms_norm --only-split train \
+  --shape-grid llm_heuristics_artifacts/norms/iterations/N0_live/shape_grid.json \
+  --output-dir llm_heuristics_artifacts/norms/iterations/N4a_fresh_archive/runs/rms_norm
+```
+
+No `--max-generations` / `--copies` / `--initial-population` overrides —
+the script defaults to the full-effort PatternSearchConfig values
+(init_pop=100, copies=5, max_gen=20). Budget ~1-10 min per shape,
+~1-3 h for the full train grid of 21 shapes.
+
 ## Running the hill-climb gates
 
 ```bash
