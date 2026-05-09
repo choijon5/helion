@@ -238,7 +238,19 @@ class LLMGuidedSearch(PopulationBasedSearch):
 
     def _build_refinement_prompt(self, round_num: int) -> str:
         """Summarize search progress so the LLM can propose the next batch."""
-        del round_num
+        # Detect whether the previous round actually improved on the best so far.
+        # This signal lets the prompt adapt: keep exploring if we're still finding
+        # wins, switch to fine-tune if the search has plateaued.
+        prev_best_perf = getattr(self, "_per_round_best_perf", [])
+        if len(prev_best_perf) >= 2:
+            # Last round (round_num-1) compared to the round before it
+            last, prior = prev_best_perf[-1], prev_best_perf[-2]
+            if math.isfinite(last) and math.isfinite(prior) and prior > 0:
+                improved_last_round = (prior - last) / prior > 0.01  # >1% improvement
+            else:
+                improved_last_round = True  # assume exploring by default when unknown
+        else:
+            improved_last_round = True
         return build_refinement_prompt(
             configs_per_round=self.configs_per_round,
             compile_timeout_s=self.settings.autotune_compile_timeout,
@@ -264,6 +276,8 @@ class LLMGuidedSearch(PopulationBasedSearch):
                 self._all_benchmark_results,
                 self._default_config_dict,
             ),
+            round_num=round_num,
+            improved_last_round=improved_last_round,
         )
 
     # ── LLM transport ────────────────────────────────────────────
@@ -497,6 +511,11 @@ class LLMGuidedSearch(PopulationBasedSearch):
         # Rebenchmark before the next prompt so prompts and stop checks use stable winners.
         self.rebenchmark_population(desc=f"Round {round_num}: verifying top configs")
         self._refresh_prompt_results_from_population()
+        # Record the best perf at end of each round so the next prompt can tell
+        # whether the previous round actually improved the search state.
+        if not hasattr(self, "_per_round_best_perf"):
+            self._per_round_best_perf: list[float] = []
+        self._per_round_best_perf.append(self.best.perf)
         check_population_consistency(
             self.population,
             process_group_name=self.kernel.env.process_group_name,

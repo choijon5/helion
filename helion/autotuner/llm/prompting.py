@@ -58,6 +58,24 @@ _DEFAULT_REFINEMENT_LINES = (
     "Use most of the rest for 1-2 field mutations of Anchor 2.",
     "Reserve at most a small minority for one clearly different family, not random noise.",
 )
+# Adaptive refinement: different strategies per round number (0-indexed refinement round).
+# Round 1 (first refinement after initial) = exploration heavy
+# Round 2 = exploitation
+# Round 3+ = fine-tune around best, no new families (Phase 1 found R3 regresses on 3/5 kernels)
+_ROUND_EXPLORATION_LINES = (
+    "This is the FIRST refinement round. Explore decisively: about 50% mutations of Anchor 1, 30% mutations of Anchor 2, and 20% ONE new family clearly different from both anchors.",
+    "Variations should test ideas with attributable effects (e.g., different indexing, num_warps ladder 4/8/16, num_stages 1/2/3).",
+)
+_ROUND_EXPLOITATION_LINES = (
+    "This is an EXPLOITATION round. Tighten around what worked: about 75% 1-field mutations of Anchor 1, 20% 1-2 field mutations of Anchor 2, only 5% new family (and only if earlier exploration missed a clearly promising region).",
+    "Favor small deltas (±1 step in num_warps, num_stages, block_sizes) over big jumps.",
+)
+_ROUND_FINETUNE_LINES = (
+    "This is a LATE round. Do NOT introduce new families. At least 90% of configs should be ≤2 field mutations of the TOP 3 anchors.",
+    "Focus on tiny deltas (±1) for block_sizes, num_warps, num_stages, and secondary knobs like l2_groupings/maxnreg.",
+    "If you cannot find meaningful new configs to try, return fewer configs (e.g. 5-8) rather than filling space with near-duplicates or random edits.",
+    "Do NOT retry failed patterns from earlier rounds. Do NOT revert to patterns already dominated by Anchor 1.",
+)
 _SYSTEM_PROMPT = textwrap.dedent("""\
     You are an expert GPU kernel autotuner for Helion/Triton kernels.
 
@@ -110,26 +128,85 @@ def _join_sections(*sections: str) -> str:
     return "\n\n".join(section for section in sections if section)
 
 
-def _build_observed_heuristics_section(args: Sequence[object]) -> str:
-    """Load and format observed heuristics for LLM prompt.
+def _build_dimension_guidance_section(args: Sequence[object]) -> str:
+    """Provide dimension-specific guidance to LLM based on reduction size.
 
-    Reads JSON file specified by HELION_LLM_OBSERVED_HEURISTICS_PATH env var.
-    Finds the dimension bucket matching the workload and formats the top
-    observed configs for inclusion in the prompt.
+    This function analyzes the input dimension size and provides targeted
+    guidance about appropriate configuration choices for that scale.
 
-    Returns empty string if no observed heuristics available or workload
-    doesn't match expected structure.
+    Returns empty string if workload doesn't match expected structure.
     """
-    observed_path = os.getenv("HELION_LLM_OBSERVED_HEURISTICS_PATH")
-    if not observed_path or not os.path.exists(observed_path):
-        return ""
-
     # Extract workload dimension from input tensor
     # Assumes first arg is the input tensor with shape (batch, dim)
     if not args or not isinstance(args[0], torch.Tensor) or args[0].ndim < 2:
         return ""
 
     dim = args[0].shape[1]
+
+    if dim <= 1024:
+        guidance = """This kernel performs a small reduction (≤1024 elements). Key considerations:
+  - Use minimal resources to avoid overhead: prefer block_sizes=[1-2], num_warps=4
+  - Prefer simple configs: num_stages=1, avoid complex indexing patterns
+  - Avoid over-parallelization: fewer warps often better than more for small workloads
+  - Keep configs conservative: excessive pipelining adds overhead without benefit"""
+    elif dim <= 5120:
+        guidance = """This kernel performs a medium-sized reduction (1K-5K elements). Key considerations:
+  - Balance parallelism vs overhead: block_sizes=[2-4], num_warps=4-8
+  - Consider modest pipelining: num_stages=1-2 can help memory bandwidth
+  - Use reduction_loops=[None] or [4096] based on testing results
+  - Both pointer and tensor_descriptor indexing are worth exploring"""
+    elif dim <= 20000:
+        guidance = """This kernel performs a large reduction (5K-20K elements). Key considerations:
+  - Favor staged pipelines: num_stages=2-3, block_sizes=[4-8]
+  - Use higher warp counts: num_warps=8-16 to exploit parallelism
+  - Consider reduction_loops=[4096] for better staged memory access patterns
+  - Persistent scheduling (pid_type='persistent_*') may help with load balancing"""
+    else:
+        guidance = """This kernel performs a very large reduction (>20K elements). Key considerations:
+  - Use aggressive pipelining: num_stages=3-4, block_sizes=[8-16]
+  - Maximize parallelism: num_warps=16 to handle large workload
+  - Always use reduction_loops=[4096] for staged memory access patterns
+  - Strongly consider persistent kernel strategies: pid_type='persistent_blocked' or 'persistent_interleaved'
+  - Higher num_stages and multi-buffering become more beneficial at this scale"""
+
+    return _section("Configuration Guidance for This Workload Size", guidance)
+
+
+def _build_observed_heuristics_section(args: Sequence[object]) -> str:
+    """Load and format observed heuristics for LLM prompt.
+
+    Implements size-dependent strategy switching:
+    - Small shapes (dim <= 1024): NO heuristics (return empty string)
+    - Mid shapes (1024 < dim < 5120): Use standard observed heuristics
+    - Large shapes (dim >= 5120): Use large-shape specialized heuristics
+
+    Returns empty string if no observed heuristics available or workload
+    doesn't match expected structure.
+    """
+    # Extract workload dimension from input tensor
+    # Assumes first arg is the input tensor with shape (batch, dim)
+    if not args or not isinstance(args[0], torch.Tensor) or args[0].ndim < 2:
+        return ""
+
+    dim = args[0].shape[1]
+
+    # Small shapes: NO heuristics - let baseline LLM explore freely
+    if dim <= 1024:
+        return ""
+
+    # Large shapes: Use specialized large-shape heuristics
+    if dim >= 5120:
+        observed_path = os.getenv("HELION_LLM_OBSERVED_HEURISTICS_LARGE_PATH")
+        if not observed_path or not os.path.exists(observed_path):
+            # Fall back to standard heuristics if large-shape file not available
+            observed_path = os.getenv("HELION_LLM_OBSERVED_HEURISTICS_PATH")
+            if not observed_path or not os.path.exists(observed_path):
+                return ""
+    else:
+        # Mid shapes: Use standard observed heuristics (Approach B)
+        observed_path = os.getenv("HELION_LLM_OBSERVED_HEURISTICS_PATH")
+        if not observed_path or not os.path.exists(observed_path):
+            return ""
 
     # Load observed heuristics JSON
     try:
@@ -231,8 +308,18 @@ def _refinement_strategy_lines(
     compile_timeout_s: int | None,
     failed_count: int,
     total_count: int,
+    round_num: int = 0,
+    improved_last_round: bool = True,
 ) -> list[str]:
-    """Build the bullet list used for the refinement-step section."""
+    """Build the bullet list used for the refinement-step section.
+
+    NOTE: round_num and improved_last_round are accepted for API stability but
+    currently unused — the default prompt is used for all refinement rounds.
+    Ad-hoc round-adaptive prompting was tested in iter 1-5 of Phase 2 and
+    found to hurt attention and softmax; it was reverted in iter 6.
+    """
+    del round_num
+    del improved_last_round
     if total_count > 0 and failed_count * 3 >= total_count:
         lines = list(_FAILURE_HEAVY_REFINEMENT_LINES)
     else:
@@ -286,6 +373,8 @@ def build_initial_prompt(
     compile_timeout_s: int | None,
 ) -> str:
     """Build the full initial user prompt sent to the LLM."""
+    from .pretuned_library import get_pretuned_hint
+
     default_config = config_spec.default_config()
     workload_hints = compute_workload_hints(
         args,
@@ -300,7 +389,15 @@ def build_initial_prompt(
         _section("Default Configuration", format_config_for_prompt(default_config))
         + workload_hints
     )
+    # Add dimension-specific guidance BEFORE observed heuristics
+    dim_guidance = _build_dimension_guidance_section(args)
     observed_section = _build_observed_heuristics_section(args)
+
+    # Approach 8: inject pretuned, class+shape-matched templates if available
+    kernel_name_attr = getattr(getattr(kernel, "kernel", None), "name", "")
+    pretuned_hint = get_pretuned_hint(kernel_name_attr, tuple(args))
+    pretuned_section = _section("Pretuned Templates", pretuned_hint) if pretuned_hint else ""
+
     task_section = (
         "Suggest the first batch of configs. Include both near-default and exploratory candidates. "
         f"{RETURN_JSON_ONLY}"
@@ -309,7 +406,9 @@ def build_initial_prompt(
         describe_kernel(kernel, args),
         _section("Configuration Space", describe_config_space(config_spec)),
         default_section,
+        dim_guidance,
         observed_section,
+        pretuned_section,
         guidance,
         _section("Task", task_section),
     )
@@ -326,8 +425,13 @@ def build_refinement_prompt(
     results: str,
     top_patterns: str,
     failed_patterns: str,
+    round_num: int = 0,
+    improved_last_round: bool = True,
 ) -> str:
-    """Build the refinement prompt sent after each benchmarking round."""
+    """Build the refinement prompt sent after each benchmarking round.
+
+    round_num and improved_last_round adjust the search-strategy bullet list.
+    """
     task_section = (
         f"Suggest up to {configs_per_round} NEW UNIQUE configs around the anchors above. "
         "Avoid the failed patterns above and favor targeted edits with attributable effects. "
@@ -345,6 +449,8 @@ def build_refinement_prompt(
                 compile_timeout_s=compile_timeout_s,
                 failed_count=failed_count,
                 total_count=total_count,
+                round_num=round_num,
+                improved_last_round=improved_last_round,
             ),
         ),
         _section("Task", task_section),
