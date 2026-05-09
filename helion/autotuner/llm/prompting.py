@@ -398,6 +398,16 @@ def build_initial_prompt(
     pretuned_hint = get_pretuned_hint(kernel_name_attr, tuple(args))
     pretuned_section = _section("Pretuned Templates", pretuned_hint) if pretuned_hint else ""
 
+    # Approach 9: data-driven knob priors (opt-in via HELION_LLM_USE_KNOB_PRIOR=1)
+    from .knob_prior import get_knob_prior_hint
+
+    knob_prior_hint = get_knob_prior_hint(kernel_name_attr, tuple(args))
+    knob_prior_section = (
+        _section("Knob Priors (aggregated from pretuned library)", knob_prior_hint)
+        if knob_prior_hint
+        else ""
+    )
+
     task_section = (
         "Suggest the first batch of configs. Include both near-default and exploratory candidates. "
         f"{RETURN_JSON_ONLY}"
@@ -409,6 +419,7 @@ def build_initial_prompt(
         dim_guidance,
         observed_section,
         pretuned_section,
+        knob_prior_section,
         guidance,
         _section("Task", task_section),
     )

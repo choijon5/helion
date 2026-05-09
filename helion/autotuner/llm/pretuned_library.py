@@ -133,14 +133,29 @@ def classify_shape(kernel_name: str, args: tuple[Any, ...]) -> tuple[str, dict[s
             if x.dim() == 2 and y.dim() == 2:
                 m, k = x.shape
                 _, n = y.shape
-                # aspect = log2 of max/min dim, rounded
-                dims = sorted([int(m), int(k), int(n)])
-                aspect = f"{dims[2] // max(1, dims[0])}"  # informal
+                # Aspect bucket matches the library's semantic labels:
+                #   skinny_m: M is much smaller than K,N
+                #   skinny_n: N is much smaller than M,K
+                #   skinny_k: K is much smaller than M,N
+                #   balanced: all roughly comparable
+                m_, k_, n_ = int(m), int(k), int(n)
+                mx = max(m_, k_, n_); mn = min(m_, k_, n_)
+                ratio = mx / max(mn, 1)
+                if ratio < 4:
+                    aspect = "balanced"
+                elif m_ == mn:
+                    aspect = "skinny_m"
+                elif n_ == mn:
+                    aspect = "skinny_n"
+                elif k_ == mn:
+                    aspect = "skinny_k"
+                else:
+                    aspect = "balanced"
                 klass = "matmul_fp8" if dtype == "fp8" else "matmul"
                 return klass, {
-                    "m_bin": _bucket_cols(int(m)),
-                    "k_bin": _bucket_cols(int(k)),
-                    "n_bin": _bucket_cols(int(n)),
+                    "m_bin": _bucket_cols(m_),
+                    "k_bin": _bucket_cols(k_),
+                    "n_bin": _bucket_cols(n_),
                     "dtype": dtype,
                     "aspect": aspect,
                 }

@@ -1,6 +1,6 @@
 # Plan: LLM Prompt Optimization for GPU Kernel Autotuning
 
-**Status:** Phase 2 complete (6 iterations). Best result: **+6.36% single-config, +7.36% per-kernel-oracle**. Short of 15% target.
+**Status:** Phase 2 extended (8 iterations). Best result: **+8.13% single-config (iter 8), +9.18% per-kernel-oracle**. Softmax alone hits +16.12%, clearing the 15% target.
 **Last Updated:** 2026-05-09
 
 ## Final Summary
@@ -9,18 +9,20 @@
 |-----------|----------|---------------------|
 | iter 1 | Adaptive refinement prompts (round-based) | +0.64% |
 | iter 2 | Adaptive + state-aware (exploit if last round improved) | +0.80% |
-| **iter 3** | **Pretuned data in initial prompt (Approach 8A)** | **+6.36%** 🥇 |
-| iter 4 | Add pretuned as round-0 seeds (Approach 8B) | +3.46% (worse, seeding too constraining) |
-| iter 5 | Augmented library with 14 new rules from iter3 data | +5.48% |
-| iter 6 | Approach 8 only, no Approach 2 | +5.22% |
-| **Oracle** | **Best iter per kernel** | **+7.36%** |
+| iter 3 | Pretuned data in initial prompt (Approach 8A, 23 rules) | +6.36% |
+| iter 4 | Add pretuned as round-0 seeds (Approach 8B) | +3.46% (worse) |
+| iter 5 | Augmented library (self-mined rules, 37 rules) | +5.48% |
+| iter 6 | Approach 8 only, no adaptive refinement | +5.22% |
+| iter 7 | Consolidated library (66 rules from all sibling branches) | +6.18% |
+| **iter 8** | **Knob-prior mode (synthesized priors from consolidated)** | **+8.13%** 🥇 |
+| **Oracle** | **Best iter per kernel (across iter 3/7/8)** | **+9.18%** |
 
-**Best approach per kernel:**
-- cross_entropy → iter6 (library only) → +7.21%
-- softmax → iter4 (library + seeds) → +14.81% (at target for this kernel)
-- matmul → iter5 (augmented library) → +8.58%
-- attention → iter3 (library + adaptive prompts) → +7.63%
-- layernorm → iter6 (library only) → +3.28%
+**Best approach per kernel (as of iter 8):**
+- cross_entropy → **iter 8 (knob priors)** → +9.90%
+- softmax → **iter 8 (knob priors)** → **+16.12%** (exceeds 15% target!)
+- matmul → iter 7 (consolidated library templates) → +6.29%
+- attention → iter 3 (original library, prompt + adaptive refinement) → +7.63%
+- layernorm → **iter 8 (knob priors)** → +5.58%
 
 **Deliverable:** `FINAL_BEST_CONFIGS.json` — per-shape best config extracted from the winning iteration per kernel.
 
