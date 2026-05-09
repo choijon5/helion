@@ -1,0 +1,31 @@
+{
+  "kernel": "matmul",
+  "split": "train",
+  "archive_root": "aot_pretune_data/b200/matmul/runs",
+  "pooled_rows": 3126,
+  "train_rows_kept": 658,
+  "unique_train_signatures": 7,
+  "backend": "decision_tree",
+  "n_configs_selected": 5,
+  "max_slowdown": 1.0894284967638912,
+  "geomean_slowdown": 1.0333873209298303,
+  "avg_slowdown": 1.0338568926894578,
+  "satisfied_ratio": 1.0,
+  "model_accuracy": 1.0,
+  "feature_names": [
+    "arg0_dim0"
+  ],
+  "removed_features": [
+    "arg0_ndim",
+    "arg0_dtype_size",
+    "arg0_dtype_cat",
+    "arg1_ndim",
+    "arg1_dtype_size",
+    "arg1_dtype_cat",
+    "arg0_dim1",
+    "arg0_numel",
+    "arg1_dim0",
+    "arg1_dim1",
+    "arg1_numel"
+  ]
+}

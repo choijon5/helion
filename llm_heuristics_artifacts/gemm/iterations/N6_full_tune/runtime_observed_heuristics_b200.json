@@ -1,0 +1,105 @@
+{
+  "class_summary": {
+    "matmul": {
+      "holdout_geomean_slowdown_geomean": 1.0004,
+      "holdout_p90_slowdown_max": 1.0013,
+      "rule_count": 1,
+      "shape_count": 4,
+      "template_count": 2
+    }
+  },
+  "filters": {
+    "max_rule_holdout_geomean_slowdown": 1.05,
+    "max_rule_holdout_p90_slowdown": 1.1,
+    "max_template_geomean_slowdown": 1.01,
+    "max_template_p90_slowdown": 1.1,
+    "min_holdout_coverage": 0.75,
+    "min_rule_shapes": 2,
+    "min_template_shapes": 2
+  },
+  "rules": [
+    {
+      "kernel_class": "matmul",
+      "leave_one_shape_out": {
+        "coverage_ratio": 0.75,
+        "geomean_slowdown": 1.0004,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0013,
+        "shape_coverage": 3,
+        "shape_total": 4
+      },
+      "selected_oracle": {
+        "coverage_ratio": 1.0,
+        "geomean_slowdown": 1.0,
+        "median_slowdown": 1.0,
+        "p90_slowdown": 1.0,
+        "shape_coverage": 4,
+        "shape_total": 4
+      },
+      "shape_bucket": {
+        "aspect": "balanced",
+        "dtype": "fp16_bf16",
+        "k_bin": "<=512",
+        "m_bin": "<=512",
+        "n_bin": "<=512"
+      },
+      "shape_count": 4,
+      "source_kernels": [
+        "matmul"
+      ],
+      "templates": [
+        {
+          "geomean_slowdown": 1.0004,
+          "p90_slowdown": 1.0013,
+          "shape_coverage": 3,
+          "template": {
+            "block_sizes": [
+              32,
+              64,
+              64
+            ],
+            "l2_groupings": [
+              2
+            ],
+            "num_stages": 4,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        },
+        {
+          "geomean_slowdown": 1.0008,
+          "p90_slowdown": 1.0017,
+          "shape_coverage": 2,
+          "template": {
+            "block_sizes": [
+              32,
+              64,
+              64
+            ],
+            "l2_groupings": [
+              2
+            ],
+            "num_stages": 5,
+            "num_warps": 4,
+            "pid_type": "flat"
+          },
+          "win_count": 1
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "selection": "Runtime seed rules filtered from data-derived structural templates. Rules are keyed by inferred kernel class and compact shape bucket; templates intentionally omit noisy indexing and eviction-policy fields.",
+  "source": "B200 AOT measurement CSVs",
+  "template_fields": [
+    "block_sizes",
+    "num_warps",
+    "num_stages",
+    "pid_type",
+    "l2_groupings",
+    "reduction_loops",
+    "split_k",
+    "num_sm_multiplier"
+  ]
+}

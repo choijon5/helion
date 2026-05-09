@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "purpose": "Fill the matmul bucket gaps that caused the N6 matmul gap on held-out shapes. Three targeted fills: K=1024 balanced, skinny_m M<=128, skinny_m M<=1024. Aim for >=3 shapes per bucket so LOSO can be computed and the generator's strict filter will accept the bucket.",
+  "notes": "Same schema as N5 expansion_shapes.json. Dtype is fp16 (matches matmul archive). tl.dot minima respected (all dims >= 16).",
+  "shapes": {
+    "matmul": {
+      "dtype": "float16",
+      "balanced_k1024": [
+        {"M": 2048, "K": 1024, "N": 2048, "tag": "b_2048_1024_2048"},
+        {"M": 1024, "K": 1024, "N": 2048, "tag": "b_1024_1024_2048"},
+        {"M": 2048, "K": 1024, "N": 1024, "tag": "b_2048_1024_1024"},
+        {"M": 4096, "K": 1024, "N": 4096, "tag": "b_4096_1024_4096"}
+      ],
+      "skinny_m_128": [
+        {"M": 128, "K": 1024, "N": 1024, "tag": "skm_128_1024_1024"},
+        {"M": 128, "K": 2048, "N": 4096, "tag": "skm_128_2048_4096"},
+        {"M": 128, "K": 4096, "N": 2048, "tag": "skm_128_4096_2048"}
+      ],
+      "skinny_m_1024": [
+        {"M": 1024, "K": 2048, "N": 2048, "tag": "skm_1024_2048_2048"},
+        {"M": 1024, "K": 4096, "N": 4096, "tag": "skm_1024_4096_4096"},
+        {"M": 1024, "K": 3072, "N": 3072, "tag": "skm_1024_3072_3072"}
+      ]
+    }
+  }
+}

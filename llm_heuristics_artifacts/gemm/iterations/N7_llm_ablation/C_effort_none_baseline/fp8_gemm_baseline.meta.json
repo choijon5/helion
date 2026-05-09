@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "kernel": "fp8_gemm",
+  "arm": "baseline",
+  "mode": "no_autotune_effort_none",
+  "shape_grid_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/gemm/iterations/N0_live/shape_grid.json",
+  "dtype": null,
+  "shapes_run": [
+    "FP8_001",
+    "FP8_002",
+    "FP8_003",
+    "FP8_004",
+    "FP8_005",
+    "FP8_006",
+    "FP8_007",
+    "FP8_008",
+    "FP8_009",
+    "FP8_010",
+    "FP8_011",
+    "FP8_012"
+  ],
+  "repeats": 3,
+  "heuristic_path": null,
+  "csv_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/gemm/iterations/N7_llm_ablation/C_effort_none_baseline/fp8_gemm_baseline.csv",
+  "wall_elapsed_s": 3.743076709099114,
+  "torch_version": "2.13.0.dev20260507+cu130",
+  "cuda_device": "NVIDIA B200"
+}

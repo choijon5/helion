@@ -1,0 +1,198 @@
+{
+  "matmul_20260430": {
+    "tag": "matmul_20260430",
+    "source_csv": "aot_pretune_data/b200/matmul/runs/20260430_192807_2dc612/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "kernel": "matmul",
+    "n_configs_selected": 7,
+    "max_slowdown": 1.0901988882998304,
+    "geomean_slowdown": 1.0123588533094316,
+    "avg_slowdown": 1.0125987155802503,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg0_dim1",
+      "arg0_numel",
+      "arg1_dim0",
+      "arg1_dim1",
+      "arg1_numel"
+    ]
+  },
+  "matmul_expanded": {
+    "tag": "matmul_expanded",
+    "source_csv": "aot_pretune_data/b200/matmul/runs/20260502_110931_expanded_matmul/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "kernel": "matmul",
+    "n_configs_selected": 8,
+    "max_slowdown": 1.0990665234741126,
+    "geomean_slowdown": 1.0162234662778382,
+    "avg_slowdown": 1.016485757482998,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 0.9487179487179487,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1",
+      "arg0_numel",
+      "arg1_dim1",
+      "arg1_numel"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg1_dim0"
+    ]
+  },
+  "fp8_gemm_20260430": {
+    "tag": "fp8_gemm_20260430",
+    "source_csv": "aot_pretune_data/b200/fp8_gemm/runs/20260430_192807_699fa9/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "kernel": "fp8_gemm",
+    "n_configs_selected": 6,
+    "max_slowdown": 1.043478274623738,
+    "geomean_slowdown": 1.0043751635061455,
+    "avg_slowdown": 1.004444213821042,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg0_dim1",
+      "arg0_numel",
+      "arg1_dim0",
+      "arg1_dim1",
+      "arg1_numel"
+    ]
+  },
+  "fp8_gemm_20260501a": {
+    "tag": "fp8_gemm_20260501a",
+    "source_csv": "aot_pretune_data/b200/fp8_gemm/runs/20260501_151413_cb87f1/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "kernel": "fp8_gemm",
+    "n_configs_selected": 6,
+    "max_slowdown": 1.099844028892794,
+    "geomean_slowdown": 1.0100250596596407,
+    "avg_slowdown": 1.0103724910919216,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg0_dim1",
+      "arg0_numel",
+      "arg1_dim0",
+      "arg1_dim1",
+      "arg1_numel"
+    ]
+  },
+  "fp8_gemm_20260501b": {
+    "tag": "fp8_gemm_20260501b",
+    "source_csv": "aot_pretune_data/b200/fp8_gemm/runs/20260501_180243_009304/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "kernel": "fp8_gemm",
+    "n_configs_selected": 5,
+    "max_slowdown": 1.0952381282356356,
+    "geomean_slowdown": 1.0264160881661548,
+    "avg_slowdown": 1.0269776762430012,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg0_dim1",
+      "arg0_numel",
+      "arg1_dim0",
+      "arg1_dim1",
+      "arg1_numel"
+    ]
+  },
+  "fp8_gemm_20260501c": {
+    "tag": "fp8_gemm_20260501c",
+    "source_csv": "aot_pretune_data/b200/fp8_gemm/runs/20260501_220932_cb0d7e/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "kernel": "fp8_gemm",
+    "n_configs_selected": 6,
+    "max_slowdown": 1.0745192393461964,
+    "geomean_slowdown": 1.0075766938713757,
+    "avg_slowdown": 1.0077372959947968,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 1.0,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg0_dim1",
+      "arg0_numel",
+      "arg1_dim0",
+      "arg1_dim1",
+      "arg1_numel"
+    ]
+  },
+  "fp8_gemm_expanded": {
+    "tag": "fp8_gemm_expanded",
+    "source_csv": "aot_pretune_data/b200/fp8_gemm/runs/20260502_110931_expanded_fp8_gemm/measurements_cuda_NVIDIA_B200_13.0.csv",
+    "kernel": "fp8_gemm",
+    "n_configs_selected": 7,
+    "max_slowdown": 1.0805637815479963,
+    "geomean_slowdown": 1.0207835488192085,
+    "avg_slowdown": 1.0210637964242015,
+    "satisfied_ratio": 1.0,
+    "model_accuracy": 0.9743589743589743,
+    "backend": "decision_tree",
+    "feature_names": [
+      "arg0_dim0",
+      "arg0_dim1",
+      "arg0_numel",
+      "arg1_dim1",
+      "arg1_numel"
+    ],
+    "removed_features": [
+      "arg0_ndim",
+      "arg0_dtype_size",
+      "arg0_dtype_cat",
+      "arg1_ndim",
+      "arg1_dtype_size",
+      "arg1_dtype_cat",
+      "arg1_dim0"
+    ]
+  }
+}

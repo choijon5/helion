@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "seed": 20260509,
+  "split_ratio": "7/5",
+  "dtype": null,
+  "notes": "Train is archive-aligned (square, POT/non-POT within [256, 3840]). Heldout stretches to larger square (4096) and non-square signatures (K-skinny, M-skinny, rectangular) that are outside the archive.",
+  "kernels": {
+    "matmul": {
+      "kernel_module": "examples.matmul",
+      "kernel_entry": "matmul",
+      "args_template": "x: Tensor[M, K](float16), y: Tensor[K, N](float16); out is Tensor[M, N]",
+      "dtype": "float16",
+      "shapes": [
+        {
+          "id": "MM_001",
+          "split": "train",
+          "label": "256x256x256",
+          "args": {"M": 256, "K": 256, "N": 256, "numel_out": 65536, "dtype": "float16"}
+        },
+        {
+          "id": "MM_002",
+          "split": "train",
+          "label": "512x512x512",
+          "args": {"M": 512, "K": 512, "N": 512, "numel_out": 262144, "dtype": "float16"}
+        },
+        {
+          "id": "MM_003",
+          "split": "train",
+          "label": "1024x1024x1024",
+          "args": {"M": 1024, "K": 1024, "N": 1024, "numel_out": 1048576, "dtype": "float16"}
+        },
+        {
+          "id": "MM_004",
+          "split": "train",
+          "label": "1536x1536x1536",
+          "args": {"M": 1536, "K": 1536, "N": 1536, "numel_out": 2359296, "dtype": "float16"}
+        },
+        {
+          "id": "MM_005",
+          "split": "train",
+          "label": "2048x2048x2048",
+          "args": {"M": 2048, "K": 2048, "N": 2048, "numel_out": 4194304, "dtype": "float16"}
+        },
+        {
+          "id": "MM_006",
+          "split": "train",
+          "label": "3072x3072x3072",
+          "args": {"M": 3072, "K": 3072, "N": 3072, "numel_out": 9437184, "dtype": "float16"}
+        },
+        {
+          "id": "MM_007",
+          "split": "train",
+          "label": "3840x3840x3840",
+          "args": {"M": 3840, "K": 3840, "N": 3840, "numel_out": 14745600, "dtype": "float16"}
+        },
+        {
+          "id": "MM_008",
+          "split": "heldout",
+          "label": "4096x4096x4096",
+          "args": {"M": 4096, "K": 4096, "N": 4096, "numel_out": 16777216, "dtype": "float16"}
+        },
+        {
+          "id": "MM_009",
+          "split": "heldout",
+          "label": "2048x1024x2048",
+          "args": {"M": 2048, "K": 1024, "N": 2048, "numel_out": 4194304, "dtype": "float16"}
+        },
+        {
+          "id": "MM_010",
+          "split": "heldout",
+          "label": "1024x2048x4096",
+          "args": {"M": 1024, "K": 2048, "N": 4096, "numel_out": 4194304, "dtype": "float16"}
+        },
+        {
+          "id": "MM_011",
+          "split": "heldout",
+          "label": "128x2048x2048",
+          "args": {"M": 128, "K": 2048, "N": 2048, "numel_out": 262144, "dtype": "float16"}
+        },
+        {
+          "id": "MM_012",
+          "split": "heldout",
+          "label": "4096x4096x128",
+          "args": {"M": 4096, "K": 4096, "N": 128, "numel_out": 524288, "dtype": "float16"}
+        }
+      ]
+    },
+    "fp8_gemm": {
+      "kernel_module": "examples.fp8_gemm",
+      "kernel_entry": "fp8_gemm",
+      "args_template": "x: Tensor[M, K](float8_e4m3fn), y: Tensor[K, N](float8_e4m3fn); out is Tensor[M, N](float16)",
+      "dtype": "float8_e4m3fn",
+      "shapes": [
+        {
+          "id": "FP8_001",
+          "split": "train",
+          "label": "256x256x256",
+          "args": {"M": 256, "K": 256, "N": 256, "numel_out": 65536, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_002",
+          "split": "train",
+          "label": "512x512x512",
+          "args": {"M": 512, "K": 512, "N": 512, "numel_out": 262144, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_003",
+          "split": "train",
+          "label": "1024x1024x1024",
+          "args": {"M": 1024, "K": 1024, "N": 1024, "numel_out": 1048576, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_004",
+          "split": "train",
+          "label": "1536x1536x1536",
+          "args": {"M": 1536, "K": 1536, "N": 1536, "numel_out": 2359296, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_005",
+          "split": "train",
+          "label": "2048x2048x2048",
+          "args": {"M": 2048, "K": 2048, "N": 2048, "numel_out": 4194304, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_006",
+          "split": "train",
+          "label": "3072x3072x3072",
+          "args": {"M": 3072, "K": 3072, "N": 3072, "numel_out": 9437184, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_007",
+          "split": "train",
+          "label": "3840x3840x3840",
+          "args": {"M": 3840, "K": 3840, "N": 3840, "numel_out": 14745600, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_008",
+          "split": "heldout",
+          "label": "4096x4096x4096",
+          "args": {"M": 4096, "K": 4096, "N": 4096, "numel_out": 16777216, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_009",
+          "split": "heldout",
+          "label": "2048x1024x2048",
+          "args": {"M": 2048, "K": 1024, "N": 2048, "numel_out": 4194304, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_010",
+          "split": "heldout",
+          "label": "1024x2048x4096",
+          "args": {"M": 1024, "K": 2048, "N": 4096, "numel_out": 4194304, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_011",
+          "split": "heldout",
+          "label": "128x2048x2048",
+          "args": {"M": 128, "K": 2048, "N": 2048, "numel_out": 262144, "dtype": "float8_e4m3fn"}
+        },
+        {
+          "id": "FP8_012",
+          "split": "heldout",
+          "label": "4096x4096x128",
+          "args": {"M": 4096, "K": 4096, "N": 128, "numel_out": 524288, "dtype": "float8_e4m3fn"}
+        }
+      ]
+    }
+  }
+}
