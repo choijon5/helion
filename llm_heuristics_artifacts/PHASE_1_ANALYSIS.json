@@ -1,0 +1,118 @@
+{
+  "summaries": [
+    {
+      "kernel": "attention",
+      "num_shapes": 12,
+      "max_round": 3,
+      "per_round_geomean_ms": [
+        27.519093818740572,
+        24.309395326012908,
+        22.558414402109072,
+        22.1074951066414
+      ],
+      "per_round_improvement_pct": [
+        0.0,
+        11.663532650707603,
+        7.202897893680442,
+        1.99889623193336
+      ],
+      "plateau_round": 3,
+      "regression_rounds": [],
+      "total_improvement_pct": 19.664887033503472
+    },
+    {
+      "kernel": "cross_entropy",
+      "num_shapes": 12,
+      "max_round": 3,
+      "per_round_geomean_ms": [
+        39.301374603335034,
+        38.955407291337664,
+        37.881916909016894,
+        43.366460846245715
+      ],
+      "per_round_improvement_pct": [
+        0.0,
+        0.8802931589268432,
+        2.7556903058217475,
+        -14.478000018851619
+      ],
+      "plateau_round": 1,
+      "regression_rounds": [
+        3
+      ],
+      "total_improvement_pct": -10.343369116065793
+    },
+    {
+      "kernel": "layernorm",
+      "num_shapes": 12,
+      "max_round": 3,
+      "per_round_geomean_ms": [
+        13.654490618435647,
+        14.615170339891154,
+        12.427516584319585,
+        8.455784771508702
+      ],
+      "per_round_improvement_pct": [
+        0.0,
+        -7.035632073732896,
+        14.968376725658207,
+        31.95917531763518
+      ],
+      "plateau_round": 1,
+      "regression_rounds": [
+        1
+      ],
+      "total_improvement_pct": 38.073231673013844
+    },
+    {
+      "kernel": "matmul",
+      "num_shapes": 12,
+      "max_round": 3,
+      "per_round_geomean_ms": [
+        45.60041595419126,
+        40.727403632438644,
+        39.186583223280024,
+        47.50108783995267
+      ],
+      "per_round_improvement_pct": [
+        0.0,
+        10.686333051540348,
+        3.783252237398665,
+        -21.21773304219376
+      ],
+      "plateau_round": 3,
+      "regression_rounds": [
+        3
+      ],
+      "total_improvement_pct": -4.168102079750236
+    },
+    {
+      "kernel": "softmax",
+      "num_shapes": 12,
+      "max_round": 3,
+      "per_round_geomean_ms": [
+        23.036142168350104,
+        22.81728723923793,
+        22.290095158156532,
+        28.598841181471634
+      ],
+      "per_round_improvement_pct": [
+        0.0,
+        0.9500502623779703,
+        2.3104941247126374,
+        -28.30291202685407
+      ],
+      "plateau_round": 1,
+      "regression_rounds": [
+        3
+      ],
+      "total_improvement_pct": -24.147702217102367
+    }
+  ],
+  "recommendations": [
+    "Biggest average gain is at round 2 (+6.2%). \u2192 Focus prompt optimization on round 2.",
+    "Early plateau (round \u22641) on: cross_entropy, layernorm, softmax. \u2192 Try **Approach 6 (Success Pattern Learning)** to help LLM exploit winners faster.",
+    "Regression detected: cross_entropy (round [3]), layernorm (round [1]), matmul (round [3]), softmax (round [3]). \u2192 Try **Approach 1 (Multi-Round Tuning, cap rounds)** or simplify late-round prompts.",
+    "Kernel-type gap detected: memory-bound avg 1.2%, compute-bound avg 7.7% (\u0394 6.6%, compute-bound improves more). \u2192 Try **Approach 4 (Theoretical Guidance)** or **Approach 7 (Compiler-Detected Patterns)**."
+  ]
+}

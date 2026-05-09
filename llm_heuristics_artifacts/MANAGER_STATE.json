@@ -1,50 +1,142 @@
 {
-  "project": "llm_heuristics_softmax",
-  "goal": "round0_best_geo <= 0.80",
-  "status": "in_progress",
+  "project": "llm_prompt_optimization",
+  "goal": "Improve LLM autotuner by ≥15% over baseline (geometric mean across kernels)",
+  "baseline_definition": "Library defaults: max_rounds=4, configs_per_round=15, initial_random=10",
+  "status": "complete_partial_success",
 
   "progress": {
-    "iteration": 2,
-    "current_phase": "Phase 2B - Testing Approach B",
-    "approaches_tested": [
-      {
-        "name": "Approach A (decision tree)",
-        "score": 1.0376,
-        "status": "failed",
-        "completed_at": "2026-05-08T06:15:00Z"
-      }
+    "iteration": 6,
+    "current_phase": "DONE - Phase 2 complete",
+    "baseline_measured": true,
+    "phase_0_completed_at": "2026-05-09",
+    "phase_1_completed_at": "2026-05-09",
+    "phase_2_completed_at": "2026-05-09",
+    "optimizations_tested": [
+      "iter1: adaptive refinement (+0.64%)",
+      "iter2: state-adaptive (+0.80%)",
+      "iter3: pretuned library in prompt (+6.36%) [BEST single-run]",
+      "iter4: pretuned library as seeds (+3.46%)",
+      "iter5: augmented library (+5.48%)",
+      "iter6: library only, no A2 (+5.22%)"
     ],
-    "current_best_score": 1.0376,
-    "baseline_score": 1.0
+    "best_single_config": "iter3 — Approach 2 + Approach 8 (library in prompt)",
+    "best_single_improvement_pct": 6.36,
+    "oracle_improvement_pct": 7.36,
+    "oracle_note": "Using best iteration per kernel: CE=iter6, softmax=iter4, matmul=iter5, attention=iter3, layernorm=iter6",
+    "target_15pct_reached": false,
+    "deliverable": "FINAL_BEST_CONFIGS.json"
+  },
+
+  "experiment_plan": {
+    "phase_0": {
+      "name": "Baseline Measurement",
+      "goal": "Establish current performance with library defaults",
+      "kernels": ["cross_entropy", "softmax", "matmul", "attention", "layernorm"],
+      "settings": {
+        "max_rounds": 4,
+        "configs_per_round": 15,
+        "initial_random_configs": 10,
+        "repeats": 3,
+        "track_round_progress": true,
+        "llm_model": "us.anthropic.claude-opus-4-7",
+        "llm_thinking_budget": 16384,
+        "llm_reasoning_effort": "max",
+        "llm_env_vars_required": [
+          "HELION_LLM_MODEL=us.anthropic.claude-opus-4-7",
+          "HELION_LLM_ANTHROPIC_THINKING_BUDGET=16384",
+          "HELION_LLM_ANTHROPIC_REASONING_EFFORT=max",
+          "AWS_REGION=us-east-2"
+        ]
+      },
+      "status": "ready",
+      "infrastructure_ready": true,
+      "shape_grids_ready": true,
+      "expected_duration_hours": 4,
+      "updated_at": "2026-05-09T00:00:00Z"
+    },
+    "phase_1": {
+      "name": "Per-Round Analysis",
+      "goal": "Identify which rounds add value, where to optimize",
+      "prerequisites": "Phase 0 complete",
+      "status": "pending"
+    },
+    "phase_2": {
+      "name": "Prompt Optimizations",
+      "goal": "Improve prompts based on Phase 1 findings",
+      "prerequisites": "Phase 1 identifies optimization opportunities",
+      "status": "pending"
+    }
+  },
+
+  "baseline_results": {
+    "cross_entropy": {"final_best_ms": 43.366, "best_round": 2, "best_round_ms": 37.882, "r3_regression_pct": -14.5},
+    "softmax": {"final_best_ms": 28.599, "best_round": 2, "best_round_ms": 22.290, "r3_regression_pct": -28.3},
+    "matmul": {"final_best_ms": 47.501, "best_round": 2, "best_round_ms": 39.187, "r3_regression_pct": -21.2},
+    "attention": {"final_best_ms": 22.107, "best_round": 3, "best_round_ms": 22.107, "r3_regression_pct": 0.0, "r3_gain_pct": 2.0},
+    "layernorm": {"final_best_ms": 8.456, "best_round": 3, "best_round_ms": 8.456, "r3_regression_pct": 0.0, "r3_gain_pct": 32.0},
+    "per_round_data": "baseline/{kernel}/{kernel}_baseline_round_progress.csv",
+    "analysis_report": "PHASE_1_ANALYSIS.md",
+    "analysis_json": "PHASE_1_ANALYSIS.json"
+  },
+
+  "infrastructure_status": {
+    "workloads_py": "llm_heuristics_artifacts/loss_functions/tools/workloads.py — supports all 5 kernels",
+    "run_live_py": "llm_heuristics_artifacts/loss_functions/tools/run_live.py — accepts all 5 kernels",
+    "shape_grids": {
+      "cross_entropy": "llm_heuristics_artifacts/loss_functions/grids/cross_entropy_grid.json",
+      "softmax": "llm_heuristics_artifacts/loss_functions/grids/softmax_grid.json",
+      "matmul": "llm_heuristics_artifacts/loss_functions/grids/matmul_grid.json",
+      "attention": "llm_heuristics_artifacts/loss_functions/grids/attention_grid.json",
+      "layernorm": "llm_heuristics_artifacts/loss_functions/grids/layernorm_grid.json"
+    },
+    "per_round_tracking": "Enabled via --track-round-progress flag",
+    "ready_to_start": true
   },
 
   "resources": {
-    "time_invested_hours": 0.3,
     "time_budget_hours": 40,
-    "time_remaining_hours": 39.7,
-    "iterations_run": 2
+    "time_invested_hours": 0,
+    "gpu_available": true
   },
 
   "active_work": {
-    "subagent_type": "Measurement",
-    "subagent_id": "a45504a5a651b41b0",
-    "task": "Testing Approach B (observed examples)",
-    "started_at": "2026-05-08T06:20:00Z",
-    "expected_duration_minutes": 7
+    "subagent_type": null,
+    "subagent_id": null,
+    "task": "Awaiting kickoff",
+    "started_at": null
+  },
+
+  "success_criteria": {
+    "minimum_viable": {
+      "improvement": "≥5%",
+      "metric": "Optimized vs Baseline (geometric mean)",
+      "meaning": "Optimizations add measurable value"
+    },
+    "target": {
+      "improvement": "≥15%",
+      "metric": "Optimized vs Baseline (geometric mean across all kernels)",
+      "meaning": "Systematic improvement achieved"
+    },
+    "stretch": {
+      "improvement": "≥20%",
+      "metric": "Any single kernel achieves ratio ≤ 0.80",
+      "meaning": "Original goal achieved for at least one kernel"
+    }
   },
 
   "escalation_tracking": {
-    "consecutive_failures": 1,
-    "consecutive_stuck_count": 0,
+    "consecutive_failures": 0,
+    "time_without_progress_hours": 0,
     "approaches_exhausted": false,
-    "proposal_spawned": false
+    "notes": "Clean start with proper baseline"
   },
 
   "metadata": {
-    "kernel": "softmax",
-    "shapes": 12,
-    "repeats": 3,
-    "last_updated": "2026-05-08T06:20:00Z",
-    "manager_version": "1.0"
+    "plan_file": "PLAN.md",
+    "manager_framework": "MANAGER.md",
+    "old_plans_archived": "archived_plans/",
+    "created_at": "2026-05-08T23:30:00Z",
+    "updated_at": "2026-05-09T00:00:00Z",
+    "manager_version": "3.0_clean_baseline"
   }
 }
