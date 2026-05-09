@@ -97,6 +97,56 @@ def _args_softmax(shape_args: dict[str, Any], dtype: torch.dtype, device: str):
     return softmax, (x,)
 
 
+def _args_matmul(shape_args: dict[str, Any], dtype: torch.dtype, device: str):
+    from examples.matmul import matmul
+
+    m = shape_args["m"]
+    k = shape_args["k"]
+    n = shape_args["n"]
+
+    # Matmul: [m, k] @ [k, n] -> [m, n]
+    x = torch.randn(m, k, device=device, dtype=dtype)
+    y = torch.randn(k, n, device=device, dtype=dtype)
+    return matmul, (x, y)
+
+
+def _args_attention(shape_args: dict[str, Any], dtype: torch.dtype, device: str):
+    from examples.attention import attention
+
+    batch_size = shape_args["batch_size"]
+    seq_len = shape_args["seq_len"]
+    head_dim = shape_args["head_dim"]
+    num_heads = shape_args.get("num_heads", 1)
+
+    # Attention: Q, K, V tensors
+    # Shape: [batch_size, num_heads, seq_len, head_dim] or [batch_size, seq_len, head_dim]
+    if num_heads > 1:
+        q = torch.randn(batch_size, num_heads, seq_len, head_dim, device=device, dtype=dtype)
+        k = torch.randn(batch_size, num_heads, seq_len, head_dim, device=device, dtype=dtype)
+        v = torch.randn(batch_size, num_heads, seq_len, head_dim, device=device, dtype=dtype)
+    else:
+        q = torch.randn(batch_size, seq_len, head_dim, device=device, dtype=dtype)
+        k = torch.randn(batch_size, seq_len, head_dim, device=device, dtype=dtype)
+        v = torch.randn(batch_size, seq_len, head_dim, device=device, dtype=dtype)
+    return attention, (q, k, v)
+
+
+def _args_layernorm(shape_args: dict[str, Any], dtype: torch.dtype, device: str):
+    from examples.layer_norm import layer_norm_fwd
+
+    batch_size = shape_args["batch_size"]
+    dim = shape_args["dim"]
+
+    # LayerNorm: [batch_size, dim]
+    x = torch.randn(batch_size, dim, device=device, dtype=dtype)
+    weight = torch.ones(dim, device=device, dtype=dtype)
+    bias = torch.zeros(dim, device=device, dtype=dtype)
+    normalized_shape = [dim]
+    eps = shape_args.get("eps", 1e-5)
+
+    return layer_norm_fwd, (x, normalized_shape, weight, bias, eps)
+
+
 _BUILDERS: dict[str, Callable[..., Any]] = {
     "cross_entropy": _args_cross_entropy,
     "jsd": _args_jsd,
@@ -104,6 +154,9 @@ _BUILDERS: dict[str, Callable[..., Any]] = {
     "grpo_loss": _args_grpo_loss,
     "fused_linear_jsd": _args_fused_linear_jsd,
     "softmax": _args_softmax,
+    "matmul": _args_matmul,
+    "attention": _args_attention,
+    "layernorm": _args_layernorm,
 }
 
 

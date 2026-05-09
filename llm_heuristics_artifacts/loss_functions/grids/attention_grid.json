@@ -1,0 +1,141 @@
+{
+  "dtype": "bfloat16",
+  "kernels": {
+    "attention": {
+      "shapes": [
+        {
+          "id": "ATN_001",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 512,
+            "head_dim": 64,
+            "num_heads": 1
+          },
+          "split": "train",
+          "label": "small seq"
+        },
+        {
+          "id": "ATN_002",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 1024,
+            "head_dim": 64,
+            "num_heads": 1
+          },
+          "split": "train",
+          "label": "medium seq"
+        },
+        {
+          "id": "ATN_003",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 2048,
+            "head_dim": 64,
+            "num_heads": 1
+          },
+          "split": "train",
+          "label": "large seq"
+        },
+        {
+          "id": "ATN_004",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 512,
+            "head_dim": 128,
+            "num_heads": 1
+          },
+          "split": "train",
+          "label": "small seq large head"
+        },
+        {
+          "id": "ATN_005",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 1024,
+            "head_dim": 128,
+            "num_heads": 1
+          },
+          "split": "train",
+          "label": "medium seq large head"
+        },
+        {
+          "id": "ATN_006",
+          "args": {
+            "batch_size": 4,
+            "seq_len": 1024,
+            "head_dim": 64,
+            "num_heads": 1
+          },
+          "split": "train",
+          "label": "batched medium"
+        },
+        {
+          "id": "ATN_007",
+          "args": {
+            "batch_size": 8,
+            "seq_len": 2048,
+            "head_dim": 128,
+            "num_heads": 1
+          },
+          "split": "train",
+          "label": "batched large"
+        },
+        {
+          "id": "ATN_101",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 768,
+            "head_dim": 64,
+            "num_heads": 1
+          },
+          "split": "heldout",
+          "label": "interpolated seq"
+        },
+        {
+          "id": "ATN_102",
+          "args": {
+            "batch_size": 2,
+            "seq_len": 1024,
+            "head_dim": 96,
+            "num_heads": 1
+          },
+          "split": "heldout",
+          "label": "interpolated dims"
+        },
+        {
+          "id": "ATN_103",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 4096,
+            "head_dim": 64,
+            "num_heads": 1
+          },
+          "split": "heldout",
+          "label": "extrapolated long seq"
+        },
+        {
+          "id": "ATN_104",
+          "args": {
+            "batch_size": 16,
+            "seq_len": 2048,
+            "head_dim": 128,
+            "num_heads": 1
+          },
+          "split": "heldout",
+          "label": "extrapolated batch"
+        },
+        {
+          "id": "ATN_105",
+          "args": {
+            "batch_size": 1,
+            "seq_len": 256,
+            "head_dim": 32,
+            "num_heads": 1
+          },
+          "split": "heldout",
+          "label": "extrapolated small"
+        }
+      ]
+    }
+  }
+}

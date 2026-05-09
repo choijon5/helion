@@ -1,0 +1,105 @@
+{
+  "dtype": "bfloat16",
+  "kernels": {
+    "cross_entropy": {
+      "shapes": [
+        {
+          "id": "CE_001",
+          "args": {
+            "batch_size": 256,
+            "vocab_size": 1024
+          },
+          "split": "train"
+        },
+        {
+          "id": "CE_002",
+          "args": {
+            "batch_size": 256,
+            "vocab_size": 8192
+          },
+          "split": "train"
+        },
+        {
+          "id": "CE_003",
+          "args": {
+            "batch_size": 1024,
+            "vocab_size": 1024
+          },
+          "split": "train"
+        },
+        {
+          "id": "CE_004",
+          "args": {
+            "batch_size": 1024,
+            "vocab_size": 8192
+          },
+          "split": "train"
+        },
+        {
+          "id": "CE_005",
+          "args": {
+            "batch_size": 1024,
+            "vocab_size": 131072
+          },
+          "split": "train"
+        },
+        {
+          "id": "CE_006",
+          "args": {
+            "batch_size": 4096,
+            "vocab_size": 8192
+          },
+          "split": "train"
+        },
+        {
+          "id": "CE_007",
+          "args": {
+            "batch_size": 4096,
+            "vocab_size": 131072
+          },
+          "split": "train"
+        },
+        {
+          "id": "CE_101",
+          "args": {
+            "batch_size": 256,
+            "vocab_size": 32768
+          },
+          "split": "heldout"
+        },
+        {
+          "id": "CE_102",
+          "args": {
+            "batch_size": 1024,
+            "vocab_size": 32768
+          },
+          "split": "heldout"
+        },
+        {
+          "id": "CE_103",
+          "args": {
+            "batch_size": 4096,
+            "vocab_size": 32768
+          },
+          "split": "heldout"
+        },
+        {
+          "id": "CE_104",
+          "args": {
+            "batch_size": 16384,
+            "vocab_size": 1024
+          },
+          "split": "heldout"
+        },
+        {
+          "id": "CE_105",
+          "args": {
+            "batch_size": 16384,
+            "vocab_size": 8192
+          },
+          "split": "heldout"
+        }
+      ]
+    }
+  }
+}

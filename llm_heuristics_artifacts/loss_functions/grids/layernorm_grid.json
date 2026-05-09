@@ -1,0 +1,117 @@
+{
+  "dtype": "bfloat16",
+  "kernels": {
+    "layernorm": {
+      "shapes": [
+        {
+          "id": "LN_001",
+          "args": {
+            "batch_size": 256,
+            "dim": 768
+          },
+          "split": "train",
+          "label": "small batch, small dim"
+        },
+        {
+          "id": "LN_002",
+          "args": {
+            "batch_size": 256,
+            "dim": 4096
+          },
+          "split": "train",
+          "label": "small batch, large dim"
+        },
+        {
+          "id": "LN_003",
+          "args": {
+            "batch_size": 1024,
+            "dim": 768
+          },
+          "split": "train",
+          "label": "medium batch, small dim"
+        },
+        {
+          "id": "LN_004",
+          "args": {
+            "batch_size": 1024,
+            "dim": 4096
+          },
+          "split": "train",
+          "label": "medium batch, large dim"
+        },
+        {
+          "id": "LN_005",
+          "args": {
+            "batch_size": 4096,
+            "dim": 768
+          },
+          "split": "train",
+          "label": "large batch, small dim"
+        },
+        {
+          "id": "LN_006",
+          "args": {
+            "batch_size": 4096,
+            "dim": 4096
+          },
+          "split": "train",
+          "label": "large batch, large dim"
+        },
+        {
+          "id": "LN_007",
+          "args": {
+            "batch_size": 8192,
+            "dim": 8192
+          },
+          "split": "train",
+          "label": "xlarge batch, xlarge dim"
+        },
+        {
+          "id": "LN_101",
+          "args": {
+            "batch_size": 512,
+            "dim": 2048
+          },
+          "split": "heldout",
+          "label": "interpolated"
+        },
+        {
+          "id": "LN_102",
+          "args": {
+            "batch_size": 2048,
+            "dim": 1024
+          },
+          "split": "heldout",
+          "label": "interpolated flip"
+        },
+        {
+          "id": "LN_103",
+          "args": {
+            "batch_size": 16384,
+            "dim": 4096
+          },
+          "split": "heldout",
+          "label": "extrapolated batch"
+        },
+        {
+          "id": "LN_104",
+          "args": {
+            "batch_size": 4096,
+            "dim": 16384
+          },
+          "split": "heldout",
+          "label": "extrapolated dim"
+        },
+        {
+          "id": "LN_105",
+          "args": {
+            "batch_size": 128,
+            "dim": 512
+          },
+          "split": "heldout",
+          "label": "extrapolated small"
+        }
+      ]
+    }
+  }
+}

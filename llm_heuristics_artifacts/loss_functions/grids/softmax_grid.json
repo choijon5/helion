@@ -1,0 +1,21 @@
+{
+  "dtype": "bfloat16",
+  "kernels": {
+    "softmax": {
+      "shapes": [
+        {"id": "SM_001", "args": {"batch_size": 4096, "dim": 256}, "split": "train"},
+        {"id": "SM_002", "args": {"batch_size": 4096, "dim": 896}, "split": "train"},
+        {"id": "SM_003", "args": {"batch_size": 4096, "dim": 1536}, "split": "train"},
+        {"id": "SM_004", "args": {"batch_size": 4096, "dim": 3072}, "split": "train"},
+        {"id": "SM_005", "args": {"batch_size": 4096, "dim": 5120}, "split": "train"},
+        {"id": "SM_006", "args": {"batch_size": 4096, "dim": 8192}, "split": "train"},
+        {"id": "SM_007", "args": {"batch_size": 4096, "dim": 11264}, "split": "train"},
+        {"id": "SM_008", "args": {"batch_size": 2048, "dim": 32768}, "split": "train"},
+        {"id": "SM_101", "args": {"batch_size": 4096, "dim": 512}, "split": "heldout"},
+        {"id": "SM_102", "args": {"batch_size": 4096, "dim": 2048}, "split": "heldout"},
+        {"id": "SM_201", "args": {"batch_size": 4096, "dim": 384}, "split": "heldout"},
+        {"id": "SM_202", "args": {"batch_size": 4096, "dim": 12672}, "split": "heldout"}
+      ]
+    }
+  }
+}
