@@ -1,0 +1,16 @@
+{
+  "run_id": "20260509_q2_llmseeded",
+  "hardware_id": "cuda_NVIDIA_B200_13.0",
+  "kernel": "matmul_bf16_int4",
+  "source": "full autotune (LFBOTreeSearch + effort=full) for expansion shapes",
+  "shapes_json": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/N1_expand/expansion_shapes.json",
+  "autotune_effort": "full",
+  "buckets_run": [
+    "rectangular"
+  ],
+  "shapes_done": 1,
+  "total_rows": 168,
+  "wall_elapsed_s": 249.01091482164338,
+  "completed_at": "2026-05-10T02:11:17",
+  "csv_path": "/home/dev/helion_choijon5/aot_pretune_data/b200/matmul_bf16_int4/runs/20260509_q2_llmseeded/measurements_cuda_NVIDIA_B200_13.0.csv"
+}
