@@ -1,0 +1,66 @@
+{
+  "autotuner": "LFBOTreeSearch",
+  "kernel": "matmul",
+  "M": 2048,
+  "K": 2048,
+  "N": 2048,
+  "dtype": "float16",
+  "autotune_effort": "full",
+  "llm_provider": "bedrock",
+  "llm_model": "us.anthropic.claude-opus-4-7",
+  "wall_elapsed_s": 477.11169212078676,
+  "configs_benchmarked_ok": 518,
+  "best_perf_ms": 0.023552000522613525,
+  "median_perf_ms": 0.08505599945783615,
+  "winner_config": {
+    "block_sizes": [
+      128,
+      256,
+      64
+    ],
+    "loop_orders": [
+      [
+        1,
+        0
+      ]
+    ],
+    "l2_groupings": [
+      1
+    ],
+    "range_unroll_factors": [
+      0,
+      0
+    ],
+    "range_warp_specializes": [
+      null,
+      null
+    ],
+    "range_num_stages": [
+      0,
+      0
+    ],
+    "range_multi_buffers": [
+      null,
+      true
+    ],
+    "range_flattens": [
+      null,
+      null
+    ],
+    "load_eviction_policies": [
+      "first",
+      ""
+    ],
+    "num_warps": 4,
+    "num_stages": 4,
+    "indexing": [
+      "pointer",
+      "tensor_descriptor",
+      "tensor_descriptor"
+    ],
+    "pid_type": "flat",
+    "epilogue_subtile": 2,
+    "atomic_indexing": []
+  },
+  "error": null
+}

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "kernel": "_bf16xint16_gemm",
+  "arm": "baseline",
+  "mode": "no_autotune_effort_none",
+  "shape_grid_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/N0_live/shape_grid.json",
+  "dtype": null,
+  "shapes_run": [
+    "I16_001",
+    "I16_002",
+    "I16_003",
+    "I16_004",
+    "I16_005",
+    "I16_006",
+    "I16_007",
+    "I16_008",
+    "I16_009",
+    "I16_010",
+    "I16_011",
+    "I16_012"
+  ],
+  "repeats": 3,
+  "heuristic_path": null,
+  "csv_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/Q5_exp1/baseline/_bf16xint16_gemm_baseline.csv",
+  "wall_elapsed_s": 4.688371897209436,
+  "torch_version": "2.13.0.dev20260507+cu130",
+  "cuda_device": "NVIDIA B200"
+}

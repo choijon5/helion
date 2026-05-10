@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "kernel": "matmul_bf16_int4",
+  "arm": "heuristics",
+  "mode": "no_autotune_effort_none",
+  "shape_grid_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/N0_live/shape_grid.json",
+  "dtype": null,
+  "shapes_run": [
+    "I4_001",
+    "I4_002",
+    "I4_003",
+    "I4_004",
+    "I4_005",
+    "I4_006",
+    "I4_007",
+    "I4_008",
+    "I4_009",
+    "I4_010",
+    "I4_011",
+    "I4_012"
+  ],
+  "repeats": 3,
+  "heuristic_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/N6_full_tune/heuristic/heuristic_matmul_bf16_int4.py",
+  "csv_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/Q5_exp1/heuristics/matmul_bf16_int4_heuristics.csv",
+  "wall_elapsed_s": 5.60172404628247,
+  "torch_version": "2.13.0.dev20260507+cu130",
+  "cuda_device": "NVIDIA B200"
+}

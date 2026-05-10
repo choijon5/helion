@@ -1,0 +1,3212 @@
+{
+  "aggregation": "median timing per (kernel, shape_hash, config_hash, config)",
+  "kernels": {
+    "_bf16xint16_gemm": {
+      "aggregated_rows": 7486,
+      "configs": 7045,
+      "raw_samples": 7486,
+      "shape_regimes": [
+        {
+          "regime": "M=1024,N=1024,K=1024,size=<=1024",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  64,
+                  64
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  4
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "63d4d65184a90ed6",
+              "family": "{\"block_sizes\":[128,64,64],\"num_stages\":3,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1024,N=4096,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  256,
+                  128,
+                  64
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  8
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "maxnreg": 256,
+                "num_sm_multiplier": 1,
+                "num_stages": 3,
+                "num_warps": 8,
+                "pid_type": "persistent_blocked",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  true,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "59e8bd0946d786c9",
+              "family": "{\"block_sizes\":[256,128,64],\"num_stages\":3,\"num_warps\":8,\"pid_type\":\"persistent_blocked\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=128,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  32,
+                  256
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  false
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "2d3ee3bd540f8938",
+              "family": "{\"block_sizes\":[64,32,256],\"num_stages\":3,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1536,N=1536,K=1536,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  256,
+                  64,
+                  64
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "first",
+                  ""
+                ],
+                "num_stages": 5,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "8923919026db76ef",
+              "family": "{\"block_sizes\":[256,64,64],\"num_stages\":5,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1536,N=1536,K=3072,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  64,
+                  64
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "b3be71e495336ca3",
+              "family": "{\"block_sizes\":[128,64,64],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=16,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  32,
+                  1024
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  8
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_sm_multiplier": 1,
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "persistent_interleaved",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  2
+                ],
+                "range_unroll_factors": [
+                  0,
+                  2
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "314cb90c4ed5aa73",
+              "family": "{\"block_sizes\":[16,32,1024],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"persistent_interleaved\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=16,N=4096,K=4096,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  32,
+                  512
+                ],
+                "indexing": [
+                  "pointer",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  1
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  true
+                ]
+              },
+              "config_hash": "a6080caa8934d702",
+              "family": "{\"block_sizes\":[16,32,512],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=1024,K=4096,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  64,
+                  64
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  2
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "5761e52ab249f2b3",
+              "family": "{\"block_sizes\":[128,64,64],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=128,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  32,
+                  256
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  16
+                ],
+                "load_eviction_policies": [
+                  "first",
+                  "last"
+                ],
+                "num_stages": 3,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  2
+                ],
+                "range_unroll_factors": [
+                  0,
+                  3
+                ],
+                "range_warp_specializes": [
+                  null,
+                  false
+                ]
+              },
+              "config_hash": "488e5004a7697aa8",
+              "family": "{\"block_sizes\":[64,32,256],\"num_stages\":3,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=16,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  32,
+                  4,
+                  256
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  8
+                ],
+                "load_eviction_policies": [
+                  "",
+                  "first"
+                ],
+                "num_stages": 3,
+                "num_warps": 1,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "7346ccedd858acb4",
+              "family": "{\"block_sizes\":[32,4,256],\"num_stages\":3,\"num_warps\":1,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=2048,K=128,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  128,
+                  64
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "c959c35020e66fce",
+              "family": "{\"block_sizes\":[128,128,64],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  256,
+                  128,
+                  64
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  16
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "maxnreg": 256,
+                "num_sm_multiplier": 1,
+                "num_stages": 4,
+                "num_warps": 8,
+                "pid_type": "persistent_blocked",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  true,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "cf92ff6c768eb43f",
+              "family": "{\"block_sizes\":[256,128,64],\"num_stages\":4,\"num_warps\":8,\"pid_type\":\"persistent_blocked\"}",
+              "wins": 1
+            }
+          ]
+        }
+      ],
+      "shapes": 40,
+      "winning_configs": [
+        {
+          "compact_config": {
+            "block_sizes": [
+              256,
+              128,
+              64
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              8
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "maxnreg": 256,
+            "num_sm_multiplier": 1,
+            "num_stages": 3,
+            "num_warps": 8,
+            "pid_type": "persistent_blocked",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "e52e91ad4ccfe348",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.1622,
+          "shape_coverage": 3,
+          "win_count": 2,
+          "winning_shape_examples": [
+            "M=2048,N=2048,K=256,size=<=4096",
+            "M=512,N=8192,K=2048,size=<=8192"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              256,
+              128,
+              64
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              8
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "maxnreg": 128,
+            "num_sm_multiplier": 1,
+            "num_stages": 3,
+            "num_warps": 8,
+            "pid_type": "persistent_blocked",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "9a94d03bc6b50d75",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.1267,
+          "shape_coverage": 3,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=8192,N=512,K=2048,size=<=8192"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              32,
+              16,
+              64
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "maxnreg": 128,
+            "num_sm_multiplier": 1,
+            "num_stages": 3,
+            "num_warps": 2,
+            "pid_type": "persistent_interleaved",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              2
+            ],
+            "range_warp_specializes": [
+              false,
+              false
+            ]
+          },
+          "config_hash": "d569e77fb894111c",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=256,N=256,K=256,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              32,
+              32,
+              128
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "first",
+              ""
+            ],
+            "maxnreg": 64,
+            "num_sm_multiplier": 1,
+            "num_stages": 3,
+            "num_warps": 8,
+            "pid_type": "persistent_interleaved",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              1
+            ],
+            "range_warp_specializes": [
+              false,
+              null
+            ]
+          },
+          "config_hash": "140e155fbb9fe602",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=384,N=384,K=384,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              32,
+              64,
+              128
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 4,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              true
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "7e87c39d2c519f0b",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=512,N=512,K=512,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              128,
+              32,
+              128
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "last",
+              ""
+            ],
+            "num_sm_multiplier": 1,
+            "num_stages": 4,
+            "num_warps": 4,
+            "pid_type": "persistent_interleaved",
+            "range_flattens": [
+              null,
+              false
+            ],
+            "range_multi_buffers": [
+              true,
+              false
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "e2ad8e3c78cd2230",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=768,N=768,K=768,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              128,
+              64,
+              64
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              4
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 3,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "63d4d65184a90ed6",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=1024,N=1024,K=1024,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              256,
+              64,
+              64
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "first",
+              ""
+            ],
+            "num_stages": 5,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "8923919026db76ef",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=1536,N=1536,K=1536,size=<=4096"
+          ]
+        }
+      ]
+    },
+    "matmul_bf16_int4": {
+      "aggregated_rows": 8348,
+      "configs": 7921,
+      "raw_samples": 8348,
+      "shape_regimes": [
+        {
+          "regime": "M=1024,N=1024,K=1024,size=<=1024",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  128,
+                  64
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  false
+                ],
+                "range_num_stages": [
+                  0,
+                  2
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "189242e4f5d0cadc",
+              "family": "{\"block_sizes\":[64,128,64],\"num_stages\":3,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1024,N=4096,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  128,
+                  256
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 2,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  false
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "2b033777f98d975a",
+              "family": "{\"block_sizes\":[16,128,256],\"num_stages\":2,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=128,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  64,
+                  32
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  true
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "0fea68f99e15e54f",
+              "family": "{\"block_sizes\":[128,64,32],\"num_stages\":3,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1536,N=1536,K=1536,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  256,
+                  64
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  "last"
+                ],
+                "num_stages": 5,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  false
+                ],
+                "range_num_stages": [
+                  0,
+                  1
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "4ea8a2ad1e1ecec4",
+              "family": "{\"block_sizes\":[16,256,64],\"num_stages\":5,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1536,N=1536,K=3072,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  128,
+                  128
+                ],
+                "indexing": [
+                  "pointer",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  2
+                ],
+                "load_eviction_policies": [
+                  "",
+                  "first"
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  3
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "0c99d46d44055593",
+              "family": "{\"block_sizes\":[16,128,128],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=16,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  256,
+                  16,
+                  16
+                ],
+                "indexing": [
+                  "pointer",
+                  "tensor_descriptor",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  false
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "3d4a0596b79d2c43",
+              "family": "{\"block_sizes\":[256,16,16],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=16,N=4096,K=4096,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  16,
+                  32
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  4
+                ],
+                "load_eviction_policies": [
+                  "last",
+                  ""
+                ],
+                "num_stages": 5,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "6ed1084216e860e4",
+              "family": "{\"block_sizes\":[128,16,32],\"num_stages\":5,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=1024,K=4096,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  128,
+                  128
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "last",
+                  "first"
+                ],
+                "num_stages": 4,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  1
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "063be352b0e23d4b",
+              "family": "{\"block_sizes\":[16,128,128],\"num_stages\":4,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=128,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  64,
+                  16
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  16
+                ],
+                "load_eviction_policies": [
+                  "first",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 2,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  1
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "c68e6f5a5c776737",
+              "family": "{\"block_sizes\":[64,64,16],\"num_stages\":3,\"num_warps\":2,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=16,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  256,
+                  16,
+                  16
+                ],
+                "indexing": [
+                  "pointer",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "xyz",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  1
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "41fe683b93a21516",
+              "family": "{\"block_sizes\":[256,16,16],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"xyz\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=2048,K=128,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  128,
+                  256
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  true
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "7532e2e30a0d38dc",
+              "family": "{\"block_sizes\":[16,128,256],\"num_stages\":3,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  128,
+                  128
+                ],
+                "indexing": [
+                  "pointer",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  2
+                ],
+                "load_eviction_policies": [
+                  "last",
+                  ""
+                ],
+                "num_stages": 6,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  1
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "53579ee209a183f5",
+              "family": "{\"block_sizes\":[16,128,128],\"num_stages\":6,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        }
+      ],
+      "shapes": 40,
+      "winning_configs": [
+        {
+          "compact_config": {
+            "block_sizes": [
+              64,
+              64,
+              16
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              16
+            ],
+            "load_eviction_policies": [
+              "first",
+              ""
+            ],
+            "num_stages": 3,
+            "num_warps": 2,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              1
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "c68e6f5a5c776737",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 2,
+          "win_count": 2,
+          "winning_shape_examples": [
+            "M=2048,N=64,K=2048,size=<=4096",
+            "M=2048,N=128,K=2048,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              16,
+              128,
+              256
+            ],
+            "indexing": [
+              "tensor_descriptor",
+              "pointer",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "last",
+              ""
+            ],
+            "num_stages": 3,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              true
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "38ff822cf797c083",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.1268,
+          "shape_coverage": 3,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=2048,N=2048,K=64,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              16,
+              128,
+              256
+            ],
+            "indexing": [
+              "pointer",
+              "tensor_descriptor",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 4,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              true
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              2
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "7c95ac6a4f06ceba",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.1098,
+          "shape_coverage": 3,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=2048,N=2048,K=256,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              64,
+              32,
+              16
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 2,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "ff0dfe0edae30a3e",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=256,N=256,K=256,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              64,
+              64,
+              64
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              16
+            ],
+            "load_eviction_policies": [
+              "first",
+              "first"
+            ],
+            "num_sm_multiplier": 1,
+            "num_stages": 3,
+            "num_warps": 8,
+            "pid_type": "persistent_interleaved",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "c0662000be7cf6b6",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=768,N=768,K=768,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              16,
+              128,
+              256
+            ],
+            "indexing": [
+              "pointer",
+              "tensor_descriptor",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              "last"
+            ],
+            "num_stages": 8,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              1
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "756f932f8b34829e",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=3072,N=3072,K=3072,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              256,
+              16,
+              16
+            ],
+            "indexing": [
+              "pointer",
+              "tensor_descriptor",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              false
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "3d4a0596b79d2c43",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=16,N=2048,K=2048,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              256,
+              32,
+              16
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "last",
+              "last"
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              true
+            ],
+            "range_multi_buffers": [
+              null,
+              false
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              1
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "f45f52f8c66ce2e0",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=32,N=2048,K=2048,size=<=4096"
+          ]
+        }
+      ]
+    },
+    "nvfp4_matmul": {
+      "aggregated_rows": 10917,
+      "configs": 10507,
+      "raw_samples": 10917,
+      "shape_regimes": [
+        {
+          "regime": "M=1024,N=1024,K=1024,size=<=1024",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  128,
+                  32
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "last",
+                  ""
+                ],
+                "num_stages": 1,
+                "num_warps": 8,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  true
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  false
+                ]
+              },
+              "config_hash": "f018ac9236667440",
+              "family": "{\"block_sizes\":[64,128,32],\"num_stages\":1,\"num_warps\":8,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1024,N=4096,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  16,
+                  128,
+                  256
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  2
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  true
+                ],
+                "range_num_stages": [
+                  0,
+                  3
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  false
+                ]
+              },
+              "config_hash": "534726c2eaf1bd68",
+              "family": "{\"block_sizes\":[16,128,256],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=128,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  64,
+                  16
+                ],
+                "indexing": [
+                  "pointer",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  "first"
+                ],
+                "num_stages": 3,
+                "num_warps": 2,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "b5b5c339fed18c57",
+              "family": "{\"block_sizes\":[64,64,16],\"num_stages\":3,\"num_warps\":2,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1536,N=1536,K=1536,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  128,
+                  64
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 1,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  1
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  false
+                ]
+              },
+              "config_hash": "f53a6ab81c836e3c",
+              "family": "{\"block_sizes\":[64,128,64],\"num_stages\":1,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=1536,N=1536,K=3072,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  8,
+                  128,
+                  128
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  "first"
+                ],
+                "num_stages": 4,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  false
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  2
+                ],
+                "range_unroll_factors": [
+                  0,
+                  4
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "1607b4e424a498c3",
+              "family": "{\"block_sizes\":[8,128,128],\"num_stages\":4,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=16,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  16,
+                  16
+                ],
+                "indexing": [
+                  "pointer",
+                  "tensor_descriptor",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "first",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "d736cb6bf487a84b",
+              "family": "{\"block_sizes\":[128,16,16],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=16,N=4096,K=4096,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  16,
+                  16
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "first",
+                  ""
+                ],
+                "num_stages": 5,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  true
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "87078018aa7421a3",
+              "family": "{\"block_sizes\":[128,16,16],\"num_stages\":5,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=1024,K=4096,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  8,
+                  128,
+                  128
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "first",
+                  ""
+                ],
+                "num_stages": 6,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  false
+                ],
+                "range_multi_buffers": [
+                  null,
+                  false
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  1
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "f67b1bb2f5c29466",
+              "family": "{\"block_sizes\":[8,128,128],\"num_stages\":6,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=128,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  64,
+                  64,
+                  16
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  4
+                ],
+                "load_eviction_policies": [
+                  "",
+                  "last"
+                ],
+                "num_stages": 3,
+                "num_warps": 2,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "f4eb1b8c41a2d5b8",
+              "family": "{\"block_sizes\":[64,64,16],\"num_stages\":3,\"num_warps\":2,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=16,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  128,
+                  32,
+                  16
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "pointer"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_sm_multiplier": 1,
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "persistent_blocked",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  1,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "50df2cfaedea2028",
+              "family": "{\"block_sizes\":[128,32,16],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"persistent_blocked\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=2048,K=128,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  8,
+                  128,
+                  128
+                ],
+                "indexing": [
+                  "tensor_descriptor",
+                  "tensor_descriptor",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  "first"
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  null
+                ],
+                "range_multi_buffers": [
+                  null,
+                  null
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  1
+                ],
+                "range_warp_specializes": [
+                  null,
+                  null
+                ]
+              },
+              "config_hash": "2a83e4f8196f7e04",
+              "family": "{\"block_sizes\":[8,128,128],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        },
+        {
+          "regime": "M=2048,N=2048,K=2048,size=<=4096",
+          "shape_count": 1,
+          "top_winners": [
+            {
+              "compact_config": {
+                "block_sizes": [
+                  8,
+                  128,
+                  128
+                ],
+                "indexing": [
+                  "pointer",
+                  "pointer",
+                  "tensor_descriptor"
+                ],
+                "l2_groupings": [
+                  1
+                ],
+                "load_eviction_policies": [
+                  "",
+                  ""
+                ],
+                "num_stages": 3,
+                "num_warps": 4,
+                "pid_type": "flat",
+                "range_flattens": [
+                  null,
+                  true
+                ],
+                "range_multi_buffers": [
+                  null,
+                  true
+                ],
+                "range_num_stages": [
+                  0,
+                  0
+                ],
+                "range_unroll_factors": [
+                  0,
+                  0
+                ],
+                "range_warp_specializes": [
+                  null,
+                  false
+                ]
+              },
+              "config_hash": "5e18f0880bce3323",
+              "family": "{\"block_sizes\":[8,128,128],\"num_stages\":3,\"num_warps\":4,\"pid_type\":\"flat\"}",
+              "wins": 1
+            }
+          ]
+        }
+      ],
+      "shapes": 40,
+      "winning_configs": [
+        {
+          "compact_config": {
+            "block_sizes": [
+              8,
+              128,
+              128
+            ],
+            "indexing": [
+              "tensor_descriptor",
+              "tensor_descriptor",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              "first"
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              1
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "2a83e4f8196f7e04",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0561,
+          "shape_coverage": 3,
+          "win_count": 2,
+          "winning_shape_examples": [
+            "M=2048,N=2048,K=128,size=<=4096",
+            "M=2048,N=2048,K=256,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              8,
+              128,
+              128
+            ],
+            "indexing": [
+              "pointer",
+              "tensor_descriptor",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              "first"
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              true
+            ],
+            "range_multi_buffers": [
+              null,
+              false
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "5124f6df676a36b2",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 3,
+          "win_count": 2,
+          "winning_shape_examples": [
+            "M=4096,N=4096,K=256,size=<=4096",
+            "M=4096,N=4096,K=512,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              128,
+              32,
+              16
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "first",
+              "last"
+            ],
+            "num_stages": 4,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              2
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              false
+            ]
+          },
+          "config_hash": "b6ceaf8164b3b398",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=256,N=256,K=256,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              64,
+              64,
+              16
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "last",
+              ""
+            ],
+            "num_stages": 3,
+            "num_warps": 2,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              null
+            ]
+          },
+          "config_hash": "68478515ee4be2f4",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=384,N=384,K=384,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              128,
+              128,
+              32
+            ],
+            "indexing": [
+              "tensor_descriptor",
+              "pointer",
+              "pointer"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              false
+            ]
+          },
+          "config_hash": "b259678ac1601a52",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=768,N=768,K=768,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              64,
+              128,
+              32
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "last",
+              ""
+            ],
+            "num_stages": 1,
+            "num_warps": 8,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              true
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              false
+            ]
+          },
+          "config_hash": "f018ac9236667440",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=1024,N=1024,K=1024,size=<=1024"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              64,
+              128,
+              64
+            ],
+            "indexing": [
+              "tensor_descriptor",
+              "tensor_descriptor",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 1,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              null
+            ],
+            "range_multi_buffers": [
+              null,
+              null
+            ],
+            "range_num_stages": [
+              0,
+              1
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              false
+            ]
+          },
+          "config_hash": "f53a6ab81c836e3c",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=1536,N=1536,K=1536,size=<=4096"
+          ]
+        },
+        {
+          "compact_config": {
+            "block_sizes": [
+              8,
+              128,
+              128
+            ],
+            "indexing": [
+              "pointer",
+              "pointer",
+              "tensor_descriptor"
+            ],
+            "l2_groupings": [
+              1
+            ],
+            "load_eviction_policies": [
+              "",
+              ""
+            ],
+            "num_stages": 3,
+            "num_warps": 4,
+            "pid_type": "flat",
+            "range_flattens": [
+              null,
+              true
+            ],
+            "range_multi_buffers": [
+              null,
+              true
+            ],
+            "range_num_stages": [
+              0,
+              0
+            ],
+            "range_unroll_factors": [
+              0,
+              0
+            ],
+            "range_warp_specializes": [
+              null,
+              false
+            ]
+          },
+          "config_hash": "5e18f0880bce3323",
+          "median_slowdown": 1.0,
+          "p90_slowdown": 1.0,
+          "shape_coverage": 1,
+          "win_count": 1,
+          "winning_shape_examples": [
+            "M=2048,N=2048,K=2048,size=<=4096"
+          ]
+        }
+      ]
+    }
+  },
+  "schema_version": 1
+}

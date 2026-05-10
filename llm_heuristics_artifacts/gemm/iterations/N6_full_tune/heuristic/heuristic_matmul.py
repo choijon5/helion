@@ -69,11 +69,17 @@ def _matmul_bucket(dtype: str, M: int, K: int, N: int) -> dict:
 
 
 def _lookup_template(kernel_class: str, bucket: dict) -> dict | None:
-    """Return the highest-win_count template for this bucket, or None.
+    """Return the highest-win_count *compilable* template for this bucket,
+    or None if no rule matches or every template exceeds the hardware
+    resource budget for the caller-supplied query.
 
     Supports both the ``derived_general_heuristics.json`` schema (uses
     ``selected_templates``) and the ``runtime_observed_heuristics.json``
     schema (uses ``templates``).
+
+    This function does not know the query shape; the ``_fits_budget``
+    filter is applied in ``autotune_matmul`` after the dispatcher sees
+    the live args.
     """
     key = frozenset(bucket.items())
     for rule in _RULES.get("rules", []):
@@ -84,15 +90,58 @@ def _lookup_template(kernel_class: str, bucket: dict) -> dict | None:
         templates = rule.get("templates") or rule.get("selected_templates") or []
         if not templates:
             return None
-        best = max(
+        # Return *all* templates, ordered best-first, so the caller can
+        # reject ones that would blow the shmem budget on its query.
+        return sorted(
             templates,
             key=lambda t: (
-                t.get("win_count", 0),
-                -t.get("geomean_slowdown", 2.0),
+                -t.get("win_count", 0),
+                t.get("geomean_slowdown", 2.0),
             ),
         )
-        return best.get("template")
     return None
+
+
+# --- Hardware resource budget -------------------------------------
+
+# B200 shared-memory capacity per SM (bytes). Triton reserves some for
+# the runtime (~2 KB observed on sm_100) and our estimator is
+# approximate, so we use a safety margin.
+_B200_SHMEM_LIMIT_BYTES = 232448
+_SHMEM_SAFETY_MARGIN = 0.90  # stay under 90% of hardware limit
+
+
+def _estimate_matmul_shmem_bytes(
+    block_m: int, block_n: int, block_k: int,
+    num_stages: int, dtype_size: int,
+) -> int:
+    """Estimate shared-memory bytes for a Helion matmul tile.
+
+    Two operand tiles A[block_m, block_k] and B[block_k, block_n] are
+    double-buffered per pipeline stage. The fp32 accumulator lives in
+    registers, not shmem, so it doesn't count.
+
+    This matches the OutOfResources message numbers observed on B200 in
+    practice for the N6 heuristic's bad picks.
+    """
+    a_tile = block_m * block_k * dtype_size
+    b_tile = block_k * block_n * dtype_size
+    # num_stages stages of pipeline => num_stages copies of each operand.
+    return (a_tile + b_tile) * num_stages
+
+
+def _fits_shmem_budget(cfg: dict, M: int, K: int, N: int, dtype_size: int) -> bool:
+    """True if ``cfg``'s tile sizes are estimated to fit B200 shmem."""
+    bs = cfg.get("block_sizes") or [0, 0, 0]
+    if len(bs) < 3:
+        return True
+    bm, bn, bk = int(bs[0]), int(bs[1]), int(bs[2])
+    # Clamp to actual axis sizes — a [128, 512, 32] template on N=128
+    # effectively runs as [128, 128, 32], which is smaller.
+    bm = min(bm, M); bn = min(bn, N); bk = min(bk, K)
+    ns = int(cfg.get("num_stages", 1)) or 1
+    est = _estimate_matmul_shmem_bytes(bm, bn, bk, ns, dtype_size)
+    return est <= int(_B200_SHMEM_LIMIT_BYTES * _SHMEM_SAFETY_MARGIN)
 
 
 # --- N3b fallback (archive tree + adaptive) ------------------------
@@ -235,17 +284,52 @@ def _merge_template_with_defaults(template: dict, M: int, K: int, N: int) -> dic
 
 # --- Entry points ---------------------------------------------------
 
+def _shrink_to_fit(cfg: dict, M: int, K: int, N: int, dtype_size: int) -> dict:
+    """Last-resort shmem fit: halve num_stages (down to 1) until the
+    config is under the shmem budget. If even num_stages=1 doesn't fit,
+    halve block_k (down to 32). Preserves all other knobs.
+    """
+    cfg = dict(cfg)
+    ns = int(cfg.get("num_stages", 1)) or 1
+    while ns > 1 and not _fits_shmem_budget({**cfg, "num_stages": ns}, M, K, N, dtype_size):
+        ns //= 2
+    cfg["num_stages"] = max(ns, 1)
+    if not _fits_shmem_budget(cfg, M, K, N, dtype_size):
+        bs = list(cfg.get("block_sizes") or [0, 0, 0])
+        while bs[2] > 32 and not _fits_shmem_budget({**cfg, "block_sizes": bs}, M, K, N, dtype_size):
+            bs[2] //= 2
+        cfg["block_sizes"] = bs
+    return cfg
+
+
 def autotune_matmul(*args) -> dict:
     x = args[0]; y = args[1]
     M = int(x.shape[0])
     K = int(x.shape[1])
     N = int(y.shape[1])
+    dtype_size = x.element_size()
     dtype = "fp16_bf16" if x.dtype in (torch.float16, torch.bfloat16) else "fp32"
     bucket = _matmul_bucket(dtype, M, K, N)
-    template = _lookup_template("matmul", bucket)
-    if template is not None:
-        return _merge_template_with_defaults(template, M, K, N)
-    return _fallback_config(M, K, N)
+
+    # Ordered best->worst templates for this bucket (None if no rule).
+    templates = _lookup_template("matmul", bucket)
+    if templates:
+        for t in templates:
+            tmpl = t.get("template") if isinstance(t, dict) and "template" in t else t
+            cfg = _merge_template_with_defaults(tmpl, M, K, N)
+            if _fits_shmem_budget(cfg, M, K, N, dtype_size):
+                return cfg
+        # All templates in the bucket blow the shmem budget: take the
+        # best one and shrink-to-fit rather than falling through to the
+        # adaptive path (which may be worse than a shrunk-oracle config).
+        tmpl = templates[0].get("template") if isinstance(templates[0], dict) and "template" in templates[0] else templates[0]
+        return _shrink_to_fit(_merge_template_with_defaults(tmpl, M, K, N), M, K, N, dtype_size)
+
+    # Fallback: archive tree + adaptive. Shrink-to-fit if needed.
+    cfg = _fallback_config(M, K, N)
+    if not _fits_shmem_budget(cfg, M, K, N, dtype_size):
+        cfg = _shrink_to_fit(cfg, M, K, N, dtype_size)
+    return cfg
 
 
 def key_matmul(*args) -> int:

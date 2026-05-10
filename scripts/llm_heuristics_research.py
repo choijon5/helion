@@ -309,6 +309,12 @@ def infer_kernel_class(kernel: str, features: dict[str, object]) -> str:
         return "matmul_fp8"
     if kernel == "matmul":
         return "matmul"
+    if kernel == "matmul_bf16_int4":
+        return "matmul_int4"
+    if kernel == "_bf16xint16_gemm":
+        return "matmul_int16"
+    if kernel == "nvfp4_matmul":
+        return "matmul_fp4"
     if kernel == "vector_add":
         return "elementwise"
     if kernel == "softmax":
@@ -339,7 +345,14 @@ def shape_bucket_for_class(
             "batch_heads_bin": _bin_le(batch_heads, [32, 64, 128, 256]),
             "dtype": dtype_family,
         }
-    if kernel_class in {"matmul", "matmul_fp8", "grouped_matmul"}:
+    if kernel_class in {
+        "matmul",
+        "matmul_fp8",
+        "grouped_matmul",
+        "matmul_int4",
+        "matmul_int16",
+        "matmul_fp4",
+    }:
         m, n, k = _matmul_shape_features(features)
         return {
             "m_bin": _bin_le(m, [64, 128, 256, 512, 1024, 4096]),
@@ -365,7 +378,13 @@ def _bucket_key(kernel_class: str, bucket: dict[str, object]) -> str:
 
 
 def _shape_label(kernel: str, features: dict[str, object]) -> str:
-    if kernel in {"matmul", "fp8_gemm"}:
+    if kernel in {
+        "matmul",
+        "fp8_gemm",
+        "matmul_bf16_int4",
+        "_bf16xint16_gemm",
+        "nvfp4_matmul",
+    }:
         m = _int_feature(features, "arg0_dim0")
         k = _int_feature(features, "arg0_dim1")
         n = _int_feature(features, "arg1_dim1")

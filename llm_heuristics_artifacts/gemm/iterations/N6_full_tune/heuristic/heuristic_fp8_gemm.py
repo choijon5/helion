@@ -58,7 +58,12 @@ def _matmul_bucket(dtype: str, M: int, K: int, N: int) -> dict:
     }
 
 
-def _lookup_template(kernel_class: str, bucket: dict) -> dict | None:
+def _lookup_template(kernel_class: str, bucket: dict):
+    """Return the list of templates for this bucket ordered best-first,
+    or None if no rule matches. Hardware-budget filtering is applied by
+    the caller (``autotune_fp8_gemm``) because the dispatcher knows the
+    query shape and dtype size.
+    """
     key = frozenset(bucket.items())
     for rule in _RULES.get("rules", []):
         if rule.get("kernel_class") != kernel_class:
@@ -68,15 +73,54 @@ def _lookup_template(kernel_class: str, bucket: dict) -> dict | None:
         templates = rule.get("templates") or rule.get("selected_templates") or []
         if not templates:
             return None
-        best = max(
+        return sorted(
             templates,
             key=lambda t: (
-                t.get("win_count", 0),
-                -t.get("geomean_slowdown", 2.0),
+                -t.get("win_count", 0),
+                t.get("geomean_slowdown", 2.0),
             ),
         )
-        return best.get("template")
     return None
+
+
+# --- Hardware resource budget (shared with matmul) ------------------
+
+_B200_SHMEM_LIMIT_BYTES = 232448
+_SHMEM_SAFETY_MARGIN = 0.90
+
+
+def _estimate_matmul_shmem_bytes(
+    block_m: int, block_n: int, block_k: int,
+    num_stages: int, dtype_size: int,
+) -> int:
+    a_tile = block_m * block_k * dtype_size
+    b_tile = block_k * block_n * dtype_size
+    return (a_tile + b_tile) * num_stages
+
+
+def _fits_shmem_budget(cfg: dict, M: int, K: int, N: int, dtype_size: int) -> bool:
+    bs = cfg.get("block_sizes") or [0, 0, 0]
+    if len(bs) < 3:
+        return True
+    bm, bn, bk = int(bs[0]), int(bs[1]), int(bs[2])
+    bm = min(bm, M); bn = min(bn, N); bk = min(bk, K)
+    ns = int(cfg.get("num_stages", 1)) or 1
+    est = _estimate_matmul_shmem_bytes(bm, bn, bk, ns, dtype_size)
+    return est <= int(_B200_SHMEM_LIMIT_BYTES * _SHMEM_SAFETY_MARGIN)
+
+
+def _shrink_to_fit(cfg: dict, M: int, K: int, N: int, dtype_size: int) -> dict:
+    cfg = dict(cfg)
+    ns = int(cfg.get("num_stages", 1)) or 1
+    while ns > 1 and not _fits_shmem_budget({**cfg, "num_stages": ns}, M, K, N, dtype_size):
+        ns //= 2
+    cfg["num_stages"] = max(ns, 1)
+    if not _fits_shmem_budget(cfg, M, K, N, dtype_size):
+        bs = list(cfg.get("block_sizes") or [0, 0, 0])
+        while bs[2] > 32 and not _fits_shmem_budget({**cfg, "block_sizes": bs}, M, K, N, dtype_size):
+            bs[2] //= 2
+        cfg["block_sizes"] = bs
+    return cfg
 
 
 _ARCHIVE_CONFIGS = [
@@ -210,11 +254,21 @@ def autotune_fp8_gemm(*args) -> dict:
     M = int(x.shape[0])
     K = int(x.shape[1])
     N = int(y.shape[1])
+    dtype_size = x.element_size()  # 1 byte for fp8
     bucket = _matmul_bucket("fp8", M, K, N)
-    template = _lookup_template("matmul_fp8", bucket)
-    if template is not None:
-        return _merge_template_with_defaults(template, M, K, N)
-    return _fallback_config(M, K, N)
+    templates = _lookup_template("matmul_fp8", bucket)
+    if templates:
+        for t in templates:
+            tmpl = t.get("template") if isinstance(t, dict) and "template" in t else t
+            cfg = _merge_template_with_defaults(tmpl, M, K, N)
+            if _fits_shmem_budget(cfg, M, K, N, dtype_size):
+                return cfg
+        tmpl0 = templates[0].get("template") if isinstance(templates[0], dict) and "template" in templates[0] else templates[0]
+        return _shrink_to_fit(_merge_template_with_defaults(tmpl0, M, K, N), M, K, N, dtype_size)
+    cfg = _fallback_config(M, K, N)
+    if not _fits_shmem_budget(cfg, M, K, N, dtype_size):
+        cfg = _shrink_to_fit(cfg, M, K, N, dtype_size)
+    return cfg
 
 
 def key_fp8_gemm(*args) -> int:
