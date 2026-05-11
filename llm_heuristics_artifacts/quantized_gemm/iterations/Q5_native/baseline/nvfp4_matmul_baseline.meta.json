@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "kernel": "nvfp4_matmul",
+  "arm": "baseline",
+  "mode": "no_autotune_effort_none_native_observed_heuristics",
+  "shape_grid_path": "/tmp/obs-heur-worktree/llm_heuristics_artifacts/quantized_gemm/iterations/N0_live/shape_grid.json",
+  "shapes_run": [
+    "FP4_001",
+    "FP4_002",
+    "FP4_003",
+    "FP4_004",
+    "FP4_005",
+    "FP4_006",
+    "FP4_007",
+    "FP4_008",
+    "FP4_009",
+    "FP4_010",
+    "FP4_011",
+    "FP4_012"
+  ],
+  "repeats": 3,
+  "observed_heuristics_enabled": false,
+  "csv_path": "/tmp/obs-heur-worktree/llm_heuristics_artifacts/quantized_gemm/iterations/Q5_native/baseline/nvfp4_matmul_baseline.csv",
+  "wall_elapsed_s": 4.046079019084573
+}

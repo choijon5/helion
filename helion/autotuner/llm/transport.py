@@ -24,6 +24,9 @@ _PROVIDER_ALIASES = {
     "openai": "openai_responses",
     "openai_responses": "openai_responses",
     "openai-responses": "openai_responses",
+    "bedrock": "bedrock",
+    "aws_bedrock": "bedrock",
+    "aws-bedrock": "bedrock",
 }
 
 
@@ -43,6 +46,11 @@ def infer_provider(model: str, provider: str | None = None) -> str:
     if provider is not None:
         return normalize_provider(provider)
     normalized = model.lower()
+    # Bedrock inference profile IDs look like "us.anthropic.claude-opus-4-7-v1:0".
+    if normalized.startswith(("bedrock/", "us.anthropic.", "eu.anthropic.")) or (
+        normalized.startswith("anthropic.") and ":" in normalized
+    ):
+        return "bedrock"
     if normalized.startswith(("claude", "anthropic/")):
         return "anthropic"
     if normalized.startswith(
@@ -54,7 +62,7 @@ def infer_provider(model: str, provider: str | None = None) -> str:
 
 def strip_provider_prefix(model: str) -> str:
     """Remove a provider prefix before sending the model name to the API."""
-    for prefix in ("anthropic/", "openai/"):
+    for prefix in ("anthropic/", "openai/", "bedrock/"):
         if model.startswith(prefix):
             return model.removeprefix(prefix)
     return model
@@ -188,6 +196,38 @@ def _anthropic_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _bedrock_payload(
+    model: str,
+    messages: list[dict[str, str]],
+    max_output_tokens: int,
+) -> dict[str, Any]:
+    """Build the Anthropic-over-Bedrock invoke body."""
+    from . import _bedrock
+
+    system_prompt, input_messages = split_system_messages(messages)
+    return _bedrock.build_bedrock_payload(
+        messages=input_messages,
+        max_output_tokens=max_output_tokens,
+        system_prompt=system_prompt,
+        model=model,
+    )
+
+
+def _bedrock_headers_placeholder(api_key: str) -> dict[str, str]:
+    """Bedrock headers are request-signed; this placeholder is unused."""
+    _ = api_key
+    return {}
+
+
+def extract_bedrock_text(response: dict[str, object]) -> str:
+    """Extract concatenated text from a Bedrock Anthropic invoke response.
+
+    Bedrock returns the Anthropic payload verbatim, so the existing
+    Anthropic extractor works.
+    """
+    return extract_anthropic_text(response)
+
+
 @dataclass(frozen=True)
 class _ProviderConfig:
     """Provider-specific transport configuration."""
@@ -228,6 +268,22 @@ _PROVIDER_CONFIGS = {
         build_payload=_anthropic_payload,
         build_headers=_anthropic_headers,
         extract_text=extract_anthropic_text,
+    ),
+    "bedrock": _ProviderConfig(
+        # Bedrock uses per-model URLs and SigV4 request signing, not the
+        # shared api_base + api_key path. The endpoint/api_* fields here are
+        # only placeholders so the shared resolver code does not error.
+        endpoint="__bedrock_invoke__",
+        default_api_base="",
+        api_base_env_names=(),
+        api_key_env_names=(),
+        missing_api_key_error=(
+            "Bedrock provider does not take an API key; expected SigV4 "
+            "credentials via instance role or AWS_* env vars."
+        ),
+        build_payload=_bedrock_payload,
+        build_headers=_bedrock_headers_placeholder,
+        extract_text=extract_bedrock_text,
     ),
 }
 
@@ -381,6 +437,14 @@ def call_provider(
     """Resolve credentials, send one request, and extract text from the response."""
     normalized_provider = normalize_provider(provider)
     config = _provider_config(normalized_provider)
+    if normalized_provider == "bedrock":
+        return _call_bedrock(
+            model=model,
+            messages=messages,
+            max_output_tokens=max_output_tokens,
+            request_timeout_s=request_timeout_s,
+            api_base=api_base,
+        )
     resolved_api_key = _resolve_api_key(normalized_provider, api_key)
     response = _post_json(
         _resolve_v1_endpoint(
@@ -397,3 +461,53 @@ def call_provider(
         request_timeout_s=request_timeout_s,
     )
     return config.extract_text(response)
+
+
+def _call_bedrock(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    max_output_tokens: int,
+    request_timeout_s: float,
+    api_base: str | None,
+) -> str:
+    """Send one Bedrock invoke request signed with SigV4 from IMDS creds."""
+    from . import _bedrock
+
+    bare_model = strip_provider_prefix(model)
+    region = _bedrock.resolve_region()
+    url = api_base or _bedrock.bedrock_endpoint(bare_model, region)
+    payload = _build_provider_payload(
+        "bedrock",
+        model=bare_model,
+        messages=messages,
+        max_output_tokens=max_output_tokens,
+    )
+    body = json.dumps(payload).encode("utf-8")
+    creds = _bedrock.get_credentials()
+    headers = _bedrock.sigv4_headers(
+        method="POST",
+        url=url,
+        body=body,
+        region=region,
+        creds=creds,
+    )
+    request = urllib_request.Request(
+        url=url, data=body, headers=headers, method="POST"
+    )
+    try:
+        body_json = _load_json_response(
+            request,
+            request_timeout_s=request_timeout_s,
+            ssl_context=_build_ssl_context(),
+        )
+    except urllib_error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {e.code} from {url}: {err_body}") from e
+    except urllib_error.URLError as e:
+        raise RuntimeError(f"Request to {url} failed: {e.reason}") from e
+    if not isinstance(body_json, dict):
+        raise RuntimeError(
+            f"Unexpected JSON payload from {url}: {type(body_json).__name__}"
+        )
+    return extract_bedrock_text(body_json)
