@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "kernel": "nvfp4_matmul",
+  "arm": "baseline",
+  "mode": "no_autotune_effort_none",
+  "shape_grid_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/N0_live/shape_grid.json",
+  "dtype": null,
+  "shapes_run": [
+    "FP4_001",
+    "FP4_002",
+    "FP4_003",
+    "FP4_004",
+    "FP4_005",
+    "FP4_006",
+    "FP4_007",
+    "FP4_008",
+    "FP4_009",
+    "FP4_010",
+    "FP4_011",
+    "FP4_012"
+  ],
+  "repeats": 3,
+  "heuristic_path": null,
+  "csv_path": "/home/dev/helion_choijon5/llm_heuristics_artifacts/quantized_gemm/iterations/Q5b_schema_v2/baseline/nvfp4_matmul_baseline.csv",
+  "wall_elapsed_s": 3.755057374946773,
+  "torch_version": "2.13.0.dev20260507+cu130",
+  "cuda_device": "NVIDIA B200"
+}
