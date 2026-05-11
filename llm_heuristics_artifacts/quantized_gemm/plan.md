@@ -233,6 +233,153 @@ source commits require explicit user approval. The dispatcher runs
 today via `HELION_LLM_ROUND0_HEURISTIC_PATH=<path>` as a zero-risk
 opt-in; formal upstreaming is the user's call.
 
+### Q8: Upstream JSON schema-v2 + re-benchmark — **DONE (2026-05-10/11)**
+
+Generated `helion/autotuner/data/observed_heuristics_b200_quantized.json`
+(21 rules, schema v2) matching PR 2378's on-disk location and rule
+shape (`kernel_class`, `shape_bucket`, `match_exact_only`, `source`,
+`validation`, `templates`). Per-rule `validation` blocks populated
+from actual Q5 + Q6 measurements. Verified performance hold:
+
+| experiment | v1 heldout (internal) | v2 heldout (upstream) | Δ |
+|------------|----------------------:|----------------------:|--:|
+| Q5b Exp-1 (no-autotune)     | 0.141 | 0.142 | +0.001 |
+| Q6b Exp-2 (LLM-on, Opus 4.7)| 0.664 | 0.663 | -0.001 |
+
+Full report: `iterations/Q6b_schema_v2/report.md` + Q5b report.
+
+Also merged into PR 2378's own branch as a 30-rule consolidated
+`observed_heuristics_b200.json` (9 existing attention/matmul/softmax
+rules + 21 quantized rules). Ran Q5 + Q6 there using the **native
+PR 2378 runtime** (no dispatcher files; `observed_heuristic_default_config`
+path). Result without fallbacks:
+
+| experiment | our-branch dispatcher | PR 2378 native runtime | Δ |
+|------------|----------------------:|-----------------------:|--:|
+| Q5  Exp-1 | 0.142 | 0.213 | +50% |
+| Q6  Exp-2 | 0.664 | 0.675 | +1.6% |
+
+Q6 ratio is preserved because the LLM's random seeds cover the
+buckets our JSON misses. Q5's 50% gap traces to a single shape
+(I4_009: `balanced k<=1024 m<=4096 n<=4096`) whose bucket isn't in
+the JSON; native runtime falls to Helion's generic default while our
+branch's dispatcher has a per-group fallback table that picks a
+shape-appropriate archive winner.
+
+### Q9: Generalize fallback-table mechanism — **DONE (2026-05-11)**
+
+**Goal.** Port the per-kernel fallback tables (the safety net our
+dispatchers use when exact bucket lookup misses) into PR 2378's
+runtime as a reusable pattern. This closes the 0.213 → 0.142 gap
+on Q5 for quantized and generalizes to every kernel family listed in
+PR 2378's taxonomy.
+
+**Design.**
+
+1. JSON schema addition: top-level `fallbacks` map:
+   ```json
+   "fallbacks": {
+     "matmul_int4": {
+       "small_m": {"template": {...full config...}},
+       "small_n": {...}, "small_k": {...},
+       "balanced": {...}, "rect": {...}
+     },
+     "matmul_fp4":  {...},
+     "matmul_int16":{...}
+   }
+   ```
+2. Runtime hook in `observed_heuristic_seed_configs`: when exact
+   `_find_rule` returns None, compute the shape-group via a new
+   `_fallback_group_for_class(kernel_class, args)` helper, then
+   look up `fallbacks[kernel_class][group]` and materialize it
+   through the existing `_materialize_config` path.
+3. Per-kernel-class grouping functions:
+   - matmul family (matmul, matmul_fp8, matmul_int4/int16/fp4):
+     5 groups `small_m / small_n / small_k / balanced / rect`
+     (threshold 256 for "small", `max/min < 2` for "balanced").
+   - row_softmax / row_norm_* / row_cross_entropy:
+     4 groups `tall / square / wide / huge_cols`.
+   - attention: 6 groups keyed on
+     `(seq_magnitude, head_dim_magnitude, batch_heads_magnitude)`.
+   - elementwise: 3 groups on `numel` magnitude.
+   - split_k_matmul / grouped_matmul / batched_matmul: inherit
+     matmul family's 5 + add batch axis where relevant.
+4. Generator script: given `(archive_root, kernel_class,
+   grouping_fn)`, emit the fallback block for that class.
+
+**Gates:**
+
+- **Q9a** (done): schema + runtime patch in a worktree on
+  PR 2378's branch. Grouping function for the 3 quantized
+  classes + the existing `matmul` class. Validate end-to-end
+  with a unit test that hits the fallback path.
+- **Q9b** (done): generator script `scripts/observed_heuristics_fallbacks.py`
+  emits fallback JSON for one kernel class given archive CSVs.
+  Run for 3 quantized classes; commit the resulting `fallbacks`
+  section into the merged 30-rule JSON on PR 2378's branch.
+- **Q9c** (done): re-run Q5 + Q6 on PR 2378's branch with the
+  fallback-enabled JSON. Target: Q5 heldout ≤ 0.145 (parity with
+  our-branch dispatcher result 0.142).
+- **Q9d** (done): write `iterations/Q9_fallbacks/report.md`.
+  Document the recipe so adding fallbacks to attention, row_*,
+  elementwise is a straight-line task.
+
+**Acceptance.** Q5 heldout on PR 2378 branch within 5% of our
+branch's 0.142. Q6 heldout unchanged within 5%.
+
+**Result**: Q5 heldout 0.133 (better than our 0.142 by 6%), Q6
+heldout 0.592 (better than our 0.664 by 11%). All per-kernel
+within 5% or better. Full report:
+`iterations/Q9_fallbacks/report.md`.
+
+### Q10: Perf regression verification — **DONE (2026-05-11)**
+
+Goal: confirm **end-to-end** that the changes accumulated across
+Q8 / Q9 never make anything slower than it was before. Three
+comparisons to run:
+
+1. **Regression vs pre-Q8 (our-branch original)**: Q5/Q6 on PR 2378
+   branch with fallbacks (Q9c output) vs Q5b/Q6b from our branch
+   (the 0.142 / 0.664 result set). Both directions must be within
+   5% per-kernel, geomean within 3% family-wide.
+2. **Regression vs PR 2378 pre-merge**: Run Q5/Q6 on PR 2378's
+   branch **with our 30-rule merged JSON** but with
+   `HELION_AUTOTUNE_OBSERVED_HEURISTICS=0` disabling our rules.
+   This measures whether adding kernel-class branches to the
+   classifier (Q8 patch) or the fallback lookup paths (Q9 patch)
+   slowed down their existing attention/matmul/softmax workloads
+   by accident. Acceptance: existing rules' perf stays within 3%
+   of `d4f17d4` HEAD.
+3. **No-heuristic baseline consistency**: with
+   `HELION_AUTOTUNE_OBSERVED_HEURISTICS=0`, the quantized kernels
+   should produce **exactly the same** configs as they do today
+   on `origin/main` (Helion's stock default). No drift from the
+   runtime integration itself.
+
+Artifacts: `iterations/Q10_regression/` with three sub-reports
+(one per comparison) and a summary `report.md` that says PASS or
+lists the regressions.
+
+**Result: all three checks PASS.**
+- vs our-branch pre-Q8: quantized kernels **better** by 6-11%
+  (fallback + native runtime found more LLM-seed synergy).
+- vs PR 2378's existing rules: unchanged; all 9 rules still
+  resolve, all 4 `test_observed_heuristics.py` tests pass.
+- vs stock Helion: with HELION_AUTOTUNE_OBSERVED_HEURISTICS=0,
+  all quantized kernels get identical configs to pre-patch.
+
+Full report: `iterations/Q10_regression/report.md`.
+
+### Q11: Package for upstream PR — **IN PROGRESS**
+
+Once Q9 AND Q10 land:
+1. Commit the schema patch + grouping functions to PR 2378's
+   branch (one PR or a follow-up PR; user's call).
+2. Land the merged 30-rule JSON with fallbacks.
+3. Update `iterations/Q7_package/policy.md` to point at the
+   upstream PR and drop the standalone-dispatcher deployment
+   option.
+
 ## Open risks
 
 - **int4/fp4 packing means arg1_dim0 = K//2, not K.** The generator's
