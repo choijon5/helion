@@ -1751,6 +1751,93 @@ class TestPallas(TestCase):
             f"{helion_runtime._launcher_fast_path_hits()}.",
         )
 
+    def test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations(self) -> None:
+        """Cached static-shape JaxCallable reuses torch_tpu invocation key.
+
+        Deep Replan 2026-05-23 (§2.7 in ``plan.md``) localized ~50us of
+        the per-call Pallas dispatch overhead to torch_tpu's
+        ``JaxCallable.__call__``, of which the f-string built by
+        ``_get_kernel_invocation_key`` (per-arg shape / dtype walk) is a
+        measurable slice on every call.  For ``static_shapes=True``
+        kernels the invocation key is constant across calls, so Helion
+        installs a ``JaxCallable`` subclass that caches the first
+        call's ``(arg_shape_dtype_signature, kernel_key, output_shapes,
+        out_tree, input_output_aliases_items)`` and on subsequent calls
+        with a matching signature short-circuits to a direct
+        ``tpu_torch_pallas.call_custom_kernel`` invocation, bumping
+        ``helion.runtime._JAXCALLABLE_KEY_CACHE_HITS`` once per cache
+        hit.
+
+        The test asserts the counter increments exactly ``n_repeats``
+        times across ``1 + n_repeats`` consecutive calls of the same
+        compiled callable: the first call seeds the JaxCallable's
+        internal ``output_shapes`` cache and the subclass's
+        ``_helion_key_cache``; calls 2..N reuse them.
+        """
+        from helion import runtime as helion_runtime
+
+        # Define the kernel inside the test so the inner Helion-emitted
+        # function (and its ``_pallas_pipeline_cache``) is unique to
+        # this test run -- no cross-test pollution from other tests
+        # that bind ``pallas_matmul_bf16``.  The launcher cache lives on
+        # the *inner* generated function, not on the user-facing
+        # decorator object, so clearing attributes off the module-level
+        # ``pallas_matmul_bf16`` wouldn't help.
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_jaxcallable_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_jaxcallable_pin.bind((x, y))
+        config = bound.config_spec.default_config()
+        compiled_fn = bound.compile_config(config)
+
+        helion_runtime._reset_jaxcallable_key_cache_hits()
+        self.assertEqual(helion_runtime._jaxcallable_key_cache_hits(), 0)
+
+        # First call seeds the JaxCallable cache (slow path / no counter bump).
+        result = compiled_fn(x, y)
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        self.assertEqual(
+            helion_runtime._jaxcallable_key_cache_hits(),
+            0,
+            "First call must miss the cached invocation key (no counter bump).",
+        )
+
+        # Subsequent calls share the same arg shape / dtype signature
+        # so the subclass's fast-path short-circuit fires every time.
+        n_repeats = 4
+        for _ in range(n_repeats):
+            result = compiled_fn(x, y)
+            torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+
+        self.assertEqual(
+            helion_runtime._jaxcallable_key_cache_hits(),
+            n_repeats,
+            f"Repeat calls on a cached static-shape kernel must each "
+            f"reuse the cached JaxCallable invocation key. Expected "
+            f"{n_repeats} hits; got "
+            f"{helion_runtime._jaxcallable_key_cache_hits()}.",
+        )
+
     def test_bmm(self) -> None:
         """Test BMM with default config — exercises size_matches fix.
 

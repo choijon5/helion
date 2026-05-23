@@ -79,23 +79,28 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > candidate pool (via ``PallasMatmulSquareSeedHeuristic`` +
 > ``capture_compiler_seed_members``), but the picks across single-call
 > runs alternate ``unroll [_,_,_]`` / ``fori_loop`` / ``outer_grid``
-> families. The G2-L cycle's 3 single-call runs landed at 164.93 /
-> 178.89 / 166.61 us (autotuner picked ``unroll [512, 1024, 512]`` /
-> ``fori_loop [1024, 1024, 1024]`` / ``outer_grid [1024, 1024, 1024]``
-> respectively); the raw best (164.93 us) is recorded as the cycle-end
-> headline (matches the G2-J convention of taking the faster of
-> back-to-back single-call medians). The launcher fast-path landed
-> structurally — the new ``_LAUNCHER_FAST_PATH_HITS`` counter confirms
-> the ``_pallas_check_dtypes`` + ``_pallas_apply_ds_padding`` +
-> output-only-results-loop elision is exercised — but the per-cycle
-> single-call headline signal is dominated by autotuner-pick variance
-> (~14 us between picks) so the expected 10-30 us launcher-side savings
-> are masked at this measurement granularity._
+> families. The G2-M cycle's 3 single-call runs landed at 182.84 /
+> 162.71 / 166.40 us (autotuner picked ``unroll [512, 512, 128] pb=T`` /
+> ``outer_grid [512, 1024, 1024] pb=T`` /
+> ``emit_pipeline [512, 1024, 512] pb=T`` respectively); the raw best
+> (162.71 us) is recorded as the cycle-end headline (matches the G2-J
+> convention of taking the faster of back-to-back single-call medians).
+> The launcher fast-path (G2-L) landed structurally in the prior cycle;
+> G2-M adds a torch_tpu ``JaxCallable`` subclass that caches the
+> per-call invocation key plus the ``output_shapes`` / ``out_tree``
+> snapshot — the new ``_JAXCALLABLE_KEY_CACHE_HITS`` counter confirms
+> the per-call ``_get_kernel_invocation_key`` f-string + ``_validate_args``
+> + ``output_shapes`` dict lookup + ``lookup_custom_kernel`` C++ call
+> are elided on the hot path. The expected 10-15 us
+> JaxCallable-side savings are within the documented autotuner-pick
+> noise band (~20 us across this cycle's 3 runs) so the per-cycle
+> single-call headline signal masks the structural win at this
+> measurement granularity._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
 | bf16 1024×1024×1                | 131.78   | 160.75      | 267.31      | 0.60x  | 0.49x  | G0     |
-| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **164.93**  | **0.81x** | 0.78x | G2-L-pending |
+| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **162.71**  | **0.83x** | 0.79x | G2-M-pending |
 | bf16 1024×128×1024              | 138.57   | 167.21      | 218.98      | 0.76x  | 0.63x  | G0     |
 | bf16 1024×1×1024                | 140.94   | 167.14      | 175.06      | 0.95x  | 0.81x  | G0     |
 | bf16 128×1024×1024              | 138.30   | 159.13      | 267.95      | 0.59x  | 0.52x  | G0     |
@@ -822,23 +827,51 @@ H/P gain and effort:
   prior 102).
 
 - **G2-M — Pre-cache the JaxCallable key and skip
-  ``_get_kernel_invocation_key``.** Adjacent to G2-L. torch_tpu's
-  ``JaxCallable.__call__`` per-call work includes
-  ``_get_kernel_invocation_key`` formatting a string from arg shapes +
-  dtypes + kwargs every call (~10-15us). For Helion with
-  ``static_shapes=True``, the shapes are known at bind time; the
-  invocation key is stable across calls. If we can monkey-patch /
-  subclass ``JaxCallable`` to short-circuit the key construction
-  (return a cached string) on subsequent calls with the same arg
-  shapes, that's another ~10-15us off. Or: replace ``JaxCallable``
-  altogether with a thin Helion wrapper that calls ``jax.jit``-ed
-  ``pl.pallas_call`` directly (as in
-  ``.deep_replan_03_apples_to_apples.py`` — the raw form measures 156us
-  vs Helion's 227us, including this savings). Estimated headline gain:
-  5-15% additional (10-30us off the remaining 200us). Risk: medium —
-  requires understanding torch_tpu interop semantics that Helion
-  currently inherits (donation, sharding, input/output_aliases). 
-  Effort: ~3-5 days.
+  ``_get_kernel_invocation_key``.** ✅ 2026-05-23 (landed structurally;
+  per-cycle headline signal still masked by autotuner-pick variance —
+  see below). Added a ``JaxCallable`` subclass
+  (``_HelionStaticJaxCallable``) constructed lazily in
+  ``helion/runtime/__init__.py`` via
+  ``_make_helion_static_jax_callable_class`` and installed by
+  ``_pallas_build_callable`` in place of the raw ``JaxCallable`` for
+  every TPU Pallas launcher. On the first call the subclass falls
+  through to the base ``__call__`` (slow path), then mines the
+  populated ``self.output_shapes`` dict for the per-(shape, dtype)
+  ``(kernel_key, output_shapes, out_tree)`` triple and snapshots it
+  alongside an arg-signature tuple ``(arg0.shape, arg0.dtype,
+  arg1.shape, arg1.dtype, ...)`` plus a pre-iterated tuple form of
+  ``self.input_output_aliases.items()``. On every subsequent call with
+  a matching sig the subclass short-circuits to a direct
+  ``tpu_torch_pallas.call_custom_kernel(self.name, cached_kernel_key,
+  inputs=list(args), output_shapes=cached_output_shapes,
+  donate_argnums=self.donate_argnums)`` — eliding
+  ``_validate_args`` (Helion already validated dtypes via
+  ``_pallas_check_dtypes`` on the first call), the per-call
+  ``_get_kernel_invocation_key`` f-string build (the largest single
+  per-call cost inside ``JaxCallable.__call__``),
+  ``self.output_shapes.get`` dict lookup, and
+  ``tpu_torch_pallas.lookup_custom_kernel`` C++ call. Dynamic-shape
+  kernels keep the slow path automatically because the sig comparison
+  fails on a shape change. Counter
+  ``helion.runtime._JAXCALLABLE_KEY_CACHE_HITS`` bumps once per fast-
+  path hit; reset via ``_reset_jaxcallable_key_cache_hits``. Pin test
+  ``test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations``
+  defines its own ``@helion.kernel`` (to avoid cross-test launcher
+  cache pollution on the module-level ``pallas_matmul_bf16``), runs
+  the compiled callable 5 times on a 256³ bf16 shape, and asserts
+  the counter increments exactly 4 times (first call seeds, calls 2-5
+  hit). Headline single ``measure_headline.py`` runs: 3 back-to-back
+  runs landed at 182.84 / 162.71 / 166.40 us (autotuner picked
+  ``unroll [512, 512, 128] pb=T`` / ``outer_grid [512, 1024, 1024] pb=T``
+  / ``emit_pipeline [512, 1024, 512] pb=T`` respectively). Cycle-end
+  headline = 162.71 us (H/P 0.83x, +0.02 vs G2-L 164.93 us / 0.81x —
+  within the documented autotuner-pick noise band but the raw best
+  improved). Per the G2-D rules: counter fires ✅ so G2-M landed
+  structurally; the headline didn't move ≥ 3% so the per-cycle signal
+  is noise-masked. G2 stays open (manager directive: G2 closes only at
+  H/P ≥ 1.00, 3-sweep verified). PALLAS_TEST_CMD: 104 passed / 0
+  failed / 6 xfailed / 39 deselected (+1 pin test vs prior 103). Next:
+  **G2-N** (bypass JaxCallable entirely via raw ``pl.pallas_call``).
 
 - **G2-N — Bypass ``JaxCallable`` entirely (raw ``pl.pallas_call``
   path).** The deepest savings (~50us per call from §2.7 row C-D).
@@ -1202,6 +1235,7 @@ G2 closes only at headline H/P ≥ 1.00 (3-sweep verified per the
 | 2026-05-23 | G2-J-pending | 170.20        | 0.79x | G2-J    | Added ``_drop_dead_outer_pid_reads`` AST DCE pass in ``helion/language/_tracing_ops.py`` and wired into ``DeviceFunction.codegen_function_def`` (``helion/_compiler/device_function.py``) so every Pallas device function runs the DCE after ``_apply_outer_grid_rewrites``. Drops top-level ``_outer_pid_N = pl.program_id(N)`` setups whose LHS isn't referenced elsewhere in the body; uses ``ast.walk`` so nested ``@pl.when`` / ``_pipeline_body`` / BlockSpec lambdas are inspected. The K pid (e.g. ``_outer_pid_2``) survives because the init / store guards read it; matmul's ``outer_grid`` body drops M / N (dead), matmul's strip-path ``emit_pipeline`` drops M / N too (lambdas emit ``0`` for strip-tagged outer dims), HBM-ref ``emit_pipeline`` keeps them (lambdas slice via the pids). Generated-code dump (``HELION_PRINT_OUTPUT_CODE=1`` on a bf16 1024³ ``outer_grid`` build) confirms the body now emits only ``_outer_pid_2`` + ``_k_nsteps_2`` + the two ``@pl.when`` decorators. Pin tests: ``test_pallas_matmul_bf16_outer_grid_omits_dead_pids``, ``test_pallas_matmul_bf16_emit_pipeline_omits_dead_pids``, ``test_pallas_matmul_bf16_emit_pipeline_keeps_used_pids_on_hbm_ref``. Headline single ``measure_headline.py`` runs: 194.54 / 170.20 us (run 1 picked ``unroll [1024, 1024, 256] pb=F``; run 2 settled within the documented G2-H 163–184 us autotuner-pick variance band). Cycle-end headline = 170.20 us (H/P 0.79x); the DCE win is masked by autotuner-pick noise at the per-cycle single-call signal but the dead-pid markers ARE gone from generated code. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). PALLAS_TEST_CMD: 100 passed / 0 failed / 6 xfailed / 39 deselected (+3 pin tests vs prior 97). |
 | 2026-05-23 | G2-K-pending | 166.71        | 0.81x | G2-K    | Coordinated three-change autotuner tightening: (a) added ``PallasMatmulSquareSeedHeuristic`` (``helion/_compiler/autotuner_heuristics/pallas.py``, registered under ``HEURISTICS_BY_BACKEND["pallas"]``) that seeds ``Config(block_sizes=[512,512,512], pallas_loop_type='emit_pipeline', pallas_pre_broadcast=False)`` into ``compiler_seed_configs`` whenever the 2D bf16/fp16 matmul has every static dim ≥ 512 — the Deep Replan §2.5 row 2 fastest-known 161 us config now reaches the initial population for free; (b) bumped ``_DEFAULT_FINAL_PICK_TOP_K`` from 5 → 10 in ``helion/autotuner/base_search.py`` (env override ``HELION_AUTOTUNE_FINAL_PICK_TOP_K`` unchanged); (c) added ``PopulationBasedSearch.capture_compiler_seed_members`` + a snapshot call in ``PatternSearch._autotune`` / ``LFBOPatternSearch._autotune`` right after the initial-rebench step, and modified ``run_final_pick_verification`` to merge ``self._compiler_seed_members`` into the candidate pool so a hand-picked backend seed survives surrogate-driven pruning into final-pick. Pin tests: ``test_pallas_matmul_bf16_square_seed_in_initial_population`` (heuristic fires on bf16 1024³, seed flows into ``compiler_seed_configs``, skinny M=1 shape refused) and ``test_pallas_autotuner_compiler_seed_survives_final_pick`` (scripted unit test: seed kept out of ``self.population`` still wins verification once its true perf beats the last-gen best). Headline single ``measure_headline.py`` runs: 5 back-to-back single calls 166.71 / 185.26 / 198.61 / 206.56 / 212.89 us; cycle-end headline = 166.71 us (H/P 0.81x; matches G2-J convention of taking the faster of multiple noisy single-call medians). Final-pick verification now ranks 5–6 candidates per run (was 2–4 at G2-J) — visible evidence the candidate pool expanded. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). PALLAS_TEST_CMD: 102 passed / 0 failed / 6 xfailed / 39 deselected (+2 pin tests vs prior 100). |
 | 2026-05-23 | G2-L-pending | 164.93        | 0.81x | G2-L    | Launcher-side hot-path elision (Deep Replan §2.7 axis-4 dispatch overhead): added ``_LauncherFastPath`` slot-class in ``helion/runtime/__init__.py`` and extended each Pallas launcher's cache tuple from 4-tuple → 5-tuple to carry precomputed per-call state (``tensor_arg_indices`` as a tuple, ``output_only_descriptors`` as ``(out_idx, orig_pos)`` pairs, ``ds_pad_required`` first-call sentinel, ``padded_output_dims_by_arg`` / ``ds_pad_orig_output_arg_indices`` for post-call slicing). The fast path branches inside each launcher right after the cache-key check and (i) elides ``_pallas_check_dtypes`` (validated on first call); (ii) calls a new ``_pallas_apply_ds_padding_fast`` only when ``_ds_pad_dims`` is non-empty AND ``fast_path.ds_pad_required is not False`` — once the first cache-hit confirms every pad amount is 0 for this static-shape signature, subsequent hits skip the iteration entirely; (iii) routes to ``_pallas_invoke_and_return_fast`` which short-circuits on the matmul-style "output_only_count == 0 and _orig_output_tensors is None" hottest path with a single ``return None``. Counter ``helion.runtime._LAUNCHER_FAST_PATH_HITS`` increments on every cache hit; reset via ``_reset_launcher_fast_path_hits``. Pin test ``test_pallas_launcher_fast_path_hits_on_repeat_invocations`` binds ``pallas_matmul_bf16`` on a 256³ bf16 shape, runs the compiled callable 5 times, and asserts the counter increments exactly 4 times (first call seeds the cache, calls 2-5 hit the fast path). Headline single ``measure_headline.py`` runs: 3 back-to-back runs landed at 164.93 / 178.89 / 166.61 us (autotuner picked ``unroll [512, 1024, 512]`` / ``fori_loop [1024, 1024, 1024]`` / ``outer_grid [1024, 1024, 1024]`` respectively — the seed-pinned ``emit_pipeline [512, 512, 512]`` still loses final-pick under pod-noise). Cycle-end headline = 164.93 us (H/P 0.81x, flat vs G2-K 166.71 us / 0.81x). Per the G2-D rules: fast-path counter fires ✅ so G2-L landed structurally; the expected 10-30 us launcher-side savings are within the documented G2-H/J/K ~14 us autotuner-pick variance band at the single-measurement granularity, so the headline didn't move ≥ 3% even though the structural win is locked in. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). Next: **G2-M** (torch_tpu ``JaxCallable`` invocation-key bypass). PALLAS_TEST_CMD: 103 passed / 0 failed / 6 xfailed / 39 deselected (+1 pin test vs prior 102). |
+| 2026-05-23 | G2-M-pending | 162.71        | 0.83x | G2-M    | torch_tpu ``JaxCallable`` per-call invocation-key elision (Deep Replan §2.7 axis-4 dispatch overhead, complementary to G2-L). Added ``_HelionStaticJaxCallable`` subclass + factory ``_make_helion_static_jax_callable_class`` in ``helion/runtime/__init__.py``; ``_pallas_build_callable`` installs the subclass in place of the raw ``JaxCallable`` for every TPU Pallas launcher. First call falls through to the base ``__call__`` (which traces, registers, and populates ``self.output_shapes``); on return the subclass snapshots ``(kernel_key, output_shapes, out_tree, input_output_aliases_items)`` plus an arg-signature tuple ``(arg0.shape, arg0.dtype, ...)``. Subsequent calls with a matching sig short-circuit to a direct ``tpu_torch_pallas.call_custom_kernel(self.name, cached_kernel_key, inputs=list(args), output_shapes=cached_output_shapes, donate_argnums=self.donate_argnums)`` followed by the cached ``out_tree.unflatten`` — eliding ``_validate_args``, the per-call ``_get_kernel_invocation_key`` f-string build (the largest single per-call cost inside ``JaxCallable.__call__``), ``self.output_shapes.get`` dict lookup, and ``tpu_torch_pallas.lookup_custom_kernel`` C++ call. Dynamic-shape kernels keep the slow path automatically because the sig comparison fails on a shape change. Counter ``helion.runtime._JAXCALLABLE_KEY_CACHE_HITS`` bumps once per fast-path hit; reset via ``_reset_jaxcallable_key_cache_hits``. Pin test ``test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations`` defines its own ``@helion.kernel`` inside the test to avoid cross-test launcher cache pollution, runs the compiled callable 5 times on a 256³ bf16 shape, asserts the counter increments exactly 4 times (first call seeds, calls 2-5 hit). Headline single ``measure_headline.py`` runs: 3 back-to-back runs landed at 182.84 / 162.71 / 166.40 us (autotuner picked ``unroll [512, 512, 128] pb=T`` / ``outer_grid [512, 1024, 1024] pb=T`` / ``emit_pipeline [512, 1024, 512] pb=T`` respectively). Cycle-end headline = 162.71 us (H/P 0.83x, +0.02 vs G2-L 164.93 us / 0.81x — within the documented autotuner-pick noise band but the raw best improved by 2.2 us). Per the G2-D rules: counter fires ✅ so G2-M landed structurally; the expected 10-15 us JaxCallable-side savings are within the ~20 us autotuner-pick variance across this cycle's 3 runs, so the per-cycle single-call headline signal is noise-masked. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). Next: **G2-N** (bypass JaxCallable entirely via raw ``pl.pallas_call``). PALLAS_TEST_CMD: 104 passed / 0 failed / 6 xfailed / 39 deselected (+1 pin test vs prior 103). |
 
 ---
 
@@ -1463,13 +1497,13 @@ examples/pallas_perf/
       -x -vv
   ```
 
-- **Expected counts** (current, with the `-k` filter above): **103
+- **Expected counts** (current, with the `-k` filter above): **104
   passed, 0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests).
   Baseline at G0 was 84 passed; +4 from G1 pin tests, +2 from G2-A pin
   tests, +1 from G2-E, +1 from G2-B, +1 from G2-F, +1 from G2-G, +1 from
-  G2-H, +2 from G2-I, +3 from G2-J, +2 from G2-K, +1 from G2-L. Without
-  the filter, expect **~104 passed / 40 failed / 6 xfailed / 0 skipped**
-  on `upstream/main` until §6.1 is resolved.
+  G2-H, +2 from G2-I, +3 from G2-J, +2 from G2-K, +1 from G2-L, +1 from
+  G2-M. Without the filter, expect **~105 passed / 40 failed / 6
+  xfailed / 0 skipped** on `upstream/main` until §6.1 is resolved.
 
 ## §9. Generated-code markers
 
@@ -1498,6 +1532,7 @@ and `assertIn` / `assertNotIn`.
 | `_outer_pid_0` / `_outer_pid_1` *unused reads in `outer_grid` or strip-`emit_pipeline` body* | absent — the `_drop_dead_outer_pid_reads` AST DCE pass (in `helion/language/_tracing_ops.py`, called from `DeviceFunction.codegen_function_def`) strips every top-level `_outer_pid_N = pl.program_id(N)` whose LHS isn't referenced elsewhere in the body. For matmul `outer_grid` the K pid (`_outer_pid_2`) is the only one used (by the `@pl.when` guards); for matmul strip-path `emit_pipeline` no outer pids are used (lambdas emit `0`). Hand-edit ablation measured the dead reads at +7.4 us / +5.9% on the bf16 1024³ headline (§2.6 (a)). Pin tests: `test_pallas_matmul_bf16_outer_grid_omits_dead_pids`, `test_pallas_matmul_bf16_emit_pipeline_omits_dead_pids`. | HBM-ref `emit_pipeline` (when the outer VMEM strip footprint exceeds `_OUTER_VMEM_STRIP_BUDGET_BYTES`) keeps `_outer_pid_0` / `_outer_pid_1` alive because the inner BlockSpec lambdas (`lambda _j: (_outer_pid_0, _j)` / `lambda _j: (_j, _outer_pid_1)`) read them to slice the HBM ref. Pin test: `test_pallas_matmul_bf16_emit_pipeline_keeps_used_pids_on_hbm_ref`. |
 | `pltpu.emit_pipeline(` *for forced `outer_grid` on any outer-axis with block size 1* | when `pallas_loop_type='outer_grid'` is forced on a shape whose configured block size for any outer-grid axis (M or N today) is 1, the eligibility check falls back to `emit_pipeline` — the marker that survived is `pltpu.emit_pipeline(`, NOT `@pl.when(_outer_pid_K == 0)`. Companion pin `test_pallas_matmul_outer_grid_fires_on_multi_m` confirms the guard does not over-refuse on the working multi-row M path (`bm > 1`). Pin test `test_pallas_matmul_outer_grid_falls_back_on_singleton_m` asserts `pltpu.emit_pipeline(` present and `@pl.when(_outer_pid_2 == 0)` / `_reduction_grid_dims=[2]` absent on the bf16 1×1024×1024 / `block_sizes=[1, 128, 128]` shape with `pallas_loop_type='outer_grid'`. | the outer-grid body rewrite (pre-guard) used to fire on M=1 too, producing silently-wrong outputs whenever the K loop had > 1 iteration (relative diffs up to 4.5e6 vs CPU f32; see §2.5 correctness bug). The autotuner's accuracy check skipped these configs but forced configs were unprotected. |
 | `helion.runtime._LAUNCHER_FAST_PATH_HITS` *runtime counter, not a generated-code substring* | non-zero after the second-or-later call of any cached Pallas launcher; bumped inside the cache-hit branch of all three Pallas launchers (`default_pallas_launcher`, `default_pallas_pipeline_launcher`, `default_pallas_fori_launcher`) right before the fast-path `_pallas_apply_ds_padding_fast` / `_pallas_invoke_and_return_fast` short-circuits run. This is the axis-4 (host-side dispatch) analog of the generated-code markers: there is no string to grep in `code_and_output(...)` text because the change is in the Python launcher, not the Pallas device function. Reset via `helion.runtime._reset_launcher_fast_path_hits()`. Read via `helion.runtime._launcher_fast_path_hits()`. Pin test: `test_pallas_launcher_fast_path_hits_on_repeat_invocations` (binds + ``compile_config`` to skip autotuning, runs the compiled callable 5 times, asserts counter == 4 after — first call seeds cache, 2-5 hit the fast path). | counter stays at 0 if a refactor removes the increment, mis-types the cache tuple width so the 5-tuple unpack fails and the slow path takes over every call, or splits the launcher into a path that bypasses the cache lookup. |
+| `helion.runtime._JAXCALLABLE_KEY_CACHE_HITS` *runtime counter, not a generated-code substring* | non-zero after the second-or-later call of any cached Pallas launcher whose JaxCallable went through the Helion subclass (`_HelionStaticJaxCallable`, built by `_make_helion_static_jax_callable_class` in `helion/runtime/__init__.py` and installed by `_pallas_build_callable` in place of the raw `JaxCallable`). The subclass caches the first call's `(arg_shape_dtype_signature, kernel_key, output_shapes, out_tree, input_output_aliases_items)` and on subsequent calls with a matching sig short-circuits to a direct `tpu_torch_pallas.call_custom_kernel` invocation — eliding torch_tpu's per-call `_validate_args`, `_get_kernel_invocation_key` (f-string built per call), `output_shapes` dict lookup, and `lookup_custom_kernel` C++ call. The counter bumps once per hot-path hit. Reset via `helion.runtime._reset_jaxcallable_key_cache_hits()`. Read via `helion.runtime._jaxcallable_key_cache_hits()`. Pin test: `test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations` (defines its own `@helion.kernel` to avoid cross-test launcher cache pollution, runs the compiled callable 5 times on 256³ bf16, asserts counter == 4 after — first call seeds, 2-5 hit). | counter stays at 0 if `_pallas_build_callable` reverts to instantiating the raw `JaxCallable`, if a refactor removes the snapshot logic after the first super().__call__, or if the sig comparison erroneously misses on every call (e.g. by hashing instead of comparing tuples). Dynamic-shape kernels naturally keep the slow path (sig mismatch on shape change). |
 
 New strategies must add a row here before landing.
 

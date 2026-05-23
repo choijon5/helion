@@ -570,6 +570,177 @@ def _reset_launcher_fast_path_hits() -> None:
     _LAUNCHER_FAST_PATH_HITS = 0
 
 
+# Per-call torch_tpu JaxCallable invocation-key cache hits.  See
+# ``_make_helion_static_jax_callable_class`` for how the cache is built:
+# the Helion ``JaxCallable`` subclass short-circuits torch_tpu's
+# ``_get_kernel_invocation_key`` (an f-string built from a per-call walk
+# of every arg's shape / dtype) when the arg signature matches the one
+# observed on the first call.  Pin tests bump / read this counter to
+# assert the static-shape kernel actually exercises the short-circuit
+# branch on repeat invocations.
+_JAXCALLABLE_KEY_CACHE_HITS = 0
+
+
+def _jaxcallable_key_cache_hits() -> int:
+    """Return the count of cached-invocation-key hits inside ``JaxCallable``.
+
+    Test instrumentation: pin tests assert that a static-shape Pallas
+    kernel reuses the cached invocation key on second-and-later calls
+    by reading this counter before / after invocations.
+    """
+    return _JAXCALLABLE_KEY_CACHE_HITS
+
+
+def _reset_jaxcallable_key_cache_hits() -> None:
+    """Reset the cached-invocation-key counter (test instrumentation)."""
+    global _JAXCALLABLE_KEY_CACHE_HITS
+    _JAXCALLABLE_KEY_CACHE_HITS = 0
+
+
+_HELION_STATIC_JAX_CALLABLE_CLASS: type | None = None
+
+
+def _make_helion_static_jax_callable_class() -> type:
+    """Build a ``JaxCallable`` subclass that caches torch_tpu's per-call
+    invocation key.
+
+    torch_tpu's ``JaxCallable.__call__`` runs four host-side steps on
+    every call:
+
+    1. ``_validate_args(*args)`` walks every arg checking
+       ``static_argnums`` membership / ``isinstance(torch.Tensor)``.
+    2. ``_get_kernel_invocation_key`` builds an f-string by iterating
+       every arg's ``shape`` and ``dtype``.  Measured at ~10-15us per
+       call on the headline (Deep Replan 2026-05-23 §2.7).
+    3. ``self.output_shapes.get(kernel_key, ...)`` dict lookup.
+    4. ``tpu_torch_pallas.lookup_custom_kernel(self.name, kernel_key)``
+       C++ call.
+
+    For ``static_shapes=True`` Helion kernels every cached launcher
+    entry maps to a single shape signature (the Helion-side launcher
+    cache is grid-keyed and ``static_shapes=True`` makes the grid
+    static), so the kernel invocation key is constant across every
+    call hitting a given JaxCallable.  The subclass caches the first
+    call's ``(arg_shape_dtype_signature, kernel_key, output_shapes,
+    out_tree, input_output_aliases_items)`` and reuses the cached
+    triple on every subsequent call with a matching signature.
+
+    Signature is built from each arg's ``shape`` and ``dtype`` so the
+    cache is safe to use even when the same JaxCallable is reused by a
+    dynamic-shape kernel (different shapes get the slow path until the
+    sig matches).  Helion calls JaxCallable as
+    ``jax_callable(*input_tensors)`` with already-filtered torch
+    tensors (no ``None`` values, no static args), so the per-arg sig
+    construction is dominated by tuple unpacking, not isinstance
+    checks.
+
+    The class is built lazily on first use so importing
+    ``helion.runtime`` doesn't require ``torch_tpu`` (the rest of the
+    runtime tolerates ``torch_tpu`` being absent in interpret mode).
+    """
+
+    global _HELION_STATIC_JAX_CALLABLE_CLASS
+    if _HELION_STATIC_JAX_CALLABLE_CLASS is not None:
+        return _HELION_STATIC_JAX_CALLABLE_CLASS
+
+    from torch_tpu._internal.pallas import (  # pyrefly: ignore[missing-import]
+        tpu_torch_pallas,
+    )
+    from torch_tpu._internal.pallas.pallas import (  # pyrefly: ignore[missing-import]
+        JaxCallable,
+    )
+
+    class _HelionStaticJaxCallable(JaxCallable):  # type: ignore[misc, valid-type]
+        """``JaxCallable`` with a pre-cached invocation key.
+
+        See ``_make_helion_static_jax_callable_class`` for context.
+        """
+
+        __slots__ = ("_helion_sig", "_helion_key_cache")
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)  # type: ignore[misc]
+            # ``_helion_sig`` is a tuple ``(arg0_shape_dtype, arg1_..., ...)``
+            # used as a lightweight comparison key for the fast path.
+            # ``_helion_key_cache`` carries the cached triple ``(kernel_key,
+            # output_shapes, out_tree)`` plus a tuple of pre-iterated
+            # ``input_output_aliases.items()`` pairs so the per-call alias
+            # loop iterates a tuple instead of a dict.
+            self._helion_sig: tuple[object, ...] | None = None
+            self._helion_key_cache: (
+                tuple[str, object, object, tuple[tuple[int, int], ...]] | None
+            ) = None
+
+        def __call__(self, *args: object, **kwargs: object) -> object:
+            cached = self._helion_key_cache
+            if cached is not None and not kwargs:
+                # Compare against the cached arg signature.  ``args`` is
+                # the Helion-side already-filtered tuple of torch tensors;
+                # we trust that pattern and skip ``_validate_args``.
+                sig: tuple[object, ...] = tuple(
+                    (a.shape, a.dtype)  # type: ignore[attr-defined]
+                    for a in args
+                )
+                if sig == self._helion_sig:
+                    global _JAXCALLABLE_KEY_CACHE_HITS
+                    _JAXCALLABLE_KEY_CACHE_HITS += 1
+                    kernel_key, output_shapes, out_tree, alias_items = cached
+                    results = tpu_torch_pallas.call_custom_kernel(
+                        self.name,
+                        kernel_key,
+                        inputs=list(args),
+                        output_shapes=output_shapes,
+                        donate_argnums=self.donate_argnums,
+                    )
+                    for in_idx, out_idx in alias_items:
+                        args[in_idx].copy_(results[out_idx])  # type: ignore[attr-defined]
+                    return out_tree.unflatten(results)  # type: ignore[attr-defined]
+
+            # First call (or sig mismatch): run the base path which traces
+            # / registers / caches inside torch_tpu, then snapshot the
+            # invocation key for subsequent hot-path reuse.  ``super`` does
+            # the heavy lifting (trace, register, output_shapes cache,
+            # call_custom_kernel, copy_back, unflatten).  After it returns
+            # we know ``self.output_shapes`` contains the exact entry we
+            # need, so we mine it for the cached metadata.
+            result = super().__call__(*args, **kwargs)
+
+            # Snapshot the metadata used by the fast path.  We re-build
+            # the key once here (after the slow-path call already paid
+            # the cost) so subsequent calls can avoid it.  Skip the
+            # snapshot if kwargs is non-empty (we don't fast-path that
+            # case) or if the base path didn't populate output_shapes
+            # for any reason (defensive).
+            if kwargs or not self.output_shapes:
+                return result
+
+            from torch_tpu._internal.pallas.pallas import (  # pyrefly: ignore[missing-import]
+                _get_kernel_invocation_key,
+            )
+
+            kernel_key = _get_kernel_invocation_key(
+                self.trace_key, args, kwargs, self.static_argnums
+            )
+            cached_entry = self.output_shapes.get(kernel_key)
+            if cached_entry is None:
+                return result
+            output_shapes, out_tree = cached_entry
+            self._helion_sig = tuple(
+                (a.shape, a.dtype)  # type: ignore[attr-defined]
+                for a in args
+            )
+            self._helion_key_cache = (
+                kernel_key,
+                output_shapes,
+                out_tree,
+                tuple(self.input_output_aliases.items()),
+            )
+            return result
+
+    _HELION_STATIC_JAX_CALLABLE_CLASS = _HelionStaticJaxCallable
+    return _HelionStaticJaxCallable
+
+
 class _LauncherFastPath:
     """Precomputed per-call state for a cached Pallas launcher entry.
 
@@ -949,14 +1120,19 @@ def _pallas_build_callable(
         return _make_interpret_callable()
 
     import jax
-    from torch_tpu._internal.pallas.pallas import (  # pyrefly: ignore[missing-import]
-        JaxCallable,
-    )
 
     kernel_name = getattr(pallas_kernel, "__name__", "pallas_kernel")
 
     jax.config.update("jax_export_ignore_forward_compatibility", True)
-    jax_callable = JaxCallable(
+    # Use a JaxCallable subclass that caches torch_tpu's per-call
+    # invocation key (see ``_make_helion_static_jax_callable_class`` for
+    # the rationale).  The subclass falls back to the base ``__call__``
+    # whenever the arg sig differs from the first observed sig, so the
+    # short-circuit only fires when shapes / dtypes are stable across
+    # calls -- the static_shapes=True common case.  Dynamic-shape kernels
+    # still go through the base path until the sig matches.
+    callable_cls = _make_helion_static_jax_callable_class()
+    jax_callable = callable_cls(
         name=kernel_name,
         jit_fn=jax.jit(jit_fn),
         trace_key=f"{kernel_name}_{id(pallas_kernel)}_{grid}{trace_key_suffix}",
