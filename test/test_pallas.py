@@ -1477,6 +1477,208 @@ class TestPallas(TestCase):
             "[256, 256, 256] family.",
         )
 
+    def test_pallas_matmul_bf16_square_seed_in_initial_population(self) -> None:
+        """Compiler seeds the headline-fast config into the initial population.
+
+        Deep Replan 2026-05-23 (plan.md §2.5 row 2) measured the forced
+        ``emit_pipeline [512, 512, 512] pb=False`` config on bf16 1024**3
+        at 161 us -- the fastest known Helion config -- but the autotuner
+        kept mis-ranking it against ``unroll`` family picks because of
+        per-call noise on short kernels.
+
+        ``PallasMatmulSquareSeedHeuristic`` plants this config in the
+        initial population (via ``ConfigSpec.compiler_seed_configs``,
+        the same path used by ``TritonSkinnyGemmHeuristic``).
+        Together with the existing final-pick verification phase
+        (re-ranking the top-10) this guarantees the autotuner always
+        considers the headline-fast config -- the search no longer has
+        to discover it by mutation.
+
+        Pin asserts:
+          1. The heuristic is eligible for bf16 1024**3.
+          2. ``compiler_seed_configs`` includes the
+             ``[512, 512, 512] emit_pipeline pb=False`` config.
+          3. The skinny shape (M=1) is NOT seeded (the heuristic refuses
+             when any static dim is below 512 so the M=1 / N=1 / K=1
+             paths -- which want ``unroll [_, _, 1]`` or
+             ``fori_loop`` -- aren't biased toward an inappropriate
+             family).
+        """
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulSquareSeedHeuristic,
+        )
+
+        torch.manual_seed(0)
+        x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        bound = pallas_matmul_bf16.bind((x, y))
+
+        self.assertTrue(
+            PallasMatmulSquareSeedHeuristic.is_eligible(
+                bound.env, bound.host_function.device_ir
+            ),
+            "Heuristic must fire on bf16 1024**3 (all dims >= 512, 2D matmul).",
+        )
+        self.assertIn(
+            PallasMatmulSquareSeedHeuristic.name,
+            bound.config_spec.autotuner_heuristics,
+            "Heuristic name must be recorded so the seed is attributable.",
+        )
+        seed_blocks = (512, 512, 512)
+        seeded = [
+            (
+                tuple(cfg.config.get("block_sizes", ())),
+                cfg.config.get("pallas_loop_type"),
+                cfg.config.get("pallas_pre_broadcast"),
+            )
+            for cfg in bound.config_spec.compiler_seed_configs
+        ]
+        self.assertIn(
+            (seed_blocks, "emit_pipeline", False),
+            seeded,
+            "Compiler seed configs must include the headline-fast "
+            "[512, 512, 512] emit_pipeline pb=False entry.",
+        )
+
+        skinny_x = torch.empty(1, 1024, device=DEVICE, dtype=torch.bfloat16)
+        skinny_y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        skinny_bound = pallas_matmul_bf16.bind((skinny_x, skinny_y))
+        self.assertFalse(
+            PallasMatmulSquareSeedHeuristic.is_eligible(
+                skinny_bound.env, skinny_bound.host_function.device_ir
+            ),
+            "Heuristic must refuse skinny shapes (M=1) so the [512, 512, 512] "
+            "block tile isn't seeded for shapes that can't use it.",
+        )
+        skinny_seeded = [
+            tuple(cfg.config.get("block_sizes", ()))
+            for cfg in skinny_bound.config_spec.compiler_seed_configs
+        ]
+        self.assertNotIn(
+            seed_blocks,
+            skinny_seeded,
+            "Skinny shape must not receive the [512, 512, 512] seed.",
+        )
+
+    def test_pallas_autotuner_compiler_seed_survives_final_pick(self) -> None:
+        """Compiler-seeded members are re-considered during final-pick verification.
+
+        The LFBO surrogate-driven search aggressively prunes the
+        population between generations: by the time
+        ``run_final_pick_verification`` fires, ``self.population`` may
+        hold only 2-3 members of the last generation's neighbors plus
+        the running best.  Without this pin a compiler-seeded
+        ``[512, 512, 512] emit_pipeline pb=False`` config that measured
+        merely "average" on its noisy initial bench would be dropped
+        from later generations -- the verification phase would never
+        see it.
+
+        The fix snapshots compiler-seeded members on
+        ``PopulationBasedSearch._compiler_seed_members`` at the end of
+        the initial-rebench step and merges them into the verification
+        candidate pool, so a backend's hand-picked seed always gets
+        re-benched against the search's best even when the search
+        moved away from it.
+        """
+        from unittest.mock import patch
+
+        from helion.autotuner.base_search import PopulationBasedSearch
+        from helion.autotuner.base_search import PopulationMember
+        from helion.runtime.config import Config
+
+        # "Last-gen population" = two random survivors of the LFBO
+        # pattern search, both around 0.205 ms.  "Compiler seed" = the
+        # hand-picked fast config that scored 0.215 ms on its noisy
+        # initial bench (so the LFBO surrogate dropped it from later
+        # generations) but consistently rebenches at 0.190 ms.
+        last_gen = [
+            (
+                Config(block_sizes=[1024, 256, 1024]),
+                0.205,
+                [0.207, 0.206, 0.204],
+            ),
+            (
+                Config(block_sizes=[256, 256, 256]),
+                0.210,
+                [0.212, 0.211, 0.209],
+            ),
+        ]
+        compiler_seed = (
+            Config(
+                block_sizes=[512, 512, 512],
+                pallas_loop_type="emit_pipeline",
+                pallas_pre_broadcast=False,
+            ),
+            0.215,
+            [0.190, 0.191, 0.189],
+        )
+
+        def make_member(config: Config, noisy_perf: float) -> PopulationMember:
+            return PopulationMember(
+                fn=lambda *a, **kw: None,
+                perfs=[noisy_perf],
+                flat_values=[id(config)],  # opaque -- never read by the test
+                config=config,
+                status="ok",
+                compile_time=0.0,
+            )
+
+        last_gen_members = [make_member(cfg, perf) for cfg, perf, _passes in last_gen]
+        seed_member = make_member(compiler_seed[0], compiler_seed[1])
+        true_passes_by_id: dict[int, list[float]] = {
+            id(member): list(passes)
+            for member, (_cfg, _noisy, passes) in zip(
+                last_gen_members, last_gen, strict=True
+            )
+        }
+        true_passes_by_id[id(seed_member)] = list(compiler_seed[2])
+
+        class _NoopLog:
+            def __call__(self, *_: object, **__: object) -> None:
+                return None
+
+            def debug(self, *_: object, **__: object) -> None:
+                return None
+
+            def warning(self, *_: object, **__: object) -> None:
+                return None
+
+        search = PopulationBasedSearch.__new__(PopulationBasedSearch)
+        search.population = last_gen_members  # seed NOT in last-gen population
+        search.best_perf_so_far = min(m.perf for m in last_gen_members)
+        search._compiler_seed_members = [seed_member]
+        search.log = _NoopLog()
+
+        def fake_rebenchmark(
+            members_to_bench: list[PopulationMember], *, desc: str = ""
+        ) -> None:
+            for member in members_to_bench:
+                queue = true_passes_by_id[id(member)]
+                timing = queue.pop(0) if queue else member.perfs[-1]
+                member.perfs.append(timing)
+                if timing < search.best_perf_so_far:
+                    search.best_perf_so_far = timing
+
+        with patch.object(search, "rebenchmark", side_effect=fake_rebenchmark):
+            initial_best = min(last_gen_members, key=lambda m: m.perf)
+            self.assertEqual(
+                list(initial_best.config["block_sizes"]),
+                [1024, 256, 1024],
+                "Precondition: search's running best is one of the last-gen members.",
+            )
+            final_best = search.run_final_pick_verification(
+                initial_best, passes=3, top_k=10
+            )
+
+        self.assertEqual(
+            list(final_best.config["block_sizes"]),
+            [512, 512, 512],
+            "Compiler-seeded [512, 512, 512] must be re-benched and "
+            "re-rank ahead of the last-gen best once its true 0.190 ms "
+            "perf is measured.",
+        )
+
     def test_bmm(self) -> None:
         """Test BMM with default config — exercises size_matches fix.
 

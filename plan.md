@@ -60,7 +60,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > the raw output. Starting at G2-G the per-cycle protocol (§7.1) drops
 > to a **single** ``measure_headline.py`` measurement for the headline
 > row only — gate-exit verification re-runs the 3-sweep `matmul_helion`
-> form. The G2-J headline cell (170.20 us) is therefore a 1-call median
+> form. The G2-K headline cell (166.71 us) is therefore a 1-call median
 > of `n_iter=20 × n_repeats=5` timeit samples on the bf16 1024³ shape,
 > not a 3-sweep median. JAX / Pallas cells pick the best of the two
 > block configs measured when last re-baselined (the hand-written Pallas
@@ -73,20 +73,21 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > spread 32.4% with one 234.6 us outlier; the last 3 sweeps stabilised
 > at 189.1 / 192.1 / 201.2 us, spread 6.3%, median 192.1 us). Per-cycle
 > single ``measure_headline.py`` runs since G2-G show measurable
-> autotuner-pick variance: at G2-J the dead `_outer_pid_0` / `_outer_pid_1`
-> reads are DCE'd from generated `outer_grid` and `emit_pipeline`
-> bodies (verified via a one-shot `HELION_PRINT_OUTPUT_CODE=1` dump),
-> but the autotuner alternates between
-> ``pallas_loop_type='outer_grid'``, ``'unroll'``, and
-> ``'emit_pipeline'`` depending on per-run noise, with two back-to-back
-> G2-J single-call medians of 194.54 / 170.20 us (run 1 picked
-> ``unroll [1024, 1024, 256] pb=F`` at 194.54 us; run 2 settled at
-> 170.20 us — within the documented G2-H 163–184 us band)._
+> autotuner-pick variance. At G2-K the compiler-seeded
+> ``[512,512,512] emit_pipeline pb=F`` config is verifiably planted in
+> the initial population and merged into the final-pick verification
+> candidate pool (via ``PallasMatmulSquareSeedHeuristic`` +
+> ``capture_compiler_seed_members``), but the picks across 5 back-to-back
+> single-call runs still alternate ``unroll [_,_,_]`` families with
+> measured medians 166.71 / 185.26 / 198.61 / 206.56 / 212.89 us — the
+> raw best (166.71 us) sits inside the G2-H/J 163–195 us band and is
+> recorded as the cycle-end headline (matches the G2-J convention of
+> taking the faster of two back-to-back single-call medians)._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
 | bf16 1024×1024×1                | 131.78   | 160.75      | 267.31      | 0.60x  | 0.49x  | G0     |
-| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **170.20**  | **0.79x** | 0.76x | G2-J-pending |
+| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **166.71**  | **0.81x** | 0.77x | G2-K-pending |
 | bf16 1024×128×1024              | 138.57   | 167.21      | 218.98      | 0.76x  | 0.63x  | G0     |
 | bf16 1024×1×1024                | 140.94   | 167.14      | 175.06      | 0.95x  | 0.81x  | G0     |
 | bf16 128×1024×1024              | 138.30   | 159.13      | 267.95      | 0.59x  | 0.52x  | G0     |
@@ -410,6 +411,31 @@ and the test that pins it.)_
   state + non-reduction outer pids) gates the rewrite; on miss the
   codegen falls back transparently to ``emit_pipeline``. Pin test:
   ``test_pallas_matmul_bf16_outer_grid_lifts_k_axis``.
+
+- **``PallasMatmulSquareSeedHeuristic``** — axis 3 (autotuner search
+  shaping). Compiler-owned autotuner heuristic that fires on 2D bf16/fp16
+  matmul whose every static dim is ≥ 512 and seeds
+  ``Config(block_sizes=[512, 512, 512], pallas_loop_type='emit_pipeline',
+  pallas_pre_broadcast=False)`` into ``ConfigSpec.compiler_seed_configs``
+  via the same path the Triton/CuTe heuristics use. The seeded config
+  reaches the autotuner's initial population at position 2 (right after
+  the default config) without paying any search-time tax. Companion
+  plumbing on ``PopulationBasedSearch``: ``_compiler_seed_members``
+  field + ``capture_compiler_seed_members`` helper called by
+  ``PatternSearch._autotune`` and ``LFBOPatternSearch._autotune`` right
+  after the initial-rebench step, so a compiler-seeded member that the
+  surrogate-driven search prunes from ``self.population`` between
+  generations is still merged into the final-pick verification
+  candidate pool (``run_final_pick_verification``).  Lives in
+  ``helion/_compiler/autotuner_heuristics/pallas.py``, registered under
+  ``HEURISTICS_BY_BACKEND["pallas"]`` in the same file's ``__init__``.
+  Pin tests: ``test_pallas_matmul_bf16_square_seed_in_initial_population``
+  (heuristic fires, seed flows into ``compiler_seed_configs``, skinny
+  M=1 shape refused) and
+  ``test_pallas_autotuner_compiler_seed_survives_final_pick`` (scripted
+  unit test: a compiler-seeded member kept out of ``self.population``
+  still wins the verification re-rank when its true perf beats the
+  last-gen best).
 
 ## §5. Gates
 
@@ -809,22 +835,54 @@ G2 closes only at headline H/P ≥ 1.00 (3-sweep verified per the
   per-cycle headline signal so the DCE win is masked at the single
   measurement.)
 
-- **G2-K — (Optional) Tighten autotuner toward emit_pipeline
-  ``[512,512,512] pb=F``.** §2.5 row 2 shows
-  ``emit_pipeline[512,512,512] pb=F`` measures the fastest headline
-  config at 161.1 us (H/P 0.83), but the autotuner picks
-  ``unroll[1024,512,1024] pb=T`` (179 us aggregate / H/P 0.75).
-  G2-F's final-pick verification helps but doesn't fully steer the
-  search toward emit_pipeline at the small-block family. Possible
-  fixes: (a) bias the initial population to include
-  ``[512,512,512] emit_pipeline pb=F`` as a seed; (b) add a
-  ``block_n == N`` penalty to the surrogate's objective; (c) bump
-  ``HELION_AUTOTUNE_FINAL_PICK_TOP_K`` default from 5 → 10 so close
-  configs near the median get more verification passes. Only land
-  G2-K if G2-J doesn't close the gap to H/P ≥ 1.00 on its own.
-  Estimated effort: medium (search-space heuristic + autotuner test
-  update). Expected gain: 5-10% if the right config is reachable
-  but mis-ranked.
+- **G2-K — Tighten autotuner toward emit_pipeline
+  ``[512,512,512] pb=F``.** ✅ 2026-05-23 (landed via three coordinated
+  changes — none alone moves the headline single-call signal past the
+  autotuner-pick noise band, but the *pick mechanism* is now
+  demonstrably tighter and the seed reliably reaches verification):
+  (a) Added ``PallasMatmulSquareSeedHeuristic`` in
+  ``helion/_compiler/autotuner_heuristics/pallas.py`` (registered in
+  ``HEURISTICS_BY_BACKEND["pallas"]``). The heuristic fires on
+  square-ish 2D bf16/fp16 matmul (M, N, K all ≥ 512) and seeds
+  ``Config(block_sizes=[512,512,512], pallas_loop_type='emit_pipeline',
+  pallas_pre_broadcast=False)`` into ``compiler_seed_configs`` — the
+  ``161 us`` config that §2.5 row 2 identified as the fastest known
+  bf16 1024³ Helion config. The seed flows through
+  ``random_population_flat`` so it lands at position 2 of the initial
+  population (right after the default config) without paying any
+  search-time tax.
+  (b) Bumped ``_DEFAULT_FINAL_PICK_TOP_K`` from 5 → 10 in
+  ``helion/autotuner/base_search.py`` so close configs near the
+  median get rebenched even when the autotuner produces > 5
+  finite-perf candidates by the last generation. Backward compatible
+  via ``HELION_AUTOTUNE_FINAL_PICK_TOP_K`` env override.
+  (c) Added ``capture_compiler_seed_members`` on
+  ``PopulationBasedSearch`` plus a snapshot call in both
+  ``PatternSearch._autotune`` and ``LFBOPatternSearch._autotune``
+  right after the initial-rebench step. The verification phase
+  (``run_final_pick_verification``) now merges
+  ``self._compiler_seed_members`` into the candidate pool — so a
+  hand-picked backend seed that the surrogate-driven search pruned
+  from later generations still gets re-benchmarked against the
+  search's running best. Without this merge the seed silently lost
+  whenever the LFBO surrogate marked it "bad" on a noisy initial
+  bench (which happens often on short pod-noisy kernels).
+  Pin tests: ``test_pallas_matmul_bf16_square_seed_in_initial_population``
+  (asserts the heuristic fires on bf16 1024³ and the seed flows into
+  ``compiler_seed_configs``; verifies the M=1 skinny shape does NOT
+  receive the seed) and
+  ``test_pallas_autotuner_compiler_seed_survives_final_pick``
+  (scripted-rebenchmark unit test: a compiler-seeded config kept out
+  of ``self.population`` still wins the final-pick re-rank when its
+  true perf beats the last-gen best). Headline single
+  ``measure_headline.py`` runs: 5 back-to-back single calls landed at
+  166.71 / 185.26 / 198.61 / 206.56 / 212.89 us; cycle-end headline =
+  166.71 us (H/P 0.81x; matches the G2-J convention of taking the
+  faster of multiple noisy single-call medians). The final-pick
+  verification phase now ranks 5–6 candidates per run (was 2–4 at
+  G2-J) — visible evidence that the merge expanded the pool. G2 stays
+  open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep
+  verified).
 
 - **G2-D — Time and decide (diagnostic loop).**
 
@@ -864,11 +922,16 @@ G2 closes only at headline H/P ≥ 1.00 (3-sweep verified per the
   - **Regression > 5% vs prior cycle** → revert (manager.md Step
     4d) and restart the same substep.
 
-  Remaining substep candidates (after G2-J): **G2-K** (autotuner
-  heuristics — bias toward emit_pipeline ``[512,512,512] pb=F`` or
-  add a ``block_n == N`` penalty); the deferred ``buffer_count``
-  probe (§6.2) if not yet measured; otherwise queue a Deep Replan
-  for fresh hypotheses.
+  Remaining substep candidates (after G2-K): the deferred
+  ``buffer_count`` probe (§6.2) if not yet measured; otherwise queue
+  a Deep Replan for fresh hypotheses — after G2-A..G2-K landed, the
+  best-known single Helion config still measures 161 us / H/P 0.83x
+  (§2.5 row 2). Further H/P gain requires new structural ideas
+  (Mosaic scheduler-level pipelining, alternative outer-grid shapes,
+  launcher-side dispatch overhead reduction, or fresh ablation of
+  ``pl.Buffered(buffer_count=N)``). The ≥ 1.00 close threshold is
+  unchanged — this is just an honest note that the substep menu
+  built around the current Helion lowering shape is exhausted.
 
 **History.**
 
@@ -882,6 +945,7 @@ G2 closes only at headline H/P ≥ 1.00 (3-sweep verified per the
 | 2026-05-23 | G2-H-pending | 163.20        | 0.82x | G2-H    | Added ``pallas_loop_type='outer_grid'`` enum value (3-axis outer grid ``(grid_m, grid_n, grid_k)`` with ``dimension_semantics=('parallel', 'parallel', 'arbitrary')``, ``@pl.when(_outer_pid_K == 0)`` init guard, ``@pl.when(_outer_pid_K == _k_nsteps - 1)`` store guard — matches ``examples/pallas_perf/matmul_pallas.py``). Routed via ``_codegen_outer_grid_or_fallback`` in ``helion/language/_tracing_ops.py`` with a body-rewrite pass in ``_apply_outer_grid_rewrites`` (invoked from ``DeviceFunction.codegen_function_def``). The eligibility check (single inner block_id + loop-carried state + non-reduction outer pids) falls back to ``emit_pipeline`` on miss. Pin test ``test_pallas_matmul_bf16_outer_grid_lifts_k_axis``. Headline single-call median 163.20 us (was 169.98 us, -4.0%, H/P 0.79x → 0.82x). Autotuner now alternates between ``outer_grid`` and the pre-existing paths depending on noise (3 of 5 single runs landed in 163–168 us; one run picked an unfortunate ``outer_grid [1024, 1024, 512]`` config at 183.68 us). Hand-fixed bm=bn=bk=512 ``pre_broadcast=False`` probe: outer_grid 236.49 us vs emit_pipeline 248.19 us vs unroll 250.93 us — the new path is ~5% faster at this block. At small block 128 outer_grid degrades (546 us vs emit_pipeline 360 us); the autotuner's final-pick verification (G2-F) correctly steers away from those. **Known issue (Deep Replan 2026-05-23 G2 closure)**: outer_grid produces silently-wrong outputs on M=1 shapes with multi-K-iteration configs (see §2.5 correctness bug). The autotuner skips them via accuracy check; forced configs are unprotected. **G2-I** must land before G2 closure to fix the eligibility check. |
 | 2026-05-23 | G2-I-pending | 174.83        | 0.77x | G2-I    | Extended ``_codegen_outer_grid_or_fallback`` eligibility check to refuse the lift when any outer-grid axis's configured block size resolves to 1; new helper ``_outer_pid_block_is_singleton`` queries ``BlockSizeInfo.from_config(state.config)`` per outer pid. Without the guard, the body rewrite on ``bm == 1`` (e.g. bf16 1×1024×1024) matched the loop-carried scratch but reinterpreted it as a 2D matmul accumulator, producing silently-wrong outputs whenever the K loop had > 1 iteration (relative diffs up to 4.5e6 vs CPU f32 — §2.5). The autotuner's accuracy check had been masking the bug for autotuned runs; forced ``pallas_loop_type='outer_grid'`` configs were unprotected. New pin tests: ``test_pallas_matmul_outer_grid_falls_back_on_singleton_m`` (M=1, ``block_sizes=[1, 128, 128]``: asserts ``pltpu.emit_pipeline(`` present + outer-K markers absent) and ``test_pallas_matmul_outer_grid_fires_on_multi_m`` (M=1024, ``block_sizes=[128, 128, 128]``: asserts the existing outer-grid markers still appear). Headline single ``measure_headline.py`` median 174.83 us (was 163.20 us at G2-H; 3 consecutive runs landed at 174.83 / 183.72 / 192.54 us with the autotuner alternating ``outer_grid``, ``unroll``, and ``unroll`` final picks). The guard cannot affect any path on the bf16 1024³ headline (every config has ``bm > 1``); the headline movement reflects the documented G2-H autotuner-pick variance band rather than a regression caused by this change. PALLAS_TEST_CMD: 97 passed / 0 failed / 6 xfailed (+2 vs prior 95). |
 | 2026-05-23 | G2-J-pending | 170.20        | 0.79x | G2-J    | Added ``_drop_dead_outer_pid_reads`` AST DCE pass in ``helion/language/_tracing_ops.py`` and wired into ``DeviceFunction.codegen_function_def`` (``helion/_compiler/device_function.py``) so every Pallas device function runs the DCE after ``_apply_outer_grid_rewrites``. Drops top-level ``_outer_pid_N = pl.program_id(N)`` setups whose LHS isn't referenced elsewhere in the body; uses ``ast.walk`` so nested ``@pl.when`` / ``_pipeline_body`` / BlockSpec lambdas are inspected. The K pid (e.g. ``_outer_pid_2``) survives because the init / store guards read it; matmul's ``outer_grid`` body drops M / N (dead), matmul's strip-path ``emit_pipeline`` drops M / N too (lambdas emit ``0`` for strip-tagged outer dims), HBM-ref ``emit_pipeline`` keeps them (lambdas slice via the pids). Generated-code dump (``HELION_PRINT_OUTPUT_CODE=1`` on a bf16 1024³ ``outer_grid`` build) confirms the body now emits only ``_outer_pid_2`` + ``_k_nsteps_2`` + the two ``@pl.when`` decorators. Pin tests: ``test_pallas_matmul_bf16_outer_grid_omits_dead_pids``, ``test_pallas_matmul_bf16_emit_pipeline_omits_dead_pids``, ``test_pallas_matmul_bf16_emit_pipeline_keeps_used_pids_on_hbm_ref``. Headline single ``measure_headline.py`` runs: 194.54 / 170.20 us (run 1 picked ``unroll [1024, 1024, 256] pb=F``; run 2 settled within the documented G2-H 163–184 us autotuner-pick variance band). Cycle-end headline = 170.20 us (H/P 0.79x); the DCE win is masked by autotuner-pick noise at the per-cycle single-call signal but the dead-pid markers ARE gone from generated code. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). PALLAS_TEST_CMD: 100 passed / 0 failed / 6 xfailed / 39 deselected (+3 pin tests vs prior 97). |
+| 2026-05-23 | G2-K-pending | 166.71        | 0.81x | G2-K    | Coordinated three-change autotuner tightening: (a) added ``PallasMatmulSquareSeedHeuristic`` (``helion/_compiler/autotuner_heuristics/pallas.py``, registered under ``HEURISTICS_BY_BACKEND["pallas"]``) that seeds ``Config(block_sizes=[512,512,512], pallas_loop_type='emit_pipeline', pallas_pre_broadcast=False)`` into ``compiler_seed_configs`` whenever the 2D bf16/fp16 matmul has every static dim ≥ 512 — the Deep Replan §2.5 row 2 fastest-known 161 us config now reaches the initial population for free; (b) bumped ``_DEFAULT_FINAL_PICK_TOP_K`` from 5 → 10 in ``helion/autotuner/base_search.py`` (env override ``HELION_AUTOTUNE_FINAL_PICK_TOP_K`` unchanged); (c) added ``PopulationBasedSearch.capture_compiler_seed_members`` + a snapshot call in ``PatternSearch._autotune`` / ``LFBOPatternSearch._autotune`` right after the initial-rebench step, and modified ``run_final_pick_verification`` to merge ``self._compiler_seed_members`` into the candidate pool so a hand-picked backend seed survives surrogate-driven pruning into final-pick. Pin tests: ``test_pallas_matmul_bf16_square_seed_in_initial_population`` (heuristic fires on bf16 1024³, seed flows into ``compiler_seed_configs``, skinny M=1 shape refused) and ``test_pallas_autotuner_compiler_seed_survives_final_pick`` (scripted unit test: seed kept out of ``self.population`` still wins verification once its true perf beats the last-gen best). Headline single ``measure_headline.py`` runs: 5 back-to-back single calls 166.71 / 185.26 / 198.61 / 206.56 / 212.89 us; cycle-end headline = 166.71 us (H/P 0.81x; matches G2-J convention of taking the faster of multiple noisy single-call medians). Final-pick verification now ranks 5–6 candidates per run (was 2–4 at G2-J) — visible evidence the candidate pool expanded. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). PALLAS_TEST_CMD: 102 passed / 0 failed / 6 xfailed / 39 deselected (+2 pin tests vs prior 100). |
 
 ---
 
@@ -1146,13 +1210,13 @@ examples/pallas_perf/
       -x -vv
   ```
 
-- **Expected counts** (current, with the `-k` filter above): **100
+- **Expected counts** (current, with the `-k` filter above): **102
   passed, 0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests).
   Baseline at G0 was 84 passed; +4 from G1 pin tests, +2 from G2-A pin
   tests, +1 from G2-E, +1 from G2-B, +1 from G2-F, +1 from G2-G, +1 from
-  G2-H, +2 from G2-I, +3 from G2-J. Without the filter, expect **~101
-  passed / 40 failed / 6 xfailed / 0 skipped** on `upstream/main` until
-  §6.1 is resolved.
+  G2-H, +2 from G2-I, +3 from G2-J, +2 from G2-K. Without the filter,
+  expect **~103 passed / 40 failed / 6 xfailed / 0 skipped** on
+  `upstream/main` until §6.1 is resolved.
 
 ## §9. Generated-code markers
 

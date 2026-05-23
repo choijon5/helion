@@ -63,11 +63,15 @@ if TYPE_CHECKING:
 _SUSPICIOUS_REBENCHMARK_WARMUP = 25
 _SUSPICIOUS_REBENCHMARK_REP = 100
 
-# Default to 3 independent rebenchmark passes on the top 5 candidates so the
+# Default to 3 independent rebenchmark passes on the top 10 candidates so the
 # ranking of close configs survives ±10-20% per-call noise on short kernels.
-# Disable by exporting ``HELION_AUTOTUNE_FINAL_PICK_PASSES=0``.
+# Disable by exporting ``HELION_AUTOTUNE_FINAL_PICK_PASSES=0``.  ``top_k=10``
+# (raised from 5 in earlier cycles) reaches past the noise-band cluster of
+# near-best configs so that a compiler-seeded fast config that lands inside
+# the top-10 but not the top-5 still gets re-ranked instead of being
+# silently dropped from verification.
 _DEFAULT_FINAL_PICK_PASSES = 3
-_DEFAULT_FINAL_PICK_TOP_K = 5
+_DEFAULT_FINAL_PICK_TOP_K = 10
 
 
 def final_pick_settings() -> tuple[int, int]:
@@ -732,6 +736,12 @@ class PopulationBasedSearch(BaseSearch):
         super().__init__(kernel, args)
         self.finishing_rounds = finishing_rounds
         self.population: list[PopulationMember] = []
+        # Population members corresponding to compiler-seeded configs from
+        # ``ConfigSpec.compiler_seed_configs``.  Tracked separately so the
+        # final-pick verification phase can re-include them as candidates
+        # even when the surrogate-driven search has pruned them away from
+        # ``self.population``.
+        self._compiler_seed_members: list[PopulationMember] = []
         self._best_available_seed_configs: list[Config] = []
         self.config_gen: ConfigGeneration = self.config_spec.create_config_generation(
             overrides=self.settings.autotune_config_overrides or None,
@@ -772,6 +782,30 @@ class PopulationBasedSearch(BaseSearch):
         """Replace the current best member in the population."""
         idx = min(range(len(self.population)), key=lambda i: self.population[i].perf)
         self.population[idx] = value
+
+    def capture_compiler_seed_members(
+        self, members: Sequence[PopulationMember]
+    ) -> None:
+        """Snapshot which ``members`` came from compiler-seeded configs.
+
+        Called once by ``_autotune`` right after the initial population is
+        constructed.  Looks up the compiler-owned flat configs from
+        ``config_gen.seed_flat_config_pairs()`` and records the matching
+        members on ``self._compiler_seed_members`` so the final-pick
+        verification phase can re-include them even if the search loop
+        prunes them from ``self.population``.
+        """
+        self._compiler_seed_members = []
+        try:
+            seed_pairs = self.config_gen.seed_flat_config_pairs()
+        except Exception:
+            return
+        if not seed_pairs:
+            return
+        seed_flats: list[FlatConfig] = [flat for flat, _config in seed_pairs]
+        for member in members:
+            if member.flat_values in seed_flats:
+                self._compiler_seed_members.append(member)
 
     def benchmark_flat(self, flat_values: FlatConfig) -> PopulationMember:
         """
@@ -1248,12 +1282,16 @@ class PopulationBasedSearch(BaseSearch):
         between runs of the autotuner.
 
         This phase takes the top-``top_k`` members of ``self.population``
-        (including ``best``) and runs ``passes`` independent rebenchmark calls
-        against each, then re-ranks by the **median of the per-pass medians**.
-        Doing the passes interleaved (one rebenchmark of all candidates per
-        pass, repeated ``passes`` times) keeps thermal / scheduling drift
-        balanced across configs so a transient slow-down on any single pass
-        does not bias one config over another.
+        plus every member in ``self._compiler_seed_members`` with finite
+        perf (including ``best``) and runs ``passes`` independent
+        rebenchmark calls against each, then re-ranks by the **median of
+        the per-pass medians**.  Doing the passes interleaved (one
+        rebenchmark of all candidates per pass, repeated ``passes`` times)
+        keeps thermal / scheduling drift balanced across configs so a
+        transient slow-down on any single pass does not bias one config
+        over another.  Compiler-seeded members are merged into the pool so
+        a backend's hand-picked seed survives even if the surrogate-driven
+        search dropped it from the last-generation population.
 
         Args:
             best: The best configuration returned by the main search loop.
@@ -1274,11 +1312,22 @@ class PopulationBasedSearch(BaseSearch):
 
         # Collect the top-k candidates by current perf, always including
         # ``best`` first so its identity is preserved when we tie-break by
-        # falling back to the input.
-        scored_population = sorted(
-            (m for m in self.population if math.isfinite(m.perf)),
-            key=performance,
-        )
+        # falling back to the input.  Compiler-seeded members
+        # (``self._compiler_seed_members``) are merged with the last-gen
+        # ``self.population`` so a hand-picked seed that was pruned by the
+        # surrogate-driven search still gets re-benchmarked here: this is
+        # the only path that guarantees a backend's measured-fastest seed
+        # survives the noisy initial rank.
+        candidate_pool: dict[int, PopulationMember] = {}
+        # ``_compiler_seed_members`` is populated by ``_autotune`` via
+        # ``capture_compiler_seed_members``; fall back to an empty list
+        # when callers construct a search via ``__new__`` (used in tests).
+        compiler_seed_members = getattr(self, "_compiler_seed_members", []) or []
+        for member in (*self.population, *compiler_seed_members):
+            if not math.isfinite(member.perf):
+                continue
+            candidate_pool.setdefault(id(member), member)
+        scored_population = sorted(candidate_pool.values(), key=performance)
         candidates: list[PopulationMember] = []
         seen_ids: set[int] = set()
         for member in (best, *scored_population):

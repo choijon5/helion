@@ -7,6 +7,7 @@ from .common import dedupe_configs
 from .cute import CuteReductionTileHeuristic
 from .cute import CuteReductionWideChunkHeuristic
 from .cute import CuteTcgen05ClusterM2Heuristic
+from .pallas import PallasMatmulSquareSeedHeuristic
 from .triton import TritonSkinnyGemmHeuristic
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ HEURISTICS_BY_BACKEND: dict[str, tuple[AutotunerHeuristicType, ...]] = {
         CuteReductionWideChunkHeuristic,
     ),
     "triton": (TritonSkinnyGemmHeuristic,),
+    "pallas": (PallasMatmulSquareSeedHeuristic,),
 }
 
 log: logging.Logger = logging.getLogger(__name__)
