@@ -62,8 +62,9 @@ human's call.
 - **Backend env**: pass `HELION_BACKEND=pallas` to every test and
   benchmark (otherwise `helion._testing.DEVICE` defaults to `cuda` and
   tests die with "no NVIDIA driver").
-- **Pallas tests (remote)**:
-  `./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv`.
+- **Pallas tests (remote)**: see `plan.md` § 8 `PALLAS_TEST_CMD` (the
+  canonical command, with a `-k 'not (...)'` filter that excludes the
+  known pre-existing failures documented in `plan.md` § 6.1).
 - **Headline benchmark (remote)**: see `plan.md` § 7.1. Run 3×, take
   median, record spread.
 - **If the pod is unreachable** (kubectl auth failure, pod evicted,
@@ -84,7 +85,8 @@ Spawn (or resume) the implementation subagent. Prompt:
 >
 > Test as you go. Before final staging, run:
 >   1. `./lint.sh check` (local, `helion_2` conda env).
->   2. `./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv`.
+>   2. `plan.md` § 8 `PALLAS_TEST_CMD` — must be clean (skips known
+>      pre-existing failures per § 6.1).
 >   3. The headline benchmark (`plan.md` § 7.1) — 3 runs, report median
 >      and spread.
 >
@@ -223,18 +225,16 @@ Action determines what runs:
 
 - **4a / 4b (commit / amend)** — full validation:
 
-  ```
-  ./lint.sh check
-  ./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv
-  ./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 python examples/pallas_perf/matmul_bench.py \
-      --variant helion --dtype bfloat16 \
-      --m 1024 --k 1024 --n 1024 --block 128 \
-      --iters 20 --repeats 5
-  ```
+  1. `./lint.sh check`
+  2. `plan.md` § 8 `PALLAS_TEST_CMD` (canonical Pallas test command).
+  3. `plan.md` § 7.1 headline benchmark, run 3× — record median and
+     spread.
 
-  Run the benchmark 3× — record median and spread. If any one of these
-  fails and the subagent can't fix it within reasonable iteration, fall
-  back to **4d** and restart the cycle.
+  Skipping the benchmark is OK *only* for plan-only refinements that
+  cannot affect runtime perf; carry the prior cycle's H/P forward in
+  the Step 7 log line and mark "skipped: plan-only refinement". If any
+  validation step fails and the subagent can't fix it within reasonable
+  iteration, fall back to **4d** and restart the cycle.
 
 - **4c (continue)** — skip; runs on next commit attempt.
 - **4d (revert)** — lint only. Subagent runs `./lint.sh check` and
