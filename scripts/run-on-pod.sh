@@ -66,6 +66,9 @@ done
 
 # Step 1: sync devserver tree to pod (unless skipped)
 if [[ "${POD_SKIP_SYNC:-0}" != "1" ]]; then
+    # Exclusions: VCS metadata, caches, build artifacts, and trees that
+    # never get exercised by Pallas TPU runs (docs/, benchmarks/ which is
+    # CUDA-only). examples/ is included so examples/pallas_perf/ syncs.
     tar -C "${REPO_ROOT}" \
         --exclude='.git' \
         --exclude='__pycache__' \
@@ -78,6 +81,8 @@ if [[ "${POD_SKIP_SYNC:-0}" != "1" ]]; then
         --exclude='*.egg-info' \
         --exclude='.venv' \
         --exclude='.logs' \
+        --exclude='docs' \
+        --exclude='benchmarks' \
         -cf - . | \
     KUBECONFIG="${KUBECONFIG_PATH}" kubectl exec -i -n "${NAMESPACE}" "${POD}" -- \
         /bin/bash -c "mkdir -p '${POD_PATH}' && cd '${POD_PATH}' && tar -xf -" >&2
