@@ -854,6 +854,46 @@ class TestPallas(TestCase):
         self.assertNotIn("lax.dot_general(", code)
         self.assertNotIn("preferred_element_type=jnp.float32", code)
 
+    def test_pallas_matmul_bf16_inplace_accumulator(self) -> None:
+        """bf16 1024x1024x1024: K-loop accumulator stays in VMEM scratch.
+
+        The hand-written reference kernel in
+        ``examples/pallas_perf/matmul_pallas.py`` accumulates with
+        ``acc_ref[...] += pl.dot(x_val, y_val)`` directly into the VMEM
+        scratch, letting Mosaic keep the accumulator on the MXU between
+        iterations. The previous Helion path emitted the value-flow form
+        ``acc_N = scratch[...] + dot(...)`` plus
+        ``scratch[...] = acc_N[...]``, which forced an extra register
+        binding per K iteration before the value made it back to VMEM.
+        The pin asserts:
+
+        * ``scratch_0[...] += pl.dot(`` appears in the generated code
+          (the rewrite fired);
+        * the externalised value-flow form
+          ``scratch_0[...] = acc`` (with a trailing identifier rather than
+          the ``acc[...]`` scratch initialiser) is absent inside the
+          ``_pipeline_body`` closure.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16, (x, y), block_sizes=[128, 128, 128]
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # The augmented assignment lands the accumulator addition straight
+        # back into the VMEM scratch — this is the marker that the rewrite
+        # in `_write_back_loop_carried` fired.
+        self.assertIn("scratch_0[...] += pl.dot(", code)
+        # The externalised write-back from the prior lowering (the bind
+        # cost we are removing) used a trailing ``acc_N[...]`` slice.
+        # Match the specific form to avoid false negatives against the
+        # one-time ``scratch_0[...] = acc[...]`` initialiser that lives
+        # outside the pipeline body.
+        self.assertNotIn("scratch_0[...] = acc_1[...]", code)
+
     def test_pallas_matmul_bmm_stays_on_dot_general(self) -> None:
         """3D BMM stays on ``lax.dot_general`` (``pl.dot`` is 2D-only).
 

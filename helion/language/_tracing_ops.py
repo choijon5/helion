@@ -585,7 +585,181 @@ def _write_back_loop_carried(
         ]
         for sname, result in zip(scratch_output_names, graph_results, strict=True):
             if isinstance(result, ast.AST):
+                if _try_inplace_accumulator_rewrite(state, sname, result):
+                    continue
                 state.codegen.add_statement(_scratch_write_stmt(state, sname, result))
+
+
+def _try_inplace_accumulator_rewrite(
+    state: CodegenState,
+    sname: str,
+    result: ast.AST,
+) -> bool:
+    """Rewrite ``result = scratch[...] + RHS; scratch[...] = result`` to
+    ``scratch[...] += RHS``.
+
+    The hand-written reference Pallas matmul accumulates with
+    ``acc_ref[...] += pl.dot(x_val, y_val)`` directly into the VMEM scratch.
+    Helion's default lowering emits the equivalent value-flow as a separate
+    ``acc_N = scratch[...] + dot(...)`` followed by ``scratch[...] =
+    acc_N[...]``, which the Mosaic backend then materializes through an
+    extra register binding per K iteration. Recognising the pattern here
+    lets the inner pipeline body stay in place on the VMEM ref between
+    iterations.
+
+    Returns True when the rewrite fires; the caller then skips emitting the
+    standard write-back statement. The rewrite is intentionally narrow: it
+    only matches when the result Name's most recent binding is
+    ``LHS + RHS`` and the LHS chain (through trivial ``a = b`` renames)
+    terminates at a Subscript read of *sname* with the same slice the
+    write-back would use. Anything else falls back to the unchanged
+    behaviour.
+    """
+    if not isinstance(result, ast.Name):
+        return False
+
+    stmts = state.codegen.statements_stack[-1]
+    sl = state.device_function.scratch_read_slice(sname)
+    scratch_idx = sl or "..."
+
+    # Locate the assignment that binds `result`, walking through trivial
+    # Name-to-Name renames added by ``codegen_call_with_graph``'s placeholder
+    # copy step.
+    name_to_find = result.id
+    binding_index: int | None = None
+    binding_stmt: ast.Assign | None = None
+    i = len(stmts) - 1
+    while i >= 0:
+        stmt = stmts[i]
+        if (
+            isinstance(stmt, ast.Assign)
+            and len(stmt.targets) == 1
+            and isinstance(stmt.targets[0], ast.Name)
+            and stmt.targets[0].id == name_to_find
+        ):
+            value = stmt.value
+            if isinstance(value, ast.Name):
+                name_to_find = value.id
+                i -= 1
+                continue
+            binding_index = i
+            binding_stmt = stmt
+            break
+        i -= 1
+
+    if binding_stmt is None or binding_index is None:
+        return False
+
+    value = binding_stmt.value
+    if not isinstance(value, ast.BinOp) or not isinstance(value.op, ast.Add):
+        return False
+
+    lhs_chain = _lhs_chain_to_scratch_read(
+        stmts, binding_index, value.left, sname, scratch_idx
+    )
+    if lhs_chain is None:
+        return False
+
+    # `result` must not be referenced anywhere else in the body; otherwise
+    # dropping its binding would leave a dangling reference. The write-back
+    # statement we are replacing is the only consumer in the matmul pattern.
+    if _name_referenced_outside(stmts, result.id, skip_index=binding_index):
+        return False
+
+    rhs = value.right
+    # Drop the binding for `result` and any intermediate Name aliases that
+    # only existed to feed the LHS of the addition. ``lhs_chain`` contains
+    # the indices (descending) of the trivial ``a = b`` and
+    # ``a = sname[...]`` statements that the LHS resolves through; each can
+    # be dropped only when the bound name is not referenced elsewhere.
+    drop_indices = [binding_index]
+    for idx, name in lhs_chain:
+        if _name_referenced_outside(
+            stmts, name, skip_index=binding_index, additional_skips=drop_indices
+        ):
+            break
+        drop_indices.append(idx)
+    for idx in sorted(drop_indices, reverse=True):
+        stmts.pop(idx)
+    state.codegen.add_statement(
+        statement_from_string(f"{sname}[{scratch_idx}] += {{rhs}}", rhs=rhs)
+    )
+    return True
+
+
+def _lhs_chain_to_scratch_read(
+    stmts: list[ast.AST],
+    before_index: int,
+    expr: ast.AST,
+    sname: str,
+    scratch_idx: str,
+) -> list[tuple[int, str]] | None:
+    """If *expr* ultimately reads ``sname[scratch_idx]`` return the chain
+    of intermediate ``a = b`` / ``a = sname[...]`` statements, else None.
+
+    The chain is a list of ``(statement_index, bound_name)`` pairs in
+    descending order of *statement_index* (most recent first). The caller
+    may use the indices to drop the now-redundant intermediate bindings
+    when fusing the read/compute/store into ``sname[...] += rhs``.
+    """
+    target_repr = f"{sname}[{scratch_idx}]"
+    chain: list[tuple[int, str]] = []
+    current = expr
+    j = before_index - 1
+    while True:
+        if isinstance(current, ast.Subscript):
+            if ast.unparse(current) == target_repr:
+                return chain
+            return None
+        if not isinstance(current, ast.Name):
+            return None
+        lookup_name = current.id
+        found_binding = False
+        while j >= 0:
+            stmt = stmts[j]
+            if (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id == lookup_name
+            ):
+                chain.append((j, lookup_name))
+                current = stmt.value
+                j -= 1
+                found_binding = True
+                break
+            j -= 1
+        if not found_binding:
+            return None
+
+
+def _name_referenced_outside(
+    stmts: list[ast.AST],
+    name: str,
+    *,
+    skip_index: int,
+    additional_skips: list[int] | None = None,
+) -> bool:
+    """Return True if *name* is read in any stmt except *skip_index* and
+    the optional *additional_skips* list.
+
+    Only Load-context references count: a Store-context occurrence (the
+    LHS of the binding we plan to drop) is not a dependency.
+    """
+    skips: set[int] = {skip_index}
+    if additional_skips:
+        skips.update(additional_skips)
+    for idx, stmt in enumerate(stmts):
+        if idx in skips:
+            continue
+        for node in ast.walk(stmt):
+            if (
+                isinstance(node, ast.Name)
+                and node.id == name
+                and isinstance(node.ctx, ast.Load)
+            ):
+                return True
+    return False
 
 
 def _read_final_loop_state(
