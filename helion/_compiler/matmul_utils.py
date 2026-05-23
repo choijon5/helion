@@ -131,6 +131,27 @@ def _needs_f32_accumulator(lhs_dtype: torch.dtype, rhs_dtype: torch.dtype) -> bo
     return lhs_dtype.itemsize < 4 or rhs_dtype.itemsize < 4
 
 
+def _can_emit_pallas_pl_dot(
+    lhs_ndim: int,
+    lhs_dtype: torch.dtype | None,
+    rhs_dtype: torch.dtype | None,
+) -> bool:
+    """Return True when the Pallas backend should emit ``pl.dot`` instead of
+    ``lax.dot_general``.
+
+    ``pl.dot`` is a Pallas-native 2D dot that maps directly onto the TPU MXU
+    and lowers more efficiently than ``lax.dot_general`` on MXU-legal tiles.
+    Eligible only for 2D bf16/f16 matmuls (the MXU's native input dtypes);
+    BMM (3D), f32, int8 and fp8 stay on ``lax.dot_general``.
+    """
+    if lhs_ndim != 2:
+        return False
+    return lhs_dtype in (torch.bfloat16, torch.float16) and rhs_dtype in (
+        torch.bfloat16,
+        torch.float16,
+    )
+
+
 def _emit_pallas_matmul(
     lhs: ast.AST,
     rhs: ast.AST,
@@ -139,41 +160,51 @@ def _emit_pallas_matmul(
     need_f32_acc: bool = False,
     out_dtype: torch.dtype | None = None,
     lhs_ndim: int = 2,
+    lhs_dtype: torch.dtype | None = None,
+    rhs_dtype: torch.dtype | None = None,
 ) -> ast.AST:
-    """Build a ``lax.dot_general`` AST node for the Pallas backend.
+    """Build a Pallas matmul AST node.
+
+    Emits ``pl.dot`` for MXU-legal 2D bf16/f16 tiles (see
+    :func:`_can_emit_pallas_pl_dot`); falls back to ``lax.dot_general``
+    for everything else (BMM, f32, int8, fp8).
 
     Parameters
     ----------
     lhs, rhs:
         AST nodes for the left / right operands.
     acc:
-        Optional AST node for the accumulator (``acc + dot_general(...)``).
+        Optional AST node for the accumulator (``acc + dot(...)``).
     need_f32_acc:
-        When True, emit ``preferred_element_type=jnp.float32`` and, if
-        *out_dtype* is narrower than f32, append a
-        ``lax.convert_element_type`` cast.
+        When True, the dot output is f32. For the ``lax.dot_general``
+        fallback this maps to ``preferred_element_type=jnp.float32``;
+        ``pl.dot`` always returns f32 on bf16/f16 input, so the keyword
+        is implicit. If *out_dtype* is narrower than f32, a
+        ``lax.convert_element_type`` cast is appended.
     out_dtype:
         Desired output dtype.  Only used when *need_f32_acc* is True to
         decide whether a cast-back is required.
     lhs_ndim:
         Number of dimensions in the left operand (2 for mm, 3 for bmm).
+    lhs_dtype, rhs_dtype:
+        Operand dtypes, used only to decide ``pl.dot`` eligibility (see
+        :func:`_can_emit_pallas_pl_dot`).
     """
-    if lhs_ndim == 3:
-        dim_numbers = "(((2,), (1,)), ((0,), (0,)))"
-    elif lhs_ndim == 2:
-        dim_numbers = "(((1,), (0,)), ((), ()))"
+    if _can_emit_pallas_pl_dot(lhs_ndim, lhs_dtype, rhs_dtype):
+        dot_expr = expr_from_string("pl.dot({lhs}, {rhs})", lhs=lhs, rhs=rhs)
     else:
-        raise ValueError(f"lhs_ndim must be 2 or 3, got {lhs_ndim}")
+        if lhs_ndim == 3:
+            dim_numbers = "(((2,), (1,)), ((0,), (0,)))"
+        elif lhs_ndim == 2:
+            dim_numbers = "(((1,), (0,)), ((), ()))"
+        else:
+            raise ValueError(f"lhs_ndim must be 2 or 3, got {lhs_ndim}")
 
-    if need_f32_acc:
+        kwargs = [f"dimension_numbers={dim_numbers}"]
+        if need_f32_acc:
+            kwargs.append("preferred_element_type=jnp.float32")
         dot_expr = expr_from_string(
-            f"lax.dot_general({{lhs}}, {{rhs}}, dimension_numbers={dim_numbers}, preferred_element_type=jnp.float32)",
-            lhs=lhs,
-            rhs=rhs,
-        )
-    else:
-        dot_expr = expr_from_string(
-            f"lax.dot_general({{lhs}}, {{rhs}}, dimension_numbers={dim_numbers})",
+            f"lax.dot_general({{lhs}}, {{rhs}}, {', '.join(kwargs)})",
             lhs=lhs,
             rhs=rhs,
         )
