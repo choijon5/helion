@@ -50,7 +50,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-23 — measurements on the `jongsokchoi-torchtpu` pod,
+> _As of: 2026-05-23 (post-Deep-Replan-4) — measurements on the `jongsokchoi-torchtpu` pod,
 > chip 3, `TPU_VISIBLE_CHIPS=3`. JAX / Pallas cells are the cached
 > reference numbers from the last full-matrix sweep (G1); they are
 > re-measured only when a substep needs it or once per Deep Replan
@@ -95,12 +95,38 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > JaxCallable-side savings are within the documented autotuner-pick
 > noise band (~20 us across this cycle's 3 runs) so the per-cycle
 > single-call headline signal masks the structural win at this
-> measurement granularity._
+> measurement granularity. **Deep Replan 4 2026-05-23 (§2.8)** then
+> ran apples-to-apples single-process probes (3000 calls each, 4
+> separate processes) and confirmed: both counters fire 101/101 in
+> ``measure_headline.py`` (no installation bug); G2-M saves a
+> measurable +16us per call; G2-L saves <5us per call (within
+> noise); the remaining ~60us gap to Pallas's 134us is structurally
+> in torch_tpu's C++ ``call_custom_kernel`` wrapper (not in
+> Helion's Python). **Deep Replan 5 2026-05-23 (§2.9)** then ran a
+> StableHLO/LLO diff (no PR #2323-style hidden codegen regression
+> — body diffs exist but are perf-neutral) + a
+> ``call_custom_kernel`` direct timing probe (3-process median
+> shows 10us achievable by skipping JaxCallable while keeping
+> ``call_custom_kernel``). DR#5 queued a new substep **G2-Ndirect**
+> (5-10us, 1-2 cycles, low risk) before the structural
+> G2-N. See §2.9 (g) for plan diff and §5 for re-ranked substep
+> menu. **G2-Ndirect 2026-05-23** then landed structurally: the
+> launcher cache hot path now lifts a ``_DirectCallKernel`` off the
+> ``_HelionStaticJaxCallable`` subclass on the second call and
+> bypasses the JaxCallable wrapper entirely on every subsequent
+> call (counter ``_CALL_CUSTOM_KERNEL_DIRECT_HITS`` fires; the new
+> direct path also bumps ``_JAXCALLABLE_KEY_CACHE_HITS`` since
+> it's a stricter version of the same elision). The single
+> ``measure_headline.py`` run landed at 163.86 us (H/P 0.82x) —
+> within the documented G2-M autotuner-pick noise band of
+> 162–183 us, so the per-cycle single-call signal masks the
+> structural win at this measurement granularity (DR#5 §2.9 (e):
+> 5–10 us per-call estimated savings)._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
 | bf16 1024×1024×1                | 131.78   | 160.75      | 267.31      | 0.60x  | 0.49x  | G0     |
-| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **162.71**  | **0.83x** | 0.79x | G2-M-pending |
+| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **163.86**  | **0.82x** | 0.78x | G2-Ndirect-pending |
 | bf16 1024×128×1024              | 138.57   | 167.21      | 218.98      | 0.76x  | 0.63x  | G0     |
 | bf16 1024×1×1024                | 140.94   | 167.14      | 175.06      | 0.95x  | 0.81x  | G0     |
 | bf16 128×1024×1024              | 138.30   | 159.13      | 267.95      | 0.59x  | 0.52x  | G0     |
@@ -499,6 +525,281 @@ headline by < 5us once measured through the same launch path.
 The remaining substep menu (§5 G2-L onward) is dispatch-overhead
 reduction, not kernel restructuring.
 
+(_2026-05-23 Deep Replan 4 supersedes the row magnitudes in this
+table. The structural finding stands — the gap is host-side dispatch,
+not kernel structure — but the **53us / 50us split** in the table
+above was an artifact of timing methodology that included synchronous
+chip-exec wait on every call. See §2.8 for the post-G2-L/M
+re-attribution: Helion launcher Python is ~20us, not ~53us;
+JaxCallable base wrapper is ~24us, not ~50us; and the structural
+torch_tpu C++ overhead (`call_custom_kernel` dispatch) is only ~7us
+asynchronous. The bulk of the per-call sync time turns out to be
+chip-exec time waiting for kernel completion._)
+
+### 2.8 Re-attribution post-G2-L/M: the ~60us gap is structural torch_tpu, not Python (Deep Replan 4 2026-05-23)
+
+Goal: explain why ``measure_headline.py`` median sits at ~160-170us
+after G2-L (launcher fast path) and G2-M (JaxCallable invocation-key
+cache) landed, when DR#3 §2.7 predicted the combined savings would
+shave ~80us off the launcher path (225us → ~145us). The headline
+barely moved (167us → 163us / 0.81x → 0.83x). Three findings.
+
+(a) **Counter verification: G2-L and G2-M fast paths DO fire on every
+``measure_headline.py`` iteration.** Reading
+``helion.runtime._launcher_fast_path_hits()`` /
+``_jaxcallable_key_cache_hits()`` before / after a warmup + 5×20
+timed loop confirms both counters reach exactly **101** (1 warmup +
+100 timed calls). The Helion launcher fast-path and the
+``_HelionStaticJaxCallable`` short-circuit are running on every
+single timed call — no installation bug, no missed-warmup pattern.
+The G2-L/M optimizations ARE active; the small headline movement is
+not because the fast paths aren't firing.
+
+(b) **Apples-to-apples decomposition (single-process, 3000 calls per
+probe, 4-run median across separate processes).**
+
+| Layer | Median (us) | Δ vs lower layer | Δ source |
+|---|---|---|---|
+| Graw. Pure JAX ``pl.pallas_call`` (chip floor) | 136.22 | — | sync_per_call (kernel exec dominates) |
+| H. ``tpu_torch_pallas.call_custom_kernel`` direct | 177.62 | +41.40 | torch_tpu C++ (or chip overlap) |
+| G. + ``out_tree.unflatten`` | 174.15 | -3.47 | unflatten ≈ noise |
+| F. JaxCallable BASE ``__call__`` direct | 198.25 | +24.10 | f-string + dict + lookup_custom |
+| E. JaxCallable SUBCLASS direct (G2-M) | 181.90 | -16.35 | **G2-M savings** |
+| A. Helion launcher full (G2-L + G2-M) | 202.26 | +20.36 (vs E) | launcher Python + wrapper |
+
+Probe scripts: ``.deep_replan_04_counter_check.py``,
+``.deep_replan_04_attribution.py``, ``.deep_replan_04_repeat.py``
+(uses ``time.perf_counter_ns()`` around an inner 100-call loop, 30
+outer blocks → 3000 calls per probe, median of per-block per-call
+medians).
+
+(c) **The sync-per-call methodology in DR#3 §2.7 conflated kernel
+exec time with dispatch overhead.** Async-dispatch probe (no sync
+between calls, sync once at end) cleanly separates the two:
+
+| Layer | Per-call (us) — sync per call | Per-call (us) — sync OUTSIDE loop | Inferred chip exec |
+|---|---|---|---|
+| ``tpu_torch_pallas.call_custom_kernel`` | 159.35 | 27.59 | ~131 |
+| Pure JAX ``pl.pallas_call`` | 133.10 | 20.87 | ~112 |
+| Δ (torch_tpu vs JAX) | **+26.25** | **+6.72** | +19 |
+
+So **torch_tpu's C++ dispatch costs only ~7us above raw JAX** in pure
+host-side overhead. The remaining ~20us "torch_tpu overhead" visible
+under sync-per-call comes from torch_tpu's wait pattern: the
+``call_custom_kernel`` C++ path appears to do additional setup
+(output tensor allocation? compilation cache lookup?) inside the
+critical-path sync window. The kernel itself runs on chip in
+~110-130us regardless of host wrapper.
+
+(d) **What did G2-L and G2-M actually save?**
+
+* **G2-M: +16us measured savings** (F − E = 16.35us across 4 runs,
+  std ~7us). Real, modest, structural — well within the original
+  10-15us prediction in plan.md G2-M description.
+* **G2-L: <5us measured savings** (B − A is dominated by ±20-30us
+  per-call noise; can show as positive OR negative across runs).
+  The pin test confirms the fast path fires, and the elided work
+  (``_pallas_check_dtypes`` iter + ``_ds_pad_dims`` set/dict construct
+  + the slow ``_pallas_invoke_and_return`` output-only loop) is at
+  most ~5-10us per call on this kernel. G2-L's structural cleanup
+  IS real but the numerical gain is invisible at the per-cycle
+  measurement granularity.
+
+(e) **Where the remaining ~64us gap actually lives** (200us Helion vs
+136us pure-JAX chip floor):
+
+| Component | Approx cost (us) | Eliminable via |
+|---|---|---|
+| Pure JAX chip floor | 136 | none — fundamental chip + kernel exec |
+| torch_tpu C++ extra dispatch + sync window | +41 | **G2-N** (bypass torch_tpu) |
+| JaxCallable BASE Python wrapper | +24 | **G2-M** (saves 16 of 24us today) |
+| Helion launcher Python + wrapper allocation | +20 | **G2-L** + further Python pruning |
+| Net Helion overhead vs Pallas reference | +85 | only G2-N can close all of it |
+
+The Pallas reference (``matmul_pallas.py``) invokes
+``jax.jit(pl.pallas_call(...))(jax_array_x, jax_array_y)`` *directly*
+in its timed loop — pure-JAX path, no torch tensors at all. That's
+why the Pallas reference clocks ~134us: it IS the chip floor.
+Helion's path goes through three additional layers (Helion launcher
++ JaxCallable + torch_tpu C++), each of which adds host-side latency
+on top of the same chip-bound kernel work.
+
+(f) **dlpack between torch and JAX on TPU is broken in both
+directions.** ``jnp.from_dlpack(torch_tensor)`` raises "Unknown
+device type tpu for Dlpack"; ``torch.from_dlpack(jax_array)`` raises
+"__dlpack__ device only supported for CPU and GPU". This rules out
+the "naive G2-N via dlpack" path. A real G2-N would need
+``torch_tpu``-internal buffer-handle interop, not a public
+torch↔JAX conversion API — a significantly harder engineering
+problem than DR#3 implied.
+
+**Conclusions (override §2.7 row magnitudes):**
+
+1. The G2-L launcher fast path saves ~5us, well within noise.
+2. The G2-M JaxCallable invocation-key cache saves ~16us; that's
+   the real, measurable structural win.
+3. The remaining ~60-65us gap is **structurally torch_tpu's C++
+   dispatch wrapper** that no Python-side Helion optimization can
+   touch. It includes the C++ ``call_custom_kernel`` cost and
+   whatever per-call setup torch_tpu does inside the sync window.
+4. The chip-bound floor (~134us) IS where the Pallas reference
+   sits. To beat it, Helion must bypass torch_tpu and operate
+   in pure-JAX land (G2-N), OR convince ourselves that ≥1.00x H/P
+   on this headline is structurally unachievable without that
+   bypass and re-scope G2.
+
+### 2.9 LLO/StableHLO diff + ``call_custom_kernel`` direct probe (Deep Replan 5 2026-05-23)
+
+Goal: stress-test DR#4's "purely dispatch" conclusion in two ways —
+(Probe 1) diff the StableHLO/LLO Helion sends vs what pure JAX
+produces for the same matmul (PR #2323 pattern: hidden codegen
+divergence masquerading as dispatch overhead), and (Probe 2) measure
+``tpu_torch_pallas.call_custom_kernel`` direct vs JaxCallable to
+size a middle-ground "G2-Ndirect" substep that ships JaxCallable but
+skips its Python wrapper. Probe scripts:
+``.deep_replan_05_stablehlo_diff.py``,
+``.deep_replan_05_decode_bodies.py``,
+``.deep_replan_05_indexmap_hypothesis.py``,
+``.deep_replan_05_multipleof_test.py``,
+``.deep_replan_05_full_helion_mimic.py``,
+``.deep_replan_05_callkernel_direct.py``.
+
+(a) **Probe 1 (StableHLO/LLO diff): the bodies differ, but the
+diff is not perf-relevant.** Decoded the base64 Mosaic body from both
+``jax.export.export(jit_fn).mlir_module_serialized`` payloads. The
+Helion-side body has 2 extra op kinds vs pure-JAX:
+
+| Op | Pure-JAX | Helion | Source in Helion |
+|---|---|---|---|
+| ``tpu.assume_multiple`` | absent | present | ``pl.multiple_of(offset_k, BK)`` |
+| ``arith.index_cast`` | absent | present | ``pl.multiple_of(offset_k, BK)`` |
+| ``#tpu.pipeline_mode<synchronous>`` | absent | present | unknown — appears even without ``compiler_params`` |
+| ``multiple_of`` / ``multiple_of:`` attribute keys | absent | present | ``pl.multiple_of(offset_k, BK)`` |
+| Body size (bytes) | 1778 | 2235 | (delta 457B) |
+
+Helion's generated kernel (per ``HELION_PRINT_OUTPUT_CODE`` dump)
+uses ``load = x[:, pl.ds(pl.multiple_of(offset_2, _BLOCK_SIZE_2),
+_BLOCK_SIZE_2)]`` for every K-loop iteration; the
+``pl.multiple_of(...)`` hint is what introduces
+``tpu.assume_multiple`` + ``arith.index_cast`` into the body. The
+pure-JAX reference uses ``x_val = x_ref[...]`` (whole-block read),
+no slicing, no multiple_of.
+
+**Critical timing test (Probe 1, isolated pure-JAX, no torch):**
+three variants, all jitted via ``jax.jit(pl.pallas_call(...))``, no
+``call_custom_kernel`` in the path:
+
+| Variant | Body | Median (us, 3000 calls) |
+|---|---|---|
+| A. ``x_ref[...]`` (whole-block) | 1754B | 141.29 |
+| B. ``pl.ds(offset, BK)`` (slice, no align hint) | 1754B | 147.94 |
+| C. ``pl.ds(pl.multiple_of(offset, BK), BK)`` (Helion's exact) | 1920B | 139.10 |
+
+The ``pl.multiple_of`` hint moves timing by ±3us (within run noise).
+**Verdict: the StableHLO body differences exist but are perf-neutral
+in the pure-JAX timing.** The PR #2323-style hidden codegen
+regression is NOT present here.
+
+(b) **Probe 1 falsified hypotheses.**
+
+* **Index map ``jnp.int32(...)`` wrapping.** Suspected that Helion's
+  ``_pallas_make_block_spec`` wrapping index_map outputs in
+  ``jnp.int32(...)`` introduces extra ops. Tested by jitting a
+  pure-JAX ``pl.pallas_call`` with identical wrapping — body was
+  bit-identical (1756B both ways), timing was identical (122 vs 119
+  us). Refuted.
+
+* **``pl.multiple_of`` causes perf regression.** Tested above —
+  refuted; ±3us noise.
+
+* **Single ``tpu_custom_call`` wrapper differs.** Both Helion and
+  pure-JAX emit one ``stablehlo.custom_call @tpu_custom_call`` with
+  identical ``operand_layouts``, ``result_layouts``,
+  ``serialization_format``, ``needs_layout_passes``. The only
+  module-level diff is the ``kernel_name`` symbol
+  (``"reordered_kernel"`` vs ``"_kernel"``), which has no runtime
+  effect.
+
+(c) **Probe 1 standing residual: ``#tpu.pipeline_mode<synchronous>``
+on a launcher with no compiler_params.** Helion's
+``default_pallas_launcher`` does NOT pass ``compiler_params``, yet
+the body contains the synchronous pipeline_mode attribute. Source
+unknown — *not* from any explicit Helion call. May be a Pallas
+default that gets attached when certain BlockSpec patterns are
+emitted. Investigated: when we rebuild a full helion-mimic pure-JAX
+kernel reusing the exact same closure structure (``_reordered_kernel
+→ _kernel_inner`` with ``pl.multiple_of`` + reordered refs), the
+``pipeline_mode`` attribute does NOT appear in the mimic's body
+(strings list verified) — so it must come from something Helion-side
+that the mimic isn't replicating. Candidate: an attribute on the
+``pl.BlockSpec`` constructor call path inside Helion's launcher we
+haven't isolated. **Not pursuing as a perf lever** because the
+helion-mimic pure-JAX timing (~167-170us through
+``call_custom_kernel``) is statistically indistinguishable from
+Helion's actual path (~163-170us); pipeline_mode does not visibly
+move the needle.
+
+(d) **Probe 2 (``call_custom_kernel`` direct timing, 3-process
+median).** Built a thin closure that calls
+``tpu_torch_pallas.call_custom_kernel(kernel_name, kernel_key,
+inputs=[x, y], output_shapes=..., donate_argnums=...)`` with all
+metadata pre-captured from the launcher cache. Correctness verified:
+output is bitwise identical to Helion's launcher output, and within
+3e-3 relative error of CPU float32 reference (matches Helion-via-
+launcher's accuracy).
+
+| Layer | Median (us, 3-process) | Δ vs H |
+|---|---|---|
+| A. Helion launcher full (G2-L + G2-M) | 209 | +40 |
+| E. JaxCallable SUBCLASS direct (G2-M sig cache) | 179 | +10 |
+| F. JaxCallable BASE ``__call__`` direct | 196 | +27 |
+| H. ``call_custom_kernel`` direct (per-call list) | **169** | — |
+| J. ``call_custom_kernel`` direct (cached input list) | 175 | +6 |
+| K. Thin closure wrapper (mimics future Helion fast path) | 183 | +14 |
+
+So **bypassing JaxCallable entirely while still using
+``call_custom_kernel`` saves ~10us off current G2-M** (E - H = 10us
+median). The closure-based wrapper (K) adds ~14us back over raw H —
+trades native-call directness for Python wrap, comparable to
+G2-M's residual overhead. A real Helion fast-path can shed most of
+the K vs H gap by avoiding per-call list construction (matches J's
+175us).
+
+(e) **What G2-Ndirect could plausibly buy.** Sized using the 3-process
+median delta (E − H = 10us) plus realistic Python-wrap overhead
+(~5us for a properly-inlined fast path). Best case: 10us. Worst
+case: 5us. Net headline movement: 0.83x → ~0.88x (163us → 153us).
+**Does NOT close G2 to H/P ≥ 1.00 on its own**, but it's the only
+positive-EV substep left short of full G2-N. Risk is low: the path
+is library-API-compatible (still goes through ``call_custom_kernel``,
+which Helion already relies on transitively), no torch_tpu-internal
+APIs needed, no dlpack required.
+
+(f) **G2-N (full bypass) reaffirmed as the only path to H/P ≥ 1.00.**
+DR#4 §2.8 (e/f) already sized it as ~60us savings with ~2-3 weeks
+effort and a torch_tpu-internal buffer-handle dependency that may
+not even exist. DR#5 found no shorter path: the LLO is fine,
+JaxCallable overhead is ~10-27us, and the chip-bound floor
+(~134-140us via raw ``pl.pallas_call`` of JAX arrays) only opens
+up if we ditch torch tensors in the dispatch path entirely.
+
+(g) **Plan changes proposed (this Deep Replan):**
+
+* **New substep G2-Ndirect**: install a thin "static custom-kernel"
+  callable in place of ``JaxCallable`` on the cache hot path, calling
+  ``tpu_torch_pallas.call_custom_kernel`` with pre-captured
+  ``(kernel_name, kernel_key, output_shapes, donate_argnums)`` and
+  the input list cached as a mutable container that gets index-
+  assigned per call. Estimated savings: 5-10us per call. Effort: 1-2
+  cycles. Risk: low. Inserted between G2-M and G2-N in the priority
+  order.
+* **G2-N upgraded** to "structural / 2-3 week investigation" — only
+  way to close H/P ≥ 1.00 — but enter G2-Ndirect first to harvest
+  the small win and reduce JaxCallable surface area.
+* **§2.8 row magnitudes preserved**: H = 169us, F = 196us, E = 179us,
+  consistent with DR#4's 4-process data within ±10us noise. No
+  re-attribution needed.
+
 ## §3. Decision rule — where new choices live
 
 When introducing a new behavior, pick the right axis:
@@ -873,19 +1174,88 @@ H/P gain and effort:
   failed / 6 xfailed / 39 deselected (+1 pin test vs prior 103). Next:
   **G2-N** (bypass JaxCallable entirely via raw ``pl.pallas_call``).
 
-- **G2-N — Bypass ``JaxCallable`` entirely (raw ``pl.pallas_call``
-  path).** The deepest savings (~50us per call from §2.7 row C-D).
+- **G2-Ndirect — Bypass ``JaxCallable`` while keeping
+  ``call_custom_kernel``.** ✅ 2026-05-23 (landed structurally;
+  per-cycle headline signal masked by autotuner-pick variance — see
+  below). Added a slotted ``_DirectCallKernel`` dataclass in
+  ``helion/runtime/__init__.py`` carrying
+  ``(call_custom_kernel, kernel_name, kernel_key, output_shapes,
+  donate_argnums, out_tree, alias_items, sig)`` — every field
+  populated on the first call's slow-path return inside
+  ``_HelionStaticJaxCallable.__call__`` (right after the existing
+  G2-M sig + key snapshot). Each Pallas launcher cache tuple grew
+  from a 5-tuple → 6-tuple to carry the ``_DirectCallKernel`` slot
+  (initially ``None`` — filled lazily on the second call by lifting
+  ``jax_callable._helion_direct_call`` and slotting it into position
+  6). ``_pallas_invoke_and_return_fast`` now accepts a
+  ``direct_call`` argument; when present and the per-arg sig
+  matches, the function builds ``input_tensors`` once and calls
+  ``tpu_torch_pallas.call_custom_kernel`` directly via the
+  pre-bound ``direct_call.call_custom_kernel`` reference —
+  bypassing ``JaxCallable.__call__`` entirely (no method dispatch,
+  no in-subclass sig comparison, no per-call ``list(args)`` to
+  build the ``inputs=`` argument). The direct path bumps both
+  ``_CALL_CUSTOM_KERNEL_DIRECT_HITS`` (new) and
+  ``_JAXCALLABLE_KEY_CACHE_HITS`` (G2-M's counter, since the direct
+  path is a stricter version of the same invocation-key elision —
+  one signal, two pin tests). Dynamic-shape kernels fall back to
+  the JaxCallable subclass via the sig-mismatch branch
+  automatically; interpret-mode kernels never populate
+  ``_helion_direct_call`` so the launcher cache's 6th slot stays
+  ``None`` and the slow path takes over.
+
+  Pin tests:
+  ``test_pallas_call_custom_kernel_direct_hits_on_repeat_invocations``
+  (binds + ``compile_config`` on 256³ bf16, runs the compiled
+  callable 5 times, asserts ``_CALL_CUSTOM_KERNEL_DIRECT_HITS == 4``
+  after) and
+  ``test_pallas_call_custom_kernel_direct_matches_jaxcallable_output``
+  (asserts ``torch.equal(direct_result, jaxcallable_result)`` across
+  3 repeat calls — pins bitwise-identical output to catch any
+  subtle drift e.g. dropped ``out_tree.unflatten``, skipped alias
+  copy-back, wrong ``donate_argnums``). Headline single
+  ``measure_headline.py`` run: 163.86 us (H/P 0.82x, vs G2-M's
+  162.71 us / 0.83x — within the documented G2-M autotuner-pick
+  noise band of 162–183 us; the cycle picked
+  ``unroll [512, 512, 256] pb=F``). Per the G2-D rules: counters
+  fire ✅ so G2-Ndirect landed structurally; the headline didn't
+  move ≥ 3% so the per-cycle single-call signal is noise-masked.
+  G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00,
+  3-sweep verified). PALLAS_TEST_CMD: 106 passed / 0 failed /
+  6 xfailed / 39 deselected (+2 pin tests vs prior 104).
+
+  **Estimated headline savings**: 5-10us per call (DR#5 §2.9 (d) /
+  (e), 3-process median). Risk that donation aliasing breaks for
+  non-matmul kernels with in-place inputs is mitigated by reusing
+  the JaxCallable subclass's ``donate_argnums`` / ``alias_items``
+  unchanged; G2-Ndirect just replays the same arg shape through
+  ``call_custom_kernel``. Dynamic-shape kernels keep the JaxCallable
+  slow path (the per-arg sig comparison inside
+  ``_pallas_invoke_and_return_fast`` fails on a shape change).
+
+- **G2-N — Bypass ``JaxCallable`` / ``torch_tpu`` entirely (raw
+  ``pl.pallas_call`` path).** **Re-sized by Deep Replan 4
+  2026-05-23 (§2.8): ~60-65us per call addressable, NOT 50us in
+  Python alone.** The torch_tpu overhead splits into ~7us of pure
+  C++ dispatch (visible only under async-dispatch probes) and
+  ~30-35us of additional setup cost that appears inside the
+  sync-per-call critical path (likely output-tensor allocation +
+  compilation cache lookup inside ``tpu_torch_pallas.call_custom_kernel``).
   Helion would emit code that calls ``pl.pallas_call(...)`` (jitted
-  via ``jax.jit``) directly and converts torch tensors to JAX arrays
-  via ``torch_xla2`` / ``jax.dlpack`` / direct buffer protocols
-  instead of routing through torch_tpu's ``JaxCallable``. This is the
-  ``interpret`` mode's path adapted for production. Risk: high — loses
-  torch_tpu's optimizations (custom kernel registration, sharding
-  support, donation semantics for in-place outputs) and may regress
-  correctness for non-headline kernels (e.g. those needing in-place
-  output aliasing). Estimated headline gain: another 30-50% (50us off
-  the remaining 175us); cuts H/P from ~0.90 to ≥ 1.00. Effort: ~1-2
-  weeks if it's even possible without regressing other Pallas tests.
+  via ``jax.jit``) directly with JAX arrays converted from torch
+  tensors via an internal ``torch_tpu`` buffer handle. **Risk
+  upgraded by §2.8 (f): the naive ``jax.dlpack``-based torch↔JAX
+  conversion is BROKEN ON TPU** (``jnp.from_dlpack(torch_tensor)``
+  raises "Unknown device type tpu for Dlpack"; ditto the reverse).
+  The implementation must use a ``torch_tpu``-internal buffer
+  protocol (the same one ``call_custom_kernel`` uses internally,
+  but skipping the rest of its wrapper) — significantly harder
+  than DR#3 implied. Expected gain: ~60us if fully eliminated; ~30us
+  if only the async-dispatch portion is shed. Effort upgraded to
+  ~2-3 weeks if the buffer-protocol path is even available. Risk:
+  may also regress correctness for non-headline kernels needing
+  in-place output aliasing / sharding / donation semantics that
+  torch_tpu encapsulates.
 
 - **G2-O — Stop emitting per-call ``out = torch.empty(...,
   device='meta')`` placeholder** and use a pre-allocated HBM tensor
@@ -902,24 +1272,126 @@ H/P gain and effort:
   Recommendation: close §6.2 as "lever is empty" and remove from the
   substep queue.
 
-**Substep priority order** (recommended):
-1. **G2-L** — fast-path the Helion launcher (low risk, 5-15% gain).
-2. **G2-M** — pre-cache invocation key / replace JaxCallable usage
-   for static_shapes (5-15% additional, medium risk).
-3. **G2-O** — bundle the meta-tensor caching with G2-L (1-3us, free
-   if done together).
-4. **G2-N** — raw ``pl.pallas_call`` path (largest gain, highest risk
-   — only if G2-L + G2-M together don't reach H/P ≥ 1.00).
+**Substep priority order** (Deep Replan 5 2026-05-23 re-ranking
+after StableHLO + ``call_custom_kernel`` direct probe — see §2.9;
+supersedes DR#4 §5 ranking):
 
-The cumulative H/P math: today 0.81x at 167us (with 134us cached
-Pallas). G2-L conservative estimate -10us → 157us → H/P 0.85. G2-M
-conservative estimate -10us → 147us → H/P 0.91. Both landing at the
-high end (-20us each) → 127us → H/P 1.05. **G2-L + G2-M together
-should be enough to close G2 at H/P ≥ 1.00 with realistic
-margins.** G2-N is the contingency.
+The substep landscape after DR#5: StableHLO bodies differ but the
+diff is perf-neutral (the ~10us JaxCallable wrapper savings is
+real, the LLO is fine). The remaining ~60us headline gap to Pallas
+is structurally in the ``call_custom_kernel`` C++ + torch_tpu
+sync-window setup, NOT in JaxCallable Python.
 
-G2 closes only at headline H/P ≥ 1.00 (3-sweep verified per the
-"G2 — Closure" entry below); we don't quit short of that.
+**Substep status & ranking:**
+
+1. **G2-L (LANDED)** — keep as structural cleanup; measurable savings
+   <5us but the pin test confirms the fast path fires and the code
+   path is cleaner. Recommend **DO NOT REVERT** even though the
+   per-call gain is invisible: the slow-path code was duplicative and
+   the cache hot path is unambiguously simpler to read. Cost of
+   keeping: 0 (already landed); benefit: minor cleanup + microscopic
+   per-call savings under tight noise floor.
+2. **G2-M (LANDED)** — keep; ~16us measured savings, real and
+   reproducible (F − E across 4 separate processes). Recommend **DO
+   NOT REVERT**.
+3. **G2-Ndirect (LANDED)** — keep; both ``_CALL_CUSTOM_KERNEL_DIRECT_HITS``
+   and ``_JAXCALLABLE_KEY_CACHE_HITS`` counters fire on cache hit
+   (pin tests confirm); the launcher cache hot path now skips
+   ``JaxCallable.__call__`` entirely. Expected per-call savings
+   5–10us (DR#5 §2.9 (e)) is below the documented ~20us
+   autotuner-pick variance band so the per-cycle single-call signal
+   is noise-masked, but the structural elision is locked in.
+   Recommend **DO NOT REVERT**.
+4. **G2-O — Cache the meta-tensor placeholder.** Re-sized: the
+   ``torch.empty(SHAPE, device='meta')`` allocation costs ~2us per
+   call. Bundled small win; still worth doing for code clarity.
+   Defer unless we discover it interacts with the G2-Ndirect hot
+   path (it now lives inside ``_pallas_invoke_and_return_fast`` —
+   bundling the meta-tensor cache there is an easy follow-up).
+5. **G2-N — Bypass torch_tpu entirely.** Now the **only remaining
+   substep that can structurally close the headline H/P gap to ≥
+   1.00**. Effort and risk both upgraded (see G2-N entry above and
+   §2.8 (f), §2.9 (f)). With G2-Ndirect landed, Helion's cache hot
+   path no longer depends on ``JaxCallable.__call__`` at all on the
+   static-shape fast path, which makes the G2-N transition easier:
+   the only remaining ``JaxCallable`` interaction is the first-call
+   trace / register / output_shapes population, which a future
+   G2-N can move to a one-shot setup phase. Specifically:
+   - **Phase 1 (~3 days):** investigate the
+     ``torch_tpu``-internal buffer-handle protocol. Does it expose a
+     "torch tensor on PrivateUse1=tpu → JAX device buffer" zero-copy
+     path that ``call_custom_kernel`` uses internally? If yes, can
+     Helion call that path directly from a fast-path launcher that
+     skips ``call_custom_kernel``'s wrapper?
+   - **Phase 2 (~1 week):** prototype the path on the headline
+     kernel only; gate via ``HELION_BYPASS_TORCH_TPU=1`` env var so
+     existing kernels stay on the safe path. Time apples-to-apples.
+     Expected H/P movement: 0.83 → ~0.95+ if we get pure-JAX dispatch
+     latency.
+   - **Phase 3 (~1 week):** integrate as production path if
+     correctness and perf both check out across the full bf16 matrix.
+     Fall back to JaxCallable when the kernel needs sharding /
+     in-place aliasing / other torch_tpu features.
+   - **Risk gate:** if Phase 1 finds no usable torch_tpu-internal
+     buffer protocol, abandon G2-N and re-scope G2 (see "G2 — Closure"
+     below).
+5. **Speculative G2-P — Inline the Helion launcher into the generated
+   wrapper.** Helion's ``compiled_fn`` is generated Python that calls
+   ``_launcher(...)``. The launcher does cache-tuple unpack +
+   ``_pallas_invoke_and_return_fast``. Inlining this into the
+   wrapper function (codegen-time) saves the function-call
+   overhead + cache-tuple unpacking. Estimated: 2-5us. Probably not
+   worth chasing unless G2-N also lands and the residual Helion
+   Python overhead becomes the next-largest cost. Defer.
+
+**Cumulative H/P math, updated post-G2-Ndirect 2026-05-23:**
+
+Today: ~163-180us median (DR#5's pre-G2-Ndirect apples-to-apples
+shows ~190us with G2-M alone; we expect ~180us post-G2-Ndirect
+once a fresh DR-level probe confirms the 5-10us savings).
+``measure_headline.py`` lands at 163.86us this cycle (H/P 0.82x);
+matches G2-M's 162-167us best when the autotuner picks land at
+the low end of the noise band.
+
+(The headline ``measure_headline.py`` median of ~162-167us is the
+*best of single noisy single-call runs*; the apples-to-apples §2.8
+4-run median was 200us pre-G2-Ndirect. The §1 table tracks the
+noisy headline because that's the per-cycle hill-climb signal.)
+
+- G2-Ndirect LANDED (5-10us savings estimated, DR#5 §2.9 (e)):
+  measured headline 163.86us (within G2-M's 162-167us range and
+  the ~20us autotuner-pick variance band); the structural elision
+  is locked in but the per-cycle signal can't separate it from
+  variance.
+- G2-N at full bypass (~60us savings on top of G2-Ndirect): ~140us
+  measured → **H/P ≥ 1.00**. **The only remaining substep with
+  enough addressable cost to close G2.**
+- G2-N at partial bypass (only ~30us async-dispatch portion):
+  ~170us → H/P 0.79 (still short of 1.00).
+- G2-O bundled (+2us): negligible at this scale.
+
+**Realistic conclusion: G2-Ndirect is now landed structurally;
+G2-N is the only substep with enough addressable cost to close
+G2 at H/P ≥ 1.00. Without G2-N, the headline is structurally
+capped at ~0.85-0.88x — a real ceiling imposed by torch_tpu's
+``call_custom_kernel`` C++ wrapper, not by Helion's Python.**
+
+**G2 closure decision (the hard rule does not change):** G2 closes
+only at headline H/P ≥ 1.00, 3-sweep verified. If G2-N is infeasible
+(Phase 1 finds no usable buffer-handle path), the **manager must
+re-scope G2** — not "lower the bar" — because the gap is structural
+to torch_tpu, not to Helion. Options at that point:
+  (i) revise the headline metric to use a methodology that
+      excludes torch_tpu overhead (compare Helion pure-JAX-bypass
+      path vs Pallas reference, both in pure-JAX land);
+  (ii) accept the structural gap as an open ecosystem issue, escalate
+      to torch_tpu owners for the ~60us C++ dispatch reduction
+      (separate workstream, not Helion);
+  (iii) skip G2 to G3 with the H/P shortfall documented and continue
+       improving the other shapes.
+
+These are **manager-level scoping decisions**, not technical
+substeps the agent should land unilaterally.
 
 - **G2-F — Autotuner: rank stability via final-pick verification.**
   ✅ 2026-05-23 (added a final-pick verification phase to
@@ -1209,17 +1681,18 @@ G2 closes only at headline H/P ≥ 1.00 (3-sweep verified per the
   - **Regression > 5% vs prior cycle** → revert (manager.md Step
     4d) and restart the same substep.
 
-  Remaining substep candidates (after G2-K, **revised by Deep Replan 3
-  2026-05-23 — see §2.7**): the kernel-structure substep menu is
-  exhausted, but **the gap is dispatch overhead, not kernel
-  structure**. New substeps **G2-L** (fast-path the Helion launcher),
-  **G2-M** (pre-cache invocation key / bypass JaxCallable per-call
-  work for static_shapes), **G2-O** (cache the meta-tensor
-  placeholder), and contingency **G2-N** (raw ``pl.pallas_call`` path)
-  target the per-call ~100us launcher overhead that §2.7 isolated.
-  The deferred ``buffer_count`` probe (§6.2) is now CLOSED with a
-  partial answer: lever is empty (< 1% headline impact). The ≥ 1.00
-  close threshold is unchanged.
+  Remaining substep candidates (after G2-M, **revised by Deep Replan 4
+  2026-05-23 — see §2.8**): G2-L and G2-M both LANDED structurally
+  but only G2-M's ~16us was per-call-measurable; the headline barely
+  moved (0.81 → 0.83x) because **the bulk of the remaining ~64us
+  gap is in torch_tpu's C++ wrapper**, not in Helion's Python.
+  The only substep with enough addressable cost to close H/P ≥ 1.00
+  is **G2-N** (bypass torch_tpu / JaxCallable entirely via a
+  torch_tpu-internal buffer-handle protocol), and Phase 1 of G2-N
+  must validate that such a protocol exists and is usable. If Phase
+  1 fails, the manager must re-scope G2 — see the closure block
+  above. The deferred ``buffer_count`` probe (§6.2) remains CLOSED.
+  The ≥ 1.00 close threshold is unchanged.
 
 **History.**
 
@@ -1236,6 +1709,7 @@ G2 closes only at headline H/P ≥ 1.00 (3-sweep verified per the
 | 2026-05-23 | G2-K-pending | 166.71        | 0.81x | G2-K    | Coordinated three-change autotuner tightening: (a) added ``PallasMatmulSquareSeedHeuristic`` (``helion/_compiler/autotuner_heuristics/pallas.py``, registered under ``HEURISTICS_BY_BACKEND["pallas"]``) that seeds ``Config(block_sizes=[512,512,512], pallas_loop_type='emit_pipeline', pallas_pre_broadcast=False)`` into ``compiler_seed_configs`` whenever the 2D bf16/fp16 matmul has every static dim ≥ 512 — the Deep Replan §2.5 row 2 fastest-known 161 us config now reaches the initial population for free; (b) bumped ``_DEFAULT_FINAL_PICK_TOP_K`` from 5 → 10 in ``helion/autotuner/base_search.py`` (env override ``HELION_AUTOTUNE_FINAL_PICK_TOP_K`` unchanged); (c) added ``PopulationBasedSearch.capture_compiler_seed_members`` + a snapshot call in ``PatternSearch._autotune`` / ``LFBOPatternSearch._autotune`` right after the initial-rebench step, and modified ``run_final_pick_verification`` to merge ``self._compiler_seed_members`` into the candidate pool so a hand-picked backend seed survives surrogate-driven pruning into final-pick. Pin tests: ``test_pallas_matmul_bf16_square_seed_in_initial_population`` (heuristic fires on bf16 1024³, seed flows into ``compiler_seed_configs``, skinny M=1 shape refused) and ``test_pallas_autotuner_compiler_seed_survives_final_pick`` (scripted unit test: seed kept out of ``self.population`` still wins verification once its true perf beats the last-gen best). Headline single ``measure_headline.py`` runs: 5 back-to-back single calls 166.71 / 185.26 / 198.61 / 206.56 / 212.89 us; cycle-end headline = 166.71 us (H/P 0.81x; matches G2-J convention of taking the faster of multiple noisy single-call medians). Final-pick verification now ranks 5–6 candidates per run (was 2–4 at G2-J) — visible evidence the candidate pool expanded. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). PALLAS_TEST_CMD: 102 passed / 0 failed / 6 xfailed / 39 deselected (+2 pin tests vs prior 100). |
 | 2026-05-23 | G2-L-pending | 164.93        | 0.81x | G2-L    | Launcher-side hot-path elision (Deep Replan §2.7 axis-4 dispatch overhead): added ``_LauncherFastPath`` slot-class in ``helion/runtime/__init__.py`` and extended each Pallas launcher's cache tuple from 4-tuple → 5-tuple to carry precomputed per-call state (``tensor_arg_indices`` as a tuple, ``output_only_descriptors`` as ``(out_idx, orig_pos)`` pairs, ``ds_pad_required`` first-call sentinel, ``padded_output_dims_by_arg`` / ``ds_pad_orig_output_arg_indices`` for post-call slicing). The fast path branches inside each launcher right after the cache-key check and (i) elides ``_pallas_check_dtypes`` (validated on first call); (ii) calls a new ``_pallas_apply_ds_padding_fast`` only when ``_ds_pad_dims`` is non-empty AND ``fast_path.ds_pad_required is not False`` — once the first cache-hit confirms every pad amount is 0 for this static-shape signature, subsequent hits skip the iteration entirely; (iii) routes to ``_pallas_invoke_and_return_fast`` which short-circuits on the matmul-style "output_only_count == 0 and _orig_output_tensors is None" hottest path with a single ``return None``. Counter ``helion.runtime._LAUNCHER_FAST_PATH_HITS`` increments on every cache hit; reset via ``_reset_launcher_fast_path_hits``. Pin test ``test_pallas_launcher_fast_path_hits_on_repeat_invocations`` binds ``pallas_matmul_bf16`` on a 256³ bf16 shape, runs the compiled callable 5 times, and asserts the counter increments exactly 4 times (first call seeds the cache, calls 2-5 hit the fast path). Headline single ``measure_headline.py`` runs: 3 back-to-back runs landed at 164.93 / 178.89 / 166.61 us (autotuner picked ``unroll [512, 1024, 512]`` / ``fori_loop [1024, 1024, 1024]`` / ``outer_grid [1024, 1024, 1024]`` respectively — the seed-pinned ``emit_pipeline [512, 512, 512]`` still loses final-pick under pod-noise). Cycle-end headline = 164.93 us (H/P 0.81x, flat vs G2-K 166.71 us / 0.81x). Per the G2-D rules: fast-path counter fires ✅ so G2-L landed structurally; the expected 10-30 us launcher-side savings are within the documented G2-H/J/K ~14 us autotuner-pick variance band at the single-measurement granularity, so the headline didn't move ≥ 3% even though the structural win is locked in. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). Next: **G2-M** (torch_tpu ``JaxCallable`` invocation-key bypass). PALLAS_TEST_CMD: 103 passed / 0 failed / 6 xfailed / 39 deselected (+1 pin test vs prior 102). |
 | 2026-05-23 | G2-M-pending | 162.71        | 0.83x | G2-M    | torch_tpu ``JaxCallable`` per-call invocation-key elision (Deep Replan §2.7 axis-4 dispatch overhead, complementary to G2-L). Added ``_HelionStaticJaxCallable`` subclass + factory ``_make_helion_static_jax_callable_class`` in ``helion/runtime/__init__.py``; ``_pallas_build_callable`` installs the subclass in place of the raw ``JaxCallable`` for every TPU Pallas launcher. First call falls through to the base ``__call__`` (which traces, registers, and populates ``self.output_shapes``); on return the subclass snapshots ``(kernel_key, output_shapes, out_tree, input_output_aliases_items)`` plus an arg-signature tuple ``(arg0.shape, arg0.dtype, ...)``. Subsequent calls with a matching sig short-circuit to a direct ``tpu_torch_pallas.call_custom_kernel(self.name, cached_kernel_key, inputs=list(args), output_shapes=cached_output_shapes, donate_argnums=self.donate_argnums)`` followed by the cached ``out_tree.unflatten`` — eliding ``_validate_args``, the per-call ``_get_kernel_invocation_key`` f-string build (the largest single per-call cost inside ``JaxCallable.__call__``), ``self.output_shapes.get`` dict lookup, and ``tpu_torch_pallas.lookup_custom_kernel`` C++ call. Dynamic-shape kernels keep the slow path automatically because the sig comparison fails on a shape change. Counter ``helion.runtime._JAXCALLABLE_KEY_CACHE_HITS`` bumps once per fast-path hit; reset via ``_reset_jaxcallable_key_cache_hits``. Pin test ``test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations`` defines its own ``@helion.kernel`` inside the test to avoid cross-test launcher cache pollution, runs the compiled callable 5 times on a 256³ bf16 shape, asserts the counter increments exactly 4 times (first call seeds, calls 2-5 hit). Headline single ``measure_headline.py`` runs: 3 back-to-back runs landed at 182.84 / 162.71 / 166.40 us (autotuner picked ``unroll [512, 512, 128] pb=T`` / ``outer_grid [512, 1024, 1024] pb=T`` / ``emit_pipeline [512, 1024, 512] pb=T`` respectively). Cycle-end headline = 162.71 us (H/P 0.83x, +0.02 vs G2-L 164.93 us / 0.81x — within the documented autotuner-pick noise band but the raw best improved by 2.2 us). Per the G2-D rules: counter fires ✅ so G2-M landed structurally; the expected 10-15 us JaxCallable-side savings are within the ~20 us autotuner-pick variance across this cycle's 3 runs, so the per-cycle single-call headline signal is noise-masked. G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). Next: **G2-N** (bypass JaxCallable entirely via raw ``pl.pallas_call``). PALLAS_TEST_CMD: 104 passed / 0 failed / 6 xfailed / 39 deselected (+1 pin test vs prior 103). |
+| 2026-05-23 | G2-Ndirect-pending | 163.86 | 0.82x | G2-Ndirect | Launcher cache hot path now bypasses ``JaxCallable.__call__`` entirely on cache hit by lifting a pre-captured ``_DirectCallKernel`` (new slotted dataclass in ``helion/runtime/__init__.py``) off the ``_HelionStaticJaxCallable`` subclass on the second call. The dataclass carries ``(call_custom_kernel, kernel_name, kernel_key, output_shapes, donate_argnums, out_tree, alias_items, sig)``; all fields are populated on the first call's slow-path return inside ``_HelionStaticJaxCallable.__call__`` (same point that already snapshots the G2-M sig + key cache). Each Pallas launcher's cache tuple grew 5-tuple → 6-tuple to carry the slot (initially ``None``; filled lazily on the second call via ``getattr(jax_callable, "_helion_direct_call", None)`` so the third-and-later calls find it without the ``getattr``). ``_pallas_invoke_and_return_fast`` takes a new optional ``direct_call`` argument and, when present and the per-arg sig matches, calls ``tpu_torch_pallas.call_custom_kernel`` directly via a pre-bound function reference — skipping all of ``JaxCallable.__call__`` (method dispatch + subclass sig comparison + per-call ``list(args)`` for ``inputs=``). The direct path bumps both ``_CALL_CUSTOM_KERNEL_DIRECT_HITS`` (new) and ``_JAXCALLABLE_KEY_CACHE_HITS`` (the direct path is a stricter version of G2-M's invocation-key elision — one signal, two pin tests). Dynamic-shape kernels fall back to the JaxCallable subclass automatically (sig mismatch); interpret-mode kernels never populate ``_helion_direct_call`` so the slot stays ``None`` and the slow path takes over. Pin tests: ``test_pallas_call_custom_kernel_direct_hits_on_repeat_invocations`` (binds + ``compile_config`` on 256³ bf16, 5 calls, asserts counter == 4) and ``test_pallas_call_custom_kernel_direct_matches_jaxcallable_output`` (asserts ``torch.equal(direct_result, jaxcallable_result)`` across 3 repeat calls — pins bitwise-identical output). Headline single ``measure_headline.py`` run: 163.86 us (H/P 0.82x, vs G2-M 162.71 us / 0.83x — within the documented G2-M autotuner-pick noise band of 162–183 us; cycle picked ``unroll [512, 512, 256] pb=F``). Per the G2-D rules: counters fire ✅ so G2-Ndirect landed structurally; the headline didn't move ≥ 3% so the per-cycle single-call signal is noise-masked (expected 5–10 us per-call savings per DR#5 §2.9 (e) is below the ~20 us autotuner-pick variance band). G2 stays open (manager directive: G2 closes only at H/P ≥ 1.00, 3-sweep verified). Next: **G2-N** (bypass torch_tpu entirely — the only remaining substep with enough addressable cost to close H/P ≥ 1.00; needs torch_tpu-internal buffer-handle protocol investigation). PALLAS_TEST_CMD: 106 passed / 0 failed / 6 xfailed / 39 deselected (+2 pin tests vs prior 104). |
 
 ---
 
@@ -1497,13 +1971,14 @@ examples/pallas_perf/
       -x -vv
   ```
 
-- **Expected counts** (current, with the `-k` filter above): **104
+- **Expected counts** (current, with the `-k` filter above): **106
   passed, 0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests).
   Baseline at G0 was 84 passed; +4 from G1 pin tests, +2 from G2-A pin
   tests, +1 from G2-E, +1 from G2-B, +1 from G2-F, +1 from G2-G, +1 from
   G2-H, +2 from G2-I, +3 from G2-J, +2 from G2-K, +1 from G2-L, +1 from
-  G2-M. Without the filter, expect **~105 passed / 40 failed / 6
-  xfailed / 0 skipped** on `upstream/main` until §6.1 is resolved.
+  G2-M, +2 from G2-Ndirect. Without the filter, expect **~107 passed /
+  40 failed / 6 xfailed / 0 skipped** on `upstream/main` until §6.1 is
+  resolved.
 
 ## §9. Generated-code markers
 
@@ -1532,7 +2007,8 @@ and `assertIn` / `assertNotIn`.
 | `_outer_pid_0` / `_outer_pid_1` *unused reads in `outer_grid` or strip-`emit_pipeline` body* | absent — the `_drop_dead_outer_pid_reads` AST DCE pass (in `helion/language/_tracing_ops.py`, called from `DeviceFunction.codegen_function_def`) strips every top-level `_outer_pid_N = pl.program_id(N)` whose LHS isn't referenced elsewhere in the body. For matmul `outer_grid` the K pid (`_outer_pid_2`) is the only one used (by the `@pl.when` guards); for matmul strip-path `emit_pipeline` no outer pids are used (lambdas emit `0`). Hand-edit ablation measured the dead reads at +7.4 us / +5.9% on the bf16 1024³ headline (§2.6 (a)). Pin tests: `test_pallas_matmul_bf16_outer_grid_omits_dead_pids`, `test_pallas_matmul_bf16_emit_pipeline_omits_dead_pids`. | HBM-ref `emit_pipeline` (when the outer VMEM strip footprint exceeds `_OUTER_VMEM_STRIP_BUDGET_BYTES`) keeps `_outer_pid_0` / `_outer_pid_1` alive because the inner BlockSpec lambdas (`lambda _j: (_outer_pid_0, _j)` / `lambda _j: (_j, _outer_pid_1)`) read them to slice the HBM ref. Pin test: `test_pallas_matmul_bf16_emit_pipeline_keeps_used_pids_on_hbm_ref`. |
 | `pltpu.emit_pipeline(` *for forced `outer_grid` on any outer-axis with block size 1* | when `pallas_loop_type='outer_grid'` is forced on a shape whose configured block size for any outer-grid axis (M or N today) is 1, the eligibility check falls back to `emit_pipeline` — the marker that survived is `pltpu.emit_pipeline(`, NOT `@pl.when(_outer_pid_K == 0)`. Companion pin `test_pallas_matmul_outer_grid_fires_on_multi_m` confirms the guard does not over-refuse on the working multi-row M path (`bm > 1`). Pin test `test_pallas_matmul_outer_grid_falls_back_on_singleton_m` asserts `pltpu.emit_pipeline(` present and `@pl.when(_outer_pid_2 == 0)` / `_reduction_grid_dims=[2]` absent on the bf16 1×1024×1024 / `block_sizes=[1, 128, 128]` shape with `pallas_loop_type='outer_grid'`. | the outer-grid body rewrite (pre-guard) used to fire on M=1 too, producing silently-wrong outputs whenever the K loop had > 1 iteration (relative diffs up to 4.5e6 vs CPU f32; see §2.5 correctness bug). The autotuner's accuracy check skipped these configs but forced configs were unprotected. |
 | `helion.runtime._LAUNCHER_FAST_PATH_HITS` *runtime counter, not a generated-code substring* | non-zero after the second-or-later call of any cached Pallas launcher; bumped inside the cache-hit branch of all three Pallas launchers (`default_pallas_launcher`, `default_pallas_pipeline_launcher`, `default_pallas_fori_launcher`) right before the fast-path `_pallas_apply_ds_padding_fast` / `_pallas_invoke_and_return_fast` short-circuits run. This is the axis-4 (host-side dispatch) analog of the generated-code markers: there is no string to grep in `code_and_output(...)` text because the change is in the Python launcher, not the Pallas device function. Reset via `helion.runtime._reset_launcher_fast_path_hits()`. Read via `helion.runtime._launcher_fast_path_hits()`. Pin test: `test_pallas_launcher_fast_path_hits_on_repeat_invocations` (binds + ``compile_config`` to skip autotuning, runs the compiled callable 5 times, asserts counter == 4 after — first call seeds cache, 2-5 hit the fast path). | counter stays at 0 if a refactor removes the increment, mis-types the cache tuple width so the 5-tuple unpack fails and the slow path takes over every call, or splits the launcher into a path that bypasses the cache lookup. |
-| `helion.runtime._JAXCALLABLE_KEY_CACHE_HITS` *runtime counter, not a generated-code substring* | non-zero after the second-or-later call of any cached Pallas launcher whose JaxCallable went through the Helion subclass (`_HelionStaticJaxCallable`, built by `_make_helion_static_jax_callable_class` in `helion/runtime/__init__.py` and installed by `_pallas_build_callable` in place of the raw `JaxCallable`). The subclass caches the first call's `(arg_shape_dtype_signature, kernel_key, output_shapes, out_tree, input_output_aliases_items)` and on subsequent calls with a matching sig short-circuits to a direct `tpu_torch_pallas.call_custom_kernel` invocation — eliding torch_tpu's per-call `_validate_args`, `_get_kernel_invocation_key` (f-string built per call), `output_shapes` dict lookup, and `lookup_custom_kernel` C++ call. The counter bumps once per hot-path hit. Reset via `helion.runtime._reset_jaxcallable_key_cache_hits()`. Read via `helion.runtime._jaxcallable_key_cache_hits()`. Pin test: `test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations` (defines its own `@helion.kernel` to avoid cross-test launcher cache pollution, runs the compiled callable 5 times on 256³ bf16, asserts counter == 4 after — first call seeds, 2-5 hit). | counter stays at 0 if `_pallas_build_callable` reverts to instantiating the raw `JaxCallable`, if a refactor removes the snapshot logic after the first super().__call__, or if the sig comparison erroneously misses on every call (e.g. by hashing instead of comparing tuples). Dynamic-shape kernels naturally keep the slow path (sig mismatch on shape change). |
+| `helion.runtime._JAXCALLABLE_KEY_CACHE_HITS` *runtime counter, not a generated-code substring* | non-zero after the second-or-later call of any cached Pallas launcher whose per-call invocation-key build was elided.  Two sources bump this counter: (a) the `_HelionStaticJaxCallable` subclass's own fast path (when the launcher cache *doesn't* yet carry a `_DirectCallKernel`, e.g. an unusual dispatch through the JaxCallable that bypasses the launcher); (b) the launcher-level direct-dispatch path (`_pallas_invoke_and_return_fast`'s `direct_call` branch — see the `_CALL_CUSTOM_KERNEL_DIRECT_HITS` row below).  Both paths share the same "elide `_get_kernel_invocation_key` f-string build + `output_shapes.get` + `lookup_custom_kernel` C++ call" semantics, so the counter is the single signal for "per-call invocation key elision fired".  Reset via `helion.runtime._reset_jaxcallable_key_cache_hits()`.  Read via `helion.runtime._jaxcallable_key_cache_hits()`.  Pin test: `test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations` (defines its own `@helion.kernel` to avoid cross-test launcher cache pollution, runs the compiled callable 5 times on 256³ bf16, asserts counter == 4 after — first call seeds, 2-5 hit; today the launcher-level path is the one that bumps it). | counter stays at 0 if `_pallas_build_callable` reverts to instantiating the raw `JaxCallable`, if both the subclass and the launcher direct-dispatch paths drop their increments, or if the sig comparison erroneously misses on every call (e.g. by hashing instead of comparing tuples). Dynamic-shape kernels naturally keep the slow path (sig mismatch on shape change). |
+| `helion.runtime._CALL_CUSTOM_KERNEL_DIRECT_HITS` *runtime counter, not a generated-code substring* | non-zero after the second-or-later call of any cached Pallas launcher whose hot path lifted a `_DirectCallKernel` off the `_HelionStaticJaxCallable` subclass and used it to call `tpu_torch_pallas.call_custom_kernel` directly — bypassing the JaxCallable wrapper entirely (no `__call__` method dispatch, no sig comparison inside the subclass, no per-call `list(args)` for `inputs=`).  `_DirectCallKernel` (a slotted dataclass in `helion/runtime/__init__.py`) carries `(call_custom_kernel, kernel_name, kernel_key, output_shapes, donate_argnums, out_tree, alias_items, sig)`, all populated on the first call's slow-path return.  The launcher's cache-hit branch lazily lifts it off the JaxCallable (`getattr(jax_callable, "_helion_direct_call", None)`) on the second call and slots it into the cache tuple's 6th position so subsequent calls find it without the `getattr`.  `_pallas_invoke_and_return_fast` checks `direct_sig == direct_call.sig` and, on match, bumps both `_CALL_CUSTOM_KERNEL_DIRECT_HITS` and `_JAXCALLABLE_KEY_CACHE_HITS` (the direct path is a stricter version of the JaxCallable subclass's invocation-key elision).  Reset via `helion.runtime._reset_call_custom_kernel_direct_hits()`.  Read via `helion.runtime._call_custom_kernel_direct_hits()`.  Pin tests: `test_pallas_call_custom_kernel_direct_hits_on_repeat_invocations` (binds + `compile_config`, runs the compiled callable 5 times on 256³ bf16, asserts counter == 4 after — first call seeds, 2-5 hit the direct path) and `test_pallas_call_custom_kernel_direct_matches_jaxcallable_output` (asserts `torch.equal(direct_result, jaxcallable_result)` across 3 repeat calls — pins bitwise-identical output to catch any subtle drift e.g. dropped `out_tree.unflatten`, skipped alias copy-back, wrong `donate_argnums`). | counter stays at 0 if `_pallas_invoke_and_return_fast` drops the `direct_call` branch, if `_HelionStaticJaxCallable.__call__` stops populating `_helion_direct_call` after the first slow-path call, or if the launcher cache stops carrying the 6th slot (`_DirectCallKernel` instance).  Dynamic-shape kernels keep the JaxCallable subclass fast path automatically because the per-call sig comparison inside `_pallas_invoke_and_return_fast` fails on a shape change and falls through to `jax_callable(*input_tensors)`. |
 
 New strategies must add a row here before landing.
 
@@ -1656,3 +2132,44 @@ from real incidents, not speculation.
   side has to be measured separately from JIT compile cost; the
   earlier "compile-time noise" anti-pattern is a *necessary* check
   but not *sufficient*. Look at the cached-call cost too.
+
+- **Lesson from §2.8: sync-per-call timing conflates kernel exec
+  with dispatch.** Per-call latency under sync-per-call is dispatch
+  + chip-exec serialized; per-call latency under sync-OUTSIDE-loop
+  is dispatch alone (kernel exec overlaps via async pipe). DR#3's
+  "torch_tpu adds 50us / Helion launcher adds 53us" decomposition
+  was based on sync-per-call deltas; the post-G2-L/M re-attribution
+  (§2.8) using both sync-per-call AND sync-OUTSIDE-loop shows the
+  *async* dispatch cost is only ~7us for torch_tpu vs JAX; the
+  remaining ~30us "torch_tpu overhead" visible under sync-per-call
+  is something torch_tpu does inside the critical path that JAX
+  doesn't (likely output buffer allocation + compilation cache
+  lookup inside ``call_custom_kernel``). When sizing a host-side
+  optimization, measure BOTH sync modes — a Python optimization
+  that targets async-dispatch cost will be invisible if the
+  benchmark sync-per-call critical path is dominated by chip exec.
+
+- **Lesson from §2.8: 3-run noisy single-call signals are unreliable
+  for sub-20us deltas.** The ``measure_headline.py`` per-cycle
+  signal has ±20-30us per-call noise (autotuner-pick variance
+  alone ~14-20us; per-call timing noise another 10us). Any
+  substep whose theoretical gain is <20us per call cannot be
+  validated by the per-cycle single-call signal — its movement is
+  buried in noise. To validate small structural wins, run a
+  single-process apples-to-apples probe that times 1000+ calls per
+  variant and compares medians (or use the counter-pin-test
+  approach: the structural change provably runs; the per-call
+  savings are estimated theoretically). Don't conclude "the
+  optimization didn't work" from a noisy per-cycle signal alone.
+
+- **Lesson from §2.8 (f): not all conversion paths exist.** DR#3
+  proposed G2-N as a "raw pl.pallas_call path via jax.dlpack" /
+  ``torch_xla2``. DR#4 confirmed that ``jnp.from_dlpack(torch_tensor)``
+  on TPU raises "Unknown device type tpu for Dlpack", and the
+  reverse (``torch.from_dlpack(jax_array)``) raises "__dlpack__
+  device only supported for CPU and GPU". Either-direction dlpack
+  on TPU is broken. A G2-N would need a torch_tpu-internal
+  buffer-handle path (the same protocol ``call_custom_kernel`` uses
+  internally), not a public conversion API. Phase 1 of any future
+  G2-N must validate that protocol exists and is usable BEFORE
+  committing to the substep.
