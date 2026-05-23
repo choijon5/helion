@@ -1076,6 +1076,69 @@ class TestPallas(TestCase):
         self.assertNotIn("_pipeline_vmem_strip_indices=", code)
         self.assertNotIn("_pipeline_arg_indices=", code)
 
+    def test_pallas_matmul_outer_grid_falls_back_on_singleton_m(self) -> None:
+        """``pallas_loop_type='outer_grid'`` must refuse to lift when an
+        outer-grid axis has block size 1 and fall back to ``emit_pipeline``.
+
+        Background: the outer-grid body rewrite assumes the loop-carried
+        scratch holds a 2D matmul tile.  When ``bm == 1`` on an M=1 shape
+        (e.g. bf16 1×1024×1024), the scratch holds a 1-row broadcast outer
+        product and the rewrite emits silently-wrong outputs whenever the
+        inner K loop has > 1 iteration (relative diffs up to 4.5e6 vs CPU
+        f32 reference; the autotuner's accuracy check skips these configs,
+        but forced configs are unprotected).  The eligibility check in
+        ``_codegen_outer_grid_or_fallback`` therefore refuses any outer-grid
+        axis whose configured block size resolves to 1.
+
+        The pin asserts the fallback both ways: ``pltpu.emit_pipeline(``
+        must survive (the K loop stays inside the inner pipeline) and the
+        ``@pl.when(_outer_pid_2 == 0)`` / ``@pl.when(_outer_pid_2 == ...)``
+        guards that mark the outer-grid form must NOT appear.  The numeric
+        check confirms the fallback produces correct outputs.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[1, 128, 128],
+            pallas_loop_type="outer_grid",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # Fallback fired: inner pipeline survives, no outer-grid K guards.
+        self.assertIn("pltpu.emit_pipeline(", code)
+        self.assertNotIn("@pl.when(_outer_pid_2 == 0)", code)
+        self.assertNotIn("_reduction_grid_dims=[2]", code)
+
+    def test_pallas_matmul_outer_grid_fires_on_multi_m(self) -> None:
+        """``pallas_loop_type='outer_grid'`` still fires on multi-row M.
+
+        Companion to ``test_pallas_matmul_outer_grid_falls_back_on_singleton_m``:
+        with ``bm > 1`` the eligibility check should still let the K loop lift
+        into the outer ``pl.pallas_call`` grid.  This pins that the M=1 guard
+        does not over-refuse and quietly disable the outer-grid path on the
+        working shapes G2-H landed on.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[128, 128, 128],
+            pallas_loop_type="outer_grid",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # Outer-grid path fired: K is in the outer grid, no inner pipeline.
+        self.assertIn("_reduction_grid_dims=[2]", code)
+        self.assertIn("@pl.when(_outer_pid_2 == 0)", code)
+        self.assertNotIn("pltpu.emit_pipeline(", code)
+
     def test_pallas_matmul_bmm_stays_on_dot_general(self) -> None:
         """3D BMM stays on ``lax.dot_general`` (``pl.dot`` is 2D-only).
 

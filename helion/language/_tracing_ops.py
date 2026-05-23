@@ -1577,6 +1577,31 @@ def _(state: CodegenState) -> ast.AST:
     )
 
 
+def _outer_pid_block_is_singleton(
+    env: CompileEnvironment,
+    config: object,
+    pid: object,
+) -> bool:
+    """Return True when the outer-grid axis described by ``pid`` resolves to
+    a configured block size of 1.
+
+    The outer-grid lift rewrite (``_apply_outer_grid_rewrites``) assumes the
+    loop-carried accumulator is a multi-row / multi-column matmul tile.  When
+    the configured block size for an outer axis is 1 (e.g. ``bm == 1`` on the
+    bf16 1×K×N row of the matrix), the scratch holds a degenerate 1-row or
+    1-column tile and the rewrite emits silently-wrong outputs whenever the
+    inner K loop has > 1 iteration.  Treating singleton outer-grid blocks as
+    ineligible falls back to ``_codegen_emit_pipeline``, which handles the
+    degenerate shape correctly.
+    """
+    block_id = pid.block_id  # pyrefly: ignore[missing-attribute]
+    if not (0 <= block_id < len(env.block_sizes)):
+        return False
+    block_size_info = env.block_sizes[block_id]
+    value = block_size_info.from_config(config)  # type: ignore[arg-type]
+    return isinstance(value, int) and value == 1
+
+
 def _codegen_outer_grid_or_fallback(state: CodegenState) -> object:
     """Lift the inner K loop into the outer ``pl.pallas_call`` grid when the
     matmul-pattern eligibility check passes; otherwise fall back to
@@ -1641,7 +1666,22 @@ def _codegen_outer_grid_or_fallback(state: CodegenState) -> object:
                 env.block_sizes[pid.block_id].reduction
                 for pid in device_fn.pid.pid_info
             )
-            if not outer_has_reduction:
+            # Refuse to lift when any outer-grid axis resolves to a
+            # configured block size of 1.  The body rewrite that lifts the
+            # inner K loop into the outer grid assumes the loop-carried
+            # accumulator is a 2D matmul tile; when ``bm == 1`` (or any
+            # outer-tile dim == 1) the scratch holds a 1-row / 1-col
+            # broadcast outer product instead and the rewrite produces
+            # silently-wrong outputs whenever the K loop has > 1 iteration
+            # (NaN / mismatch up to 4.5e6 vs CPU f32 reference; the
+            # autotuner's accuracy check skips these configs, but forced
+            # configs are unprotected).  Fall back to ``emit_pipeline``
+            # which handles singleton dims correctly.
+            outer_has_singleton_block = any(
+                _outer_pid_block_is_singleton(env, state.config, pid)
+                for pid in device_fn.pid.pid_info
+            )
+            if not outer_has_reduction and not outer_has_singleton_block:
                 eligible = True
 
     if not eligible:
