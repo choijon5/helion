@@ -30,7 +30,7 @@ backend Pallas, no extra knobs.)_
 > the upstream snapshot.
 >
 > - **G0** replaces every numeric cell with the median of 3 back-to-back
->   `./scripts/run-on-tpu.sh` runs (spread < 5%; if not, document the
+>   `./scripts/run-on-pod.sh` runs (spread < 5%; if not, document the
 >   noise and pick the median anyway), stamps the `As of` line below
 >   with the run date and commit, and removes the `seed src: upstream
 >   092ec89` tag from each row.
@@ -112,7 +112,7 @@ and record the local headline + full-matrix baseline.
 
 **Exit (all required).**
 1. `examples/pallas_perf/` populated (see §7); `./lint.sh check` clean.
-2. `./scripts/run-on-tpu.sh pytest test/test_pallas.py -x -vv` clean.
+2. `./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv` clean.
 3. Headline number recorded in §1 "Retained seed config" plus the G0
    history row below, measured as median of 3 back-to-back runs with
    spread < 5% (if spread is larger, document the noise and pick the
@@ -306,7 +306,7 @@ _(Each entry: what's deferred, why, explicit re-open criterion.)_
 ### §7.1 Headline command
 
 ```bash
-./scripts/run-on-tpu.sh \
+./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 \
   python examples/pallas_perf/matmul_bench.py \
     --variant helion --dtype bfloat16 \
     --m 1024 --k 1024 --n 1024 --block 128 \
@@ -318,14 +318,14 @@ Run 3 times. Use the median. Record the spread.
 ### §7.2 Full-matrix sweep
 
 ```bash
-./scripts/run-on-tpu.sh \
+./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 \
   'examples/pallas_perf/benchmark.sh run_variants.py matmul_jax matmul_pallas matmul_helion > /tmp/results.txt && examples/pallas_perf/filter_best_speedups.py < /tmp/results.txt'
 ```
 
 ### §7.3 Generated-code inspection
 
 ```bash
-./scripts/run-on-tpu.sh \
+./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 \
   HELION_PRINT_OUTPUT_CODE=1 HELION_LOGS=+all \
   python examples/pallas_perf/matmul_bench.py \
     --variant helion --dtype bfloat16 \
@@ -338,13 +338,25 @@ same shape. Verify generated-code markers from §9.
 
 ### §7.4 Where it runs
 
-- Devserver `devvm2224.cco0.facebook.com` has 1 × H100 only — local
-  for editing and `./lint.sh check`.
-- Pallas tests + benchmarks run on the remote TPU pod
-  (`jongsokchoi-torchtpu`) via `./scripts/run-on-tpu.sh`. The script
-  pins `TPU_VISIBLE_CHIPS=1`, `TPU_HOST_BOUNDS=1,1,1`,
-  `TPU_DEVICE_BOUNDS=1,1,1`, sets `ALLOW_MULTIPLE_LIBTPU_LOAD=1`.
-  **Do not override these.**
+- **Devserver** `devvm2224.cco0.facebook.com` has 1 × H100 only —
+  source of truth for git history; runs `./lint.sh check` locally.
+- **TPU pod** `jongsokchoi-torchtpu` (TPU v7 / TPU7x; 4 chips × 2
+  cores). Accessed via `KUBECONFIG=~/.kube/torusconfig kubectl exec`,
+  wrapped by `./scripts/run-on-pod.sh`. Pod-side repo path is
+  `/mnt/hyperdisk/helion_2/`; venv is `/mnt/hyperdisk/helion-venv/`.
+- **Sync.** `run-on-pod.sh` tars the devserver tree (excluding `.git`,
+  caches, `.venv`, `.logs`) and untars into the pod's repo path before
+  every invocation. Pod-side `/mnt/hyperdisk/helion_2/` is always a
+  *snapshot of the devserver working tree* — never commit on the pod.
+  Sync overhead is ~25 s per invocation; set `POD_SKIP_SYNC=1` only for
+  short read-only repeats that don't depend on edits.
+- **Chip pinning.** Every benchmark and test must pass
+  `TPU_VISIBLE_CHIPS=3` to pin to chip 3 (2 cores). Same-chip
+  across cycles is required for honest H/P comparisons. Don't change
+  the chip index without re-baselining.
+- **Backend selection.** Tests and the harness require
+  `HELION_BACKEND=pallas` (otherwise `helion._testing.DEVICE`
+  defaults to `cuda` and tests die with "no NVIDIA driver").
 
 ### §7.5 Harness layout (vendored from cota in G0)
 
@@ -365,7 +377,7 @@ examples/pallas_perf/
 
 - Lint (local, `helion_2` conda env): `./lint.sh check`
 - Pallas tests (remote TPU):
-  `./scripts/run-on-tpu.sh pytest test/test_pallas.py -x -vv`
+  `./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv`
 - Expected counts: _(populated by G0; tolerance ±3 tests. If counts
   drift by more than the tolerance, update this section in the same
   commit.)_

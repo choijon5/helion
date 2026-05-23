@@ -51,17 +51,23 @@ human's call.
   inspection) uses this env.
 - **Lint command (local)**: `./lint.sh check`. Must be clean before any
   commit.
-- **Remote TPU pod** `jongsokchoi-torchtpu`, accessed via
-  `./scripts/run-on-tpu.sh`. The script pins `TPU_VISIBLE_CHIPS=1`,
-  `TPU_HOST_BOUNDS=1,1,1`, `TPU_DEVICE_BOUNDS=1,1,1` and sets
-  `ALLOW_MULTIPLE_LIBTPU_LOAD=1`. **Never override these.** Never invent
-  a different chip index.
+- **Remote TPU pod** `jongsokchoi-torchtpu` (TPU v7 / TPU7x — 4 chips
+  × 2 cores). Accessed via `./scripts/run-on-pod.sh`, which kubectl-execs
+  using `~/.kube/torusconfig`, tar-syncs the devserver tree into
+  `/mnt/hyperdisk/helion_2/`, then runs in the pre-built
+  `/mnt/hyperdisk/helion-venv/`. Sync overhead is ~25 s per invocation;
+  set `POD_SKIP_SYNC=1` for short read-only repeats only.
+- **Chip pin**: pass `TPU_VISIBLE_CHIPS=3` to every test and benchmark.
+  Same chip across all cycles — do not change without re-baselining.
+- **Backend env**: pass `HELION_BACKEND=pallas` to every test and
+  benchmark (otherwise `helion._testing.DEVICE` defaults to `cuda` and
+  tests die with "no NVIDIA driver").
 - **Pallas tests (remote)**:
-  `./scripts/run-on-tpu.sh pytest test/test_pallas.py -x -vv`.
+  `./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv`.
 - **Headline benchmark (remote)**: see `plan.md` § 7.1. Run 3×, take
   median, record spread.
-- **If `ssh tpu` is not configured** or the pod is unreachable: stop
-  and escalate. Not a subagent task.
+- **If the pod is unreachable** (kubectl auth failure, pod evicted,
+  KUBECONFIG missing): stop and escalate. Not a subagent task.
 - No `pip install`, no networked installs, no system package managers.
 
 ---
@@ -78,7 +84,7 @@ Spawn (or resume) the implementation subagent. Prompt:
 >
 > Test as you go. Before final staging, run:
 >   1. `./lint.sh check` (local, `helion_2` conda env).
->   2. `./scripts/run-on-tpu.sh pytest test/test_pallas.py -x -vv`.
+>   2. `./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv`.
 >   3. The headline benchmark (`plan.md` § 7.1) — 3 runs, report median
 >      and spread.
 >
@@ -219,8 +225,8 @@ Action determines what runs:
 
   ```
   ./lint.sh check
-  ./scripts/run-on-tpu.sh pytest test/test_pallas.py -x -vv
-  ./scripts/run-on-tpu.sh python examples/pallas_perf/matmul_bench.py \
+  ./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 pytest test/test_pallas.py -x -vv
+  ./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 python examples/pallas_perf/matmul_bench.py \
       --variant helion --dtype bfloat16 \
       --m 1024 --k 1024 --n 1024 --block 128 \
       --iters 20 --repeats 5
@@ -403,7 +409,7 @@ Prompt:
 > Do not modify implementation code. If anything is accidentally staged,
 > unstage it (`git reset HEAD <path>`).
 >
-> Environment: same as Step 1 (remote TPU via `run-on-tpu.sh`, no
+> Environment: same as Step 1 (remote TPU via `run-on-pod.sh`, no
 > overriding chip vars).
 >
 > Time budget: as long as credible findings need. Replanning less often
