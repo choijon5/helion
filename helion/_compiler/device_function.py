@@ -824,6 +824,18 @@ class DeviceFunction:
             # Clear after applying so a follow-up regeneration of the same
             # ``DeviceFunction`` (e.g. test reruns) doesn't double-rewrite.
             self._pallas_outer_grid_pending_rewrites = []
+        # DCE the ``_outer_pid_N = pl.program_id(N)`` setup statements that
+        # both ``_apply_outer_grid_rewrites`` and ``_codegen_emit_pipeline``
+        # emit unconditionally for every outer-grid axis.  Hand-edit
+        # ablation showed the dead reads cost ~5% on the bf16 1024**3
+        # headline; the matmul ``outer_grid`` body uses only the K pid
+        # (inside ``@pl.when`` guards) and the strip-path ``emit_pipeline``
+        # body uses none of the M / N pids (the BlockSpec lambda emits
+        # ``0`` for strip-tagged outer dims).
+        if backend.name == "pallas":
+            from ..language._tracing_ops import _drop_dead_outer_pid_reads
+
+            _drop_dead_outer_pid_reads(self.body)
         sorted_arguments = self.sorted_args()
 
         # Separate constexpr args: inline those with known literal values at

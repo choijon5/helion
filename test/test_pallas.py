@@ -1139,6 +1139,120 @@ class TestPallas(TestCase):
         self.assertIn("@pl.when(_outer_pid_2 == 0)", code)
         self.assertNotIn("pltpu.emit_pipeline(", code)
 
+    def test_pallas_matmul_bf16_outer_grid_omits_dead_pids(self) -> None:
+        """``pallas_loop_type='outer_grid'`` DCEs unused ``_outer_pid_N`` reads.
+
+        The outer-grid body rewrite emits the K pid (used by the
+        ``@pl.when(_outer_pid_K == ...)`` guards) plus an
+        ``_outer_pid_N = pl.program_id(N)`` setup for every other outer
+        axis (M=0, N=1).  For the matmul body only the K pid is
+        referenced, so the M / N setups are dead and the DCE pass in
+        ``DeviceFunction.codegen_function_def`` removes them.  Hand-edit
+        ablation on the ``matmul_pallas.py`` mirror measured the dead
+        reads at +7.4 us / +5.9% on the bf16 1024**3 headline (125.5
+        us → 132.9 us), making this the highest-confidence remaining
+        ~5% headline lever.
+
+        The K pid setup (``_outer_pid_2 = pl.program_id(2)``) and the
+        ``_k_nsteps_2 = pl.num_programs(2)`` companion both MUST
+        survive — they anchor the init / store guards.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[128, 128, 128],
+            pallas_loop_type="outer_grid",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # Dead M / N pids dropped.
+        self.assertNotIn("_outer_pid_0 = pl.program_id(0)", code)
+        self.assertNotIn("_outer_pid_1 = pl.program_id(1)", code)
+        # K pid + nsteps still present and feed the @pl.when guards.
+        self.assertIn("_outer_pid_2 = pl.program_id(2)", code)
+        self.assertIn("_k_nsteps_2 = pl.num_programs(2)", code)
+        self.assertIn("@pl.when(_outer_pid_2 == 0)", code)
+        self.assertIn("@pl.when(_outer_pid_2 == _k_nsteps_2 - 1)", code)
+
+    def test_pallas_matmul_bf16_emit_pipeline_omits_dead_pids(self) -> None:
+        """``emit_pipeline`` strip path DCEs unused ``_outer_pid_N`` reads.
+
+        At small blocks the strip-eligibility pass keeps both ``x`` and
+        ``y`` as VMEM strips, which means the inner BlockSpec lambdas
+        emit ``0`` for outer-grid dims instead of reading the M / N
+        pids (see ``test_pallas_matmul_bf16_emit_pipeline_outer_vmem_strip``
+        for the pid-replacement pin).  At that point both
+        ``_outer_pid_0`` and ``_outer_pid_1`` setups are dead and the
+        DCE pass removes them.
+
+        Companion negative pin
+        ``test_pallas_matmul_bf16_emit_pipeline_keeps_used_pids_on_hbm_ref``
+        below covers the HBM-ref branch where the pids ARE referenced
+        by the lambdas and therefore must survive.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[128, 128, 128],
+            pallas_loop_type="emit_pipeline",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # Strip path: lambdas emit ``0`` for outer dims; pids are dead.
+        self.assertNotIn("_outer_pid_0 = pl.program_id(0)", code)
+        self.assertNotIn("_outer_pid_1 = pl.program_id(1)", code)
+        # Sanity: this IS the strip path (not HBM-ref).
+        self.assertIn("lambda _j: (0, _j)", code)
+        self.assertIn("lambda _j: (_j, 0)", code)
+        # And ``pltpu.emit_pipeline`` still drives the K loop here
+        # (this is the non-outer_grid path).
+        self.assertIn("pltpu.emit_pipeline(", code)
+
+    def test_pallas_matmul_bf16_emit_pipeline_keeps_used_pids_on_hbm_ref(
+        self,
+    ) -> None:
+        """``emit_pipeline`` HBM-ref path keeps ``_outer_pid_N`` reads alive.
+
+        When the outer VMEM strip working set exceeds
+        ``_OUTER_VMEM_STRIP_BUDGET_BYTES``, the pipelined operands fall
+        back to ``pl.BlockSpec(memory_space=pltpu.HBM)`` refs and the
+        inner BlockSpec lambdas slice them with ``_outer_pid_N``.  The
+        DCE pass must NOT drop those pid setups — they are read by the
+        lambdas and the kernel will fail to compile without them.
+
+        Block sizes ``(1024, 1024, 1024)`` on a ``4096³`` shape push
+        each strip footprint to ~32 MB (well past the 10 MB budget) so
+        every pipelined arg ends up in the HBM-ref branch.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(4096, 4096, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(4096, 4096, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[1024, 1024, 1024],
+            pallas_loop_type="emit_pipeline",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # Pids are read by the BlockSpec lambdas; DCE must leave them.
+        self.assertIn("_outer_pid_0 = pl.program_id(0)", code)
+        self.assertIn("_outer_pid_1 = pl.program_id(1)", code)
+        # Sanity: the lambdas read the pids (HBM-ref form, not strip).
+        self.assertIn("lambda _j: (_outer_pid_0, _j)", code)
+        self.assertIn("lambda _j: (_j, _outer_pid_1)", code)
+        # And the strip kwarg is absent because no operand fits the budget.
+        self.assertNotIn("_pipeline_vmem_strip_indices=", code)
+
     def test_pallas_matmul_bmm_stays_on_dot_general(self) -> None:
         """3D BMM stays on ``lax.dot_general`` (``pl.dot`` is 2D-only).
 

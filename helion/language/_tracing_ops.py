@@ -2085,6 +2085,58 @@ def _is_outer_pid_setup_stmt(stmt: ast.AST) -> bool:
     )
 
 
+def _drop_dead_outer_pid_reads(body_list: list[ast.AST]) -> None:
+    """DCE top-level ``_outer_pid_N = pl.program_id(N)`` setup statements
+    whose LHS name is never read elsewhere in *body_list*.
+
+    The ``outer_grid`` body rewrite and ``emit_pipeline`` codegen both
+    emit one ``_outer_pid_N`` setup per outer-grid axis (M / N / lifted
+    K), even when the body only references a subset of them.  For the
+    matmul headline the ``outer_grid`` path uses only ``_outer_pid_K``
+    (inside the ``@pl.when`` guards); the ``emit_pipeline`` strip path
+    uses none of the M / N pids inside its BlockSpec lambdas (the
+    lambda emits ``0`` for strip-tagged outer dims).  Leaving the dead
+    reads in place costs ~5% on the headline (hand-edit ablation: the
+    matmul_pallas.py mirror went from 125.5 us to 132.9 us when the
+    same two dead reads were inserted).
+
+    The pass is a strict use-def DCE on flat top-level statements.
+    Reference detection uses ``ast.walk`` so nested function bodies
+    (e.g. ``@pl.when(...) def _init():`` / ``def _pipeline_body``) and
+    BlockSpec lambdas are inspected — a pid var read from inside any of
+    those keeps its setup alive.  The setup statement itself only
+    writes its LHS (the call to ``pl.program_id`` is closed over), so
+    excluding the LHS of setup statements from the "uses" set is the
+    only subtlety.
+    """
+    used_pid_names: set[str] = set()
+    setup_indices: list[int] = []
+    setup_lhs_names: list[str] = []
+
+    for idx, stmt in enumerate(body_list):
+        if _is_outer_pid_setup_stmt(stmt):
+            assert isinstance(stmt, ast.Assign)
+            target = stmt.targets[0]
+            assert isinstance(target, ast.Name)
+            setup_indices.append(idx)
+            setup_lhs_names.append(target.id)
+        else:
+            for node in ast.walk(stmt):
+                if (
+                    isinstance(node, ast.Name)
+                    and isinstance(node.ctx, ast.Load)
+                    and node.id.startswith("_outer_pid_")
+                ):
+                    used_pid_names.add(node.id)
+
+    # Drop dead setups in reverse order so earlier indices stay valid.
+    for idx, lhs_name in zip(
+        reversed(setup_indices), reversed(setup_lhs_names), strict=True
+    ):
+        if lhs_name not in used_pid_names:
+            del body_list[idx]
+
+
 def _extract_emit_pipeline_call_args(stmt: ast.AST) -> list[str]:
     """Return the call args of ``pltpu.emit_pipeline(...)(x, y)`` as strings."""
     assert isinstance(stmt, ast.Expr)
