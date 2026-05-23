@@ -242,6 +242,35 @@ class PallasMemorySpace(enum.Enum):
     VMEM = "vmem"  # Vector/slice access (default)
 
 
+@dataclasses.dataclass
+class PallasOuterGridLiftedAxis:
+    """Record describing a Pallas inner-loop block_id that's been lifted into
+    the outer ``pl.pallas_call`` grid.
+
+    The hand-written reference matmul (``examples/pallas_perf/matmul_pallas.py``)
+    uses a 3-axis outer grid ``(grid_m, grid_n, grid_k)`` with
+    ``pl.when(pl.program_id(2) == 0)`` accumulator init and
+    ``pl.when(pl.program_id(2) == grid_k - 1)`` accumulator store guards
+    instead of Helion's default inner ``pltpu.emit_pipeline`` over K.  When
+    ``pallas_loop_type == "outer_grid"`` is selected and the matmul-pattern
+    eligibility check passes, the inner K block_id is recorded here so the
+    launcher can extend the outer grid and the body-rewrite pass can install
+    the ``pl.when`` guards on the right ``pl.program_id(<grid_dim>)`` axis.
+
+    Fields:
+        block_id: The inner-loop block_id being lifted (K for matmul).
+        nsteps_expr: Host-side expression for the number of grid iterations
+            on this lifted axis (e.g. ``(1024 + bk - 1) // bk``).  Used to
+            extend the launcher's grid tuple.
+        scratch_name: Name of the loop-carried scratch buffer this lift
+            governs (the body rewrite uses it to find the init/store sites).
+    """
+
+    block_id: int
+    nsteps_expr: str
+    scratch_name: str
+
+
 class DeviceFunction:
     def __init__(
         self,
@@ -345,6 +374,20 @@ class DeviceFunction:
         # estimated outer strip working set exceeds the strip budget (see
         # ``_OUTER_VMEM_STRIP_BUDGET_BYTES`` in ``helion/runtime/__init__.py``).
         self.pallas_pipeline_vmem_strip: set[int] = set()
+        # Pallas: when `pallas_loop_type == "outer_grid"` and matmul-pattern
+        # detection passes, the inner K loop is lifted into the outer
+        # ``pl.pallas_call`` grid as an extra ``"arbitrary"`` axis matching
+        # ``examples/pallas_perf/matmul_pallas.py``.  This list records each
+        # such lifted axis as ``PallasOuterGridLiftedAxis(block_id,
+        # nsteps_expr, scratch_name)``; ``_compute_reduction_grid_dims``
+        # (backend.py) reads it to flag the corresponding outer-grid dim
+        # as a reduction axis in ``_reduction_grid_dims=`` so the launcher
+        # marks it ``"arbitrary"`` in ``dimension_semantics``.  The
+        # post-codegen body rewrite in :meth:`codegen_function_def` then
+        # wraps the existing scratch-init / store statements in ``pl.when``
+        # guards on ``pl.program_id(<grid_dim>)``.  Stays empty for every
+        # other ``pallas_loop_type``.
+        self.pallas_outer_grid_lifted: list[PallasOuterGridLiftedAxis] = []
 
     def allocate_store_index(self) -> int:
         """Bump store counters and return the indexing strategy slot."""
@@ -765,6 +808,22 @@ class DeviceFunction:
             )
 
         backend = CompileEnvironment.current().backend
+        # Apply Pallas outer-grid body rewrite (lifts a matched inner K loop
+        # into the outer ``pl.pallas_call`` grid with ``pl.when`` init/store
+        # guards) before the body is wrapped into a FunctionDef.  This is
+        # the only structural body transform on the Pallas backend; the
+        # rewrite is a no-op unless ``pallas_loop_type == "outer_grid"`` was
+        # selected for at least one inner loop AND its eligibility check
+        # passed (see ``_codegen_outer_grid_or_fallback`` in
+        # ``helion/language/_tracing_ops.py``).
+        pending = getattr(self, "_pallas_outer_grid_pending_rewrites", None)
+        if pending:
+            from ..language._tracing_ops import _apply_outer_grid_rewrites
+
+            _apply_outer_grid_rewrites(self, pending)
+            # Clear after applying so a follow-up regeneration of the same
+            # ``DeviceFunction`` (e.g. test reruns) doesn't double-rewrite.
+            self._pallas_outer_grid_pending_rewrites = []
         sorted_arguments = self.sorted_args()
 
         # Separate constexpr args: inline those with known literal values at

@@ -1006,6 +1006,76 @@ class TestPallas(TestCase):
         self.assertNotIn("lambda _j: (_outer_pid_0,", code)
         self.assertNotIn("lambda _j: (_outer_pid_1,", code)
 
+    def test_pallas_matmul_bf16_outer_grid_lifts_k_axis(self) -> None:
+        """bf16 1024x1024x1024: ``pallas_loop_type='outer_grid'`` lifts the
+        inner K loop into the outer ``pl.pallas_call`` grid.
+
+        The hand-written reference kernel in
+        ``examples/pallas_perf/matmul_pallas.py`` uses a 3-axis outer grid
+        ``(grid_m, grid_n, grid_k)`` with
+        ``dimension_semantics=("parallel", "parallel", "arbitrary")``, a
+        ``pl.when(pl.program_id(2) == 0)`` accumulator-init guard, and a
+        ``pl.when(pl.program_id(2) == nsteps - 1)`` accumulator-store guard
+        instead of Helion's default inner ``pltpu.emit_pipeline`` over K.
+
+        Helion's new ``"outer_grid"`` ``pallas_loop_type`` value drives this
+        structural restructure when the matmul-pattern eligibility check
+        passes (single inner block_id with loop-carried state, non-reduction
+        outer pids).  The pin asserts all four sides of the fix:
+
+        * The launcher receives ``_reduction_grid_dims=[2]`` so the lifted
+          K axis is marked ``"arbitrary"`` in ``dimension_semantics``.
+        * ``_block_spec_info`` for X carries the K grid dim ``(0, 2)`` and
+          Y carries ``(2, 1)`` (instead of the pre-G2-H ``(0, None)`` /
+          ``(None, 1)`` form where K was inside ``pltpu.emit_pipeline``).
+        * No ``pltpu.emit_pipeline(`` call survives in the generated body
+          — the K loop is the outer grid now.
+        * The kernel body contains ``@pl.when(_outer_pid_2 == 0)`` and
+          ``@pl.when(_outer_pid_2 == _k_nsteps_2 - 1)`` guards wrapping
+          the accumulator init and store, matching the reference matmul
+          exactly.
+
+        Block sizes ``(128, 128, 128)`` keep the shape inside any per-tile
+        budgets; ``pallas_loop_type='outer_grid'`` forces the path the
+        marker pins.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[128, 128, 128],
+            pallas_loop_type="outer_grid",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # Launcher-side: K axis is in the outer grid and flagged as
+        # ``"arbitrary"`` via ``_reduction_grid_dims=[2]``.  The expanded
+        # ``_block_spec_info`` ties X's K dim to grid dim 2 and Y's K dim
+        # to grid dim 2 too, while M (0) and N (1) stay on grid dims 0/1.
+        self.assertIn("_reduction_grid_dims=[2]", code)
+        self.assertIn("((128, 128), (0, 2))", code)  # X(M, K) -> grid (0, 2)
+        self.assertIn("((128, 128), (2, 1))", code)  # Y(K, N) -> grid (2, 1)
+        self.assertIn("((128, 128), (0, 1))", code)  # out(M, N) -> grid (0, 1)
+        # No emit_pipeline call survives — the K loop is the outer grid.
+        self.assertNotIn("pltpu.emit_pipeline(", code)
+        # Body-side: the lifted K axis pid var and nsteps var anchor the
+        # pl.when guards exactly like ``matmul_pallas.py``.
+        self.assertIn("_outer_pid_2 = pl.program_id(2)", code)
+        self.assertIn("_k_nsteps_2 = pl.num_programs(2)", code)
+        self.assertIn("@pl.when(_outer_pid_2 == 0)", code)
+        self.assertIn("@pl.when(_outer_pid_2 == _k_nsteps_2 - 1)", code)
+        # The accumulator stays in scratch and is += into across K
+        # iterations, matching the existing G2-E in-place rewrite.
+        self.assertIn("scratch_0[...] += pl.dot(", code)
+        # Pre-G2-H ``_pipeline_vmem_strip_indices=`` / ``_pipeline_arg_indices=``
+        # kwargs become irrelevant once the K loop is in the outer grid —
+        # X / Y use ordinary outer BlockSpecs.
+        self.assertNotIn("_pipeline_vmem_strip_indices=", code)
+        self.assertNotIn("_pipeline_arg_indices=", code)
+
     def test_pallas_matmul_bmm_stays_on_dot_general(self) -> None:
         """3D BMM stays on ``lax.dot_general`` (``pl.dot`` is 2D-only).
 
