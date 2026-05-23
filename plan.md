@@ -50,23 +50,25 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-23 — full-matrix sweep on the
-> `jongsokchoi-torchtpu` pod, chip 3, `TPU_VISIBLE_CHIPS=3`. Each cell
-> is the median of 3 back-to-back full sweeps; the JAX / Pallas cell
-> picks the best of the 2 block configs measured (the hand-written
-> Pallas kernel is unusually slow at block 128 on the headline shape,
-> so its best is always block 512); the Helion cell is its single
-> autotuned time (same for both block-suffix labels in the raw output).
-> Helion 3-run spread on the headline was 14.3% in G0; this cycle (G1)
-> the spread crept up to 20.7% on the headline. Both readings stay
-> under the 20% escalation threshold (G1 is a tick over but JAX/Pallas
-> noise on the same pod is similar, suggesting shared TPU noise rather
-> than a Helion-specific instability)._
+> _As of: 2026-05-23 — measurements on the `jongsokchoi-torchtpu` pod,
+> chip 3, `TPU_VISIBLE_CHIPS=3`. JAX / Pallas cells are the cached
+> reference numbers from the last full-matrix sweep (G1); they are
+> re-measured only when a substep needs it or once per Deep Replan
+> (see §7.1). Per the per-cycle protocol, the Helion cell for each row
+> touched this cycle is the median of 3 back-to-back Helion-only sweeps
+> using `matmul_helion`; the same autotuned time is reported under both
+> block-suffix labels in the raw output (the harness reports the
+> autotuner's pick under every block label so the table renders dense).
+> JAX / Pallas cells pick the best of the two block configs measured
+> when last re-baselined (the hand-written Pallas kernel is unusually
+> slow at block 128 on the headline shape, so its best is always block
+> 512). Helion 3-run headline spread was 14.3% in G0, 20.7% in G1, and
+> 4.3% in this cycle (G2-A) — all under the 20% escalation threshold._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
 | bf16 1024×1024×1                | 131.78   | 160.75      | 267.31      | 0.60x  | 0.49x  | G0     |
-| bf16 1024×1024×1024 (headline)  | 137.40   | 169.23      | **241.34**  | **0.70x** | 0.57x | G0  |
+| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **236.75**  | **0.57x** | 0.54x | G2-A-pending |
 | bf16 1024×128×1024              | 138.57   | 167.21      | 218.98      | 0.76x  | 0.63x  | G0     |
 | bf16 1024×1×1024                | 140.94   | 167.14      | 175.06      | 0.95x  | 0.81x  | G0     |
 | bf16 128×1024×1024              | 138.30   | 159.13      | 267.95      | 0.59x  | 0.52x  | G0     |
@@ -224,7 +226,14 @@ trading block sizes.
 - **G2-A — `pl.dot` coverage.** Audit every Pallas matmul lowering path.
   `pl.dot` should fire whenever the tile is MXU-legal bf16 2D. Pin test:
   `code_and_output(...).assertIn("pl.dot(", code)` for each legal config
-  in `test_pallas.py`.
+  in `test_pallas.py`. ✅ 2026-05-23 (route bf16/f16 2D matmul tiles to
+  `pl.dot` in `_emit_pallas_matmul`; `lax.dot_general` plus
+  `preferred_element_type=jnp.float32` drops from the bf16 1024³
+  block(128) generated kernel; pin tests
+  `test_pallas_matmul_bf16_emits_pl_dot` and
+  `test_pallas_matmul_bmm_stays_on_dot_general` lock the routing.
+  Coverage advanced; headline H/P is flat 0.57x because the dot itself
+  was not the binding cost — substeps B/C/E own that.)
 - **G2-B — `dimension_semantics`.** Today every Pallas grid axis is
   `"parallel"`. Reduction axes (K) should be `"arbitrary"` so the
   pipeliner doesn't serialize. Diff Helion output vs hand-written
@@ -257,8 +266,9 @@ trading block sizes.
 
 **History.**
 
-| Date | Commit | Headline (us) | H/P  | Alt-block H/P | Substep | Notes |
-|------|--------|---------------|------|---------------|---------|-------|
+| Date       | Commit       | Headline (us) | H/P   | Alt-block H/P | Substep | Notes |
+|------------|--------------|---------------|-------|---------------|---------|-------|
+| 2026-05-23 | G2-A-pending | 236.75        | 0.57x | 0.57x (same)  | G2-A    | `pl.dot` now fires on bf16 2D tiles; harness reports the autotuned time under both block-suffix labels so alt-block ratio is identical until per-block forced sweeps land. Headline flat (Δ -0.02x vs G1's 0.59x, within 4.3% spread). |
 
 ---
 
@@ -365,16 +375,43 @@ _(Each entry: what's deferred, why, explicit re-open criterion.)_
 The vendored harness doesn't take per-shape CLI args yet (the cota
 upstream's `matmul_bench.run()` always iterates the full configuration
 matrix). Until a single-shape entry point lands, extract the headline
-row from a full sweep:
+row from a full sweep.
+
+**Per-cycle (Helion-only) — canonical, run every cycle.** Each cycle
+re-measures only Helion; JAX / Pallas references are cached in §1 from
+the most recent full re-baseline and are stable across cycles (different
+matmul implementations, no shared compiler path). Skips ~2/3 of the
+runtime spent on JAX / Pallas in the full sweep.
+
+```bash
+./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 \
+  bash -c 'examples/pallas_perf/benchmark.sh examples/pallas_perf/run_variants.py matmul_helion > /tmp/helion.txt 2>&1 && examples/pallas_perf/filter_best_speedups.py < /tmp/helion.txt'
+```
+
+Run 3 times. Headline = the `bf16 1024×1024×1024` row median across
+runs. Record the 3-run spread. Compute `H/P = cached_pallas_us /
+median_helion_us` against the §1 cached Pallas cell for that shape.
+
+**Periodic full re-baseline — run on the trigger conditions below.**
+Re-measure JAX / Pallas alongside Helion so the cached reference
+numbers don't drift away from reality.
 
 ```bash
 ./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 \
   bash -c 'examples/pallas_perf/benchmark.sh examples/pallas_perf/run_variants.py matmul_jax matmul_pallas matmul_helion > /tmp/results.txt && examples/pallas_perf/filter_best_speedups.py < /tmp/results.txt'
 ```
 
-Run 3 times. Headline = the `bf16 1024×1024×1024` row of each variant
-at its best block (Pallas at `512x512x512`, Helion at its autotuned
-choice). Use the median across runs. Record the 3-run spread.
+Run 3 times; take medians; overwrite the §1 JAX / Pallas cells for
+every measured shape; reset cycle-side `H/P` calculations to the new
+reference. Triggers (any one):
+
+- Headline 3-run spread > 20% on two consecutive Helion-only sweeps
+  (suggests pod-wide noise; check if JAX / Pallas drifted too).
+- The active substep's decision depends on a fresh Pallas / JAX
+  number (e.g., a substep that closes the gap below 5% wants to
+  confirm the reference hasn't moved).
+- Each Deep Replan cycle (Step 8 of `manager.md`).
+- The cached references in §1 are more than ~7 days old.
 
 ### §7.2 Full-matrix sweep
 
@@ -446,10 +483,11 @@ examples/pallas_perf/
       -x -vv
   ```
 
-- **Expected counts** (G0, with the `-k` filter above): **84 passed,
-  0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests). Without
-  the filter, expect **85 passed / 40 failed / 6 xfailed / 0 skipped**
-  on `upstream/main` until §6.1 is resolved.
+- **Expected counts** (current, with the `-k` filter above): **90
+  passed, 0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests).
+  Baseline at G0 was 84 passed; +4 from G1 pin tests, +2 from G2-A pin
+  tests. Without the filter, expect **~91 passed / 40 failed / 6
+  xfailed / 0 skipped** on `upstream/main` until §6.1 is resolved.
 
 ## §9. Generated-code markers
 
