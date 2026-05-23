@@ -63,15 +63,17 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > when last re-baselined (the hand-written Pallas kernel is unusually
 > slow at block 128 on the headline shape, so its best is always block
 > 512). Helion 3-run headline spread was 14.3% in G0, 20.7% in G1,
-> 4.3% in G2-A, 17.3% in G2-E, and 14.7% in this cycle (G2-B) — all
-> under the 20% escalation threshold (the G2-B sweep needed 5 raw runs
-> for the last-3 spread to stay within the threshold; runs 1–3 alone
-> hit 24.7%)._
+> 4.3% in G2-A, 17.3% in G2-E, 14.7% in G2-B, and 6.3% in this cycle
+> (G2-F) — all under the 20% escalation threshold (G2-B sweep needed 5
+> raw runs for the last-3 spread to stay within the threshold; runs 1–3
+> alone hit 24.7%. G2-F similarly needed 6 raw runs — runs 1–3 had
+> spread 32.4% with one 234.6 us outlier; the last 3 sweeps stabilised
+> at 189.1 / 192.1 / 201.2 us, spread 6.3%, median 192.1 us)._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
 | bf16 1024×1024×1                | 131.78   | 160.75      | 267.31      | 0.60x  | 0.49x  | G0     |
-| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **219.12**  | **0.61x** | 0.59x | G2-B-pending |
+| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **192.08**  | **0.70x** | 0.67x | G2-F-pending |
 | bf16 1024×128×1024              | 138.57   | 167.21      | 218.98      | 0.76x  | 0.63x  | G0     |
 | bf16 1024×1×1024                | 140.94   | 167.14      | 175.06      | 0.95x  | 0.81x  | G0     |
 | bf16 128×1024×1024              | 138.30   | 159.13      | 267.95      | 0.59x  | 0.52x  | G0     |
@@ -94,6 +96,102 @@ _(Populated by Deep Replan cycles. Each entry is one paragraph: what was
 tried, exact knob/config, outcome, conclusion. No diary entries — edit
 stale findings in place when they're superseded.)_
 
+### 2.1 The headline gap is split across at least three layers (Deep Replan 2026-05-23)
+
+Probing the bf16 1024³ headline with hand-written Pallas kernels (raw
+``pl.pallas_call`` issued from a standalone script on the pod, no Helion
+launcher in the path) showed the structural gap **is not a single
+binding decision**. Three separable causes account for the H/P =
+0.61x:
+
+(a) **Autotuner is finding a sub-optimal config (~10-15%).** The
+``HELION_AUTOTUNE_EFFORT=full`` search picks
+``block_sizes=[512, 1024, 512]`` with ``pallas_loop_type='unroll'`` and
+``pallas_pre_broadcast=False``. Hand-fixing the same kernel to
+``block_sizes=[512, 512, 512]`` ``pallas_loop_type='unroll'`` is
+consistently faster (median Helion 190 us vs autotuner 224 us across 3
+runs on chip 3, both back-to-back).  The same probe also reveals
+``pallas_pre_broadcast=True`` is the better pick at small blocks
+(matters most at bm=bn=bk=256 where Helion goes from 216 → 199 us)
+but the autotuner kept ``False``. Numerical noise spread is high
+(±10-20%) so the autotuner can mis-rank close configs.
+
+(b) **At Helion's true best config, there is still a ~30% gap to the
+hand-written best.** Helion best (``[512,512,512]`` unroll) ≈ 190 us
+median, hand-written best (``[512,512,512]`` 3-axis grid) ≈ 131 us
+median, H/P = 0.69x. Helion's ``unroll`` lowering emits a
+2-axis outer pallas_call grid ``(grid_m, grid_n)`` with x as ``(bm, k)``
+strip and y as ``(k, bn)`` strip both loaded to outer VMEM per (m,n)
+iteration, then a Python-unrolled K loop inside the kernel does
+``pl.dot(x[:, k_slice], y[k_slice, :])``.  When the autotuner picks
+bn=1024 (the full N dim) the y strip becomes the full 1024×1024 matrix
+(2MB) — reloaded twice (once per outer m-tile).  Hand-written's 3-axis
+grid ``(grid_m, grid_n, grid_k)`` keeps per-(m,n,k) iteration VMEM at
+~2.5MB and lets Mosaic pipeline across the 8 grid iterations.
+
+(c) **For the ``emit_pipeline`` path specifically, Helion's
+generated code is 1.7-2.5x slower than a hand-equivalent emit_pipeline
+kernel issued via raw ``pl.pallas_call``.** Concretely at
+bm=bn=bk=128: Helion-emit_pipeline 526 us vs hand-rewritten
+emit_pipeline mirror 286 us (raw pallas_call probe, both kernels
+structurally identical: 2-axis outer grid, inner ``pltpu.emit_pipeline``
+over K, outer ``pl.BlockSpec(memory_space=pltpu.HBM)`` for x/y). The
+gap shrinks at larger blocks (block 512 is within 5%). However this
+path is only chosen by the autotuner at small blocks; it doesn't
+account for the headline gap directly, but it confirms a Helion
+launcher / codegen overhead exists.  Specifically swapping the outer
+in_specs from HBM-only to ``(bm, k) / (k, bn)`` VMEM strips
+(``pl.BlockSpec((bm, k), lambda i, j: (i, 0))``) inside the same
+emit_pipeline structure cuts the block-128 time from 478 → 249 us
+(1.9x). That is the same recipe Helion's ``unroll`` lowering uses;
+it's only the ``emit_pipeline`` codegen that misses it.
+
+### 2.2 ``dimension_semantics`` is empirically a no-op for matmul (confirmed Deep Replan 2026-05-23)
+
+Two ablations confirm earlier G2-B finding: (1) on a hand-written 3-axis
+grid kernel, flipping K-axis between ``"parallel"`` and ``"arbitrary"``
+changes time by < 1% (130.7 vs 130.0 us at bm=bn=bk=512); (2) on
+Helion's 2-axis outer grid, flipping all combinations
+``(parallel, parallel)``, ``(parallel, arbitrary)``,
+``(arbitrary, parallel)``, ``(arbitrary, arbitrary)`` are all
+within ~3%. The K loop lives in either ``pltpu.emit_pipeline`` (which
+ignores outer ``dimension_semantics`` and runs a serial
+``lax.fori_loop`` with ``num_stages=max_buffer_count`` from
+``pl.Buffered(buffer_count=2)``) or a Python-unrolled loop (no
+scheduling at all), so the marker has nothing to act on.  G2-B's
+infrastructure is correct but the lever is empty for matmul.
+
+### 2.3 ``emit_pipeline`` is a serial ``lax.fori_loop`` with 2-stage DMA double-buffering (Deep Replan 2026-05-23)
+
+Read JAX/Mosaic ``pipeline.py`` source. ``pltpu.emit_pipeline`` lowers
+to a ``lax.fori_loop`` with prologue prefetch + per-iter
+copy_in/wait/body/copy_out/wait scheduler; ``num_stages`` defaults to
+``max_buffer_count``, set by ``pl.Buffered(buffer_count=N)`` on
+the BlockSpec.  Mosaic itself does no cross-iteration compute
+pipelining for emit_pipeline; only DMA is overlapped. The outer
+pallas_call ``CompilerParams(dimension_semantics=...)`` controls only
+the outer grid; it has no effect on ``emit_pipeline``'s inner loop.
+Bumping ``buffer_count`` from 2 → 4 was not measured (TPU was busy
+with autotune; deferred), but the structural ceiling is small.
+
+### 2.4 Autotuner picks for representative shapes (Deep Replan 2026-05-23)
+
+Captured with ``HELION_AUTOTUNE_EFFORT=full`` on chip 3:
+
+| Shape | block_sizes (m, n, k) | loop_orders | pallas_loop_type | pre_broadcast |
+|---|---|---|---|---|
+| bf16 1024×1024×1024 | [512, 1024, 512] | [[1,0]] | unroll | False |
+| bf16 128×1024×1024  | [128, 1024, 256] | [[1,0]] | emit_pipeline | True |
+| bf16 1024×128×1024  | [256, 1024, 128] | [[1,0]] | unroll | True |
+
+Notable: every pick uses ``bn = N`` (the full N dim) — i.e. only one
+outer n-tile.  This wastes VMEM bandwidth on the headline shape (y
+re-load is doubled across 2 outer m-tiles).  The full 14-shape sweep
+was attempted but blew past a 5-minute budget (a single shape's full
+autotune is ~30-90 s; 14 shapes × 2 dtypes × full effort exceeded
+the wall-clock window the deep replan probe could occupy the TPU for
+without disturbing other work).
+
 ## §3. Decision rule — where new choices live
 
 When introducing a new behavior, pick the right axis:
@@ -104,14 +202,27 @@ When introducing a new behavior, pick the right axis:
    error.
 2. **Lowering strategy (named enum).** Changes the shape of generated
    code; strategies do not compose. Examples: `pl.dot` vs
-   `lax.dot_general`; reduction-loop unroll vs `pltpu.emit_pipeline`.
+   `lax.dot_general`; reduction-loop unroll vs `pltpu.emit_pipeline` vs
+   `jax.lax.fori_loop`; **outer-grid shape** (2-axis `(grid_m, grid_n)`
+   with inner K loop vs 3-axis `(grid_m, grid_n, grid_k)` with `pl.when`
+   init/store guards on `program_id(2)`).
 3. **Autotune knob (structured record).** A value within a fixed shape
    that the autotuner can sweep without changing kernel structure.
-   Examples: `block_m/n/k`, `num_stages`, `dimension_semantics` per axis.
+   Examples: `block_m/n/k`, `num_stages`, `dimension_semantics` per axis,
+   `pre_broadcast` toggle.
 
 Decision flow: forced → axis 1; shape-changing → axis 2; value within a
 fixed shape → axis 3. Re-examine boundaries when a knob keeps escaping
 its bin.
+
+**Refinement from Deep Replan 2026-05-23.** ``dimension_semantics`` was
+classified as axis 3 in earlier G2-B work, but measurements show it has
+no effect on matmul perf because the K reduction lives in either
+``pltpu.emit_pipeline`` (which ignores it) or a Python-unrolled loop
+(no scheduling). It remains axis 3 for kernels whose outer grid
+**does** carry a reduction (e.g. an explicit non-rolled K outer loop)
+but the matmul code path will not exercise it until §5 G2-F or a later
+substep restructures matmul into a 3-axis outer grid.
 
 ## §4. Data model
 
@@ -258,19 +369,124 @@ trading block sizes.
   will need updating if a later substep restructures matmul into the
   3-axis grid shape the hand-written reference uses). Headline median
   219.12 us (was 224.26 us); H/P 0.61x (was 0.60x) — within 14.7 %
-  spread, treat as flat. The remaining ~40 % gap is structural: the
-  hand-written reference puts K in the outer ``pl.pallas_call`` grid
-  with ``("parallel","parallel","arbitrary")`` and a 3-arg lambda
-  BlockSpec plus ``pl.when`` init/store guards, whereas Helion's
-  ``hl.tile(k)`` lowers into an inner pipeline grid. A separate probe
-  benched the two structures back-to-back on identical bf16
-  block-128 inputs: emit_pipeline ≈ 458 us, 3-axis ≈ 426 us, ~ 7 %
-  structural gap — confirming structure (not ``dimension_semantics``)
-  is the binding cost. Recommend Deep Replan on whether to land
-  G2-C (block-spec) or pursue the 3-axis restructure.
-- **G2-C — Block-spec layout.** Compare `BlockSpec` ordering, `index_map`,
-  and `memory_space` (VMEM vs ANY) between Helion-generated and
-  hand-written kernels.
+  spread, treat as flat. The remaining ~40 % gap was decomposed by
+  Deep Replan 2026-05-23 (see §2.1): autotuner sub-optimal config
+  ~10-15%, structural Helion-vs-hand-written gap ~30% at each side's
+  best config. Next-cycle substep ordering moved to **G2-F** (autotuner
+  tuning), then **G2-G** (emit_pipeline outer in_specs to VMEM strips),
+  then **G2-H** (3-axis outer grid restructure, deferred).
+- **G2-E — VMEM accumulator residency.** Confirm the f32 accumulator
+  stays in VMEM across the K loop and the K-iteration write-back stays
+  on the VMEM ref (no externalised value-flow per K step). ✅ 2026-05-23
+  (write-back rewrite in `_write_back_loop_carried` matches
+  ``acc = scratch[...] + dot(...)`` / ``scratch[...] = acc`` and fuses
+  into ``scratch[...] += dot(...)`` plus a chain-DCE of the now-dead
+  scratch read/copy intermediates; the inner ``_pipeline_body`` now
+  mirrors the hand-written ``acc_ref[...] += pl.dot(x_val, y_val)``
+  pattern. Headline median 224.26 us (was 236.75 us, +5.3% H/P shift to
+  0.60x). Pin test
+  ``test_pallas_matmul_bf16_inplace_accumulator`` asserts the new
+  marker and locks out a regression to the externalised form.)
+
+#### Remaining substeps (re-ordered by Deep Replan 2026-05-23)
+
+The substeps below are ordered by expected H/P leverage, not by index.
+G2-F is by far the most promising — measurements in §2 show fixing the
+autotuner's pre_broadcast / block-size scoring can recover 10-15%
+headline, the largest single lever available without restructuring the
+outer grid. G2-G targets the next biggest leak (emit_pipeline outer
+VMEM layout). G2-H is the structural restructure that would be needed
+to close the remaining gap; it is the hardest and is deferred until
+F + G land.
+
+- **G2-F — Autotuner: rank stability via final-pick verification.**
+  ✅ 2026-05-23 (added a final-pick verification phase to
+  `PopulationBasedSearch`. After the main search loop finishes (and
+  after `run_finishing_phase`), the top-K population members are
+  rebenchmarked `HELION_AUTOTUNE_FINAL_PICK_PASSES` extra times in
+  interleaved `pl.pallas_call`-pinned passes and re-ranked by the
+  median of per-pass medians; the env knobs default to 3 passes /
+  top-5 candidates with the implementation in
+  `helion/autotuner/base_search.py`
+  (`PopulationBasedSearch.run_final_pick_verification`,
+  `final_pick_settings`). The call site lives in both
+  `helion/autotuner/surrogate_pattern_search.py:LFBOPatternSearch._autotune`
+  and `helion/autotuner/pattern_search.py:PatternSearch._autotune` so
+  every population-based path picks up the phase. Live autotuner
+  output now shows lines like ``Final-pick verification re-picked
+  Config(block_sizes=[512, 1, 1024], ...) over previous best
+  Config(block_sizes=[1024, 1, 1024], ...)`` — the verification fires
+  and re-ranks past noisy initial measurements. For the headline
+  shape, the autotuner now picks ``block_sizes=[512, 512, 512]`` with
+  ``pallas_pre_broadcast=True`` (the config Deep Replan identified as
+  the true best) when the verification fires, instead of the prior
+  noisy ``[512, 1024, 512]`` pick. Headline median 192.08 us (was
+  219.12 us, +12.3% faster, H/P shifted to 0.70x from 0.61x). Pin
+  test ``test_pallas_autotuner_final_pick_picks_true_best_on_noisy_initial_rank``
+  asserts that when initial perf misranks the
+  ``[512, 1024, 512]`` candidate as best, the verification phase
+  re-ranks into the ``[512, 512, 512]`` / ``[256, 256, 256]`` family.
+  Did **not** add a `bn == N` heuristic (option (c) in the original
+  plan); the verification phase alone moved headline past the exit
+  criterion so the surgical heuristic is deferred unless future
+  cycles need more headroom.)
+
+- **G2-G — `emit_pipeline` outer in_specs: VMEM strips instead of
+  HBM refs.** §2.1 (c) showed Helion's `emit_pipeline` codegen forces
+  pipelined tensors to `pl.BlockSpec(memory_space=pltpu.HBM)` at the
+  outer pallas_call level (see
+  `helion/runtime/__init__.py:_pallas_build_pipeline_specs`,
+  `helion/language/_tracing_ops.py:1755` and
+  `_classify_pipelined_tensors`), causing the inner emit_pipeline
+  body to do per-K-iter HBM→VMEM DMA. A hand-written equivalent that
+  routes the outer in_specs through `(bm, k)` and `(k, bn)` VMEM
+  strips cut block-128 time from 478 → 249 us (1.9x) on a raw
+  `pl.pallas_call` probe.  Plan: when the inner-loop graph's
+  candidate tensor (loaded inside `hl.tile(k)`) has only one outer
+  dim varying (m for x, n for y), keep its outer BlockSpec as
+  `(bm, full_k)` / `(full_k, bn)` and let emit_pipeline slice it from
+  VMEM rather than DMA from HBM. The change is local to
+  `_classify_pipelined_tensors` plus the BlockSpec construction in
+  `_codegen_emit_pipeline` and the `_pallas_build_pipeline_specs`
+  helper. Add a generated-code marker that asserts the outer
+  in_specs are NOT `BlockSpec(memory_space=pltpu.HBM)` when the
+  outer-block VMEM footprint estimate fits the chip budget.  Pin test:
+  `test_pallas_matmul_bf16_emit_pipeline_outer_vmem_strip` asserts
+  the new marker for a bf16 matmul with `pallas_loop_type='emit_pipeline'`
+  at `bm = bn = bk = 128`.  Decision rule for when this is profitable:
+  outer VMEM working set ≤ ~10MB on TPU v7 (well within the
+  ~65MB vmem_limit set by `--xla_tpu_scoped_vmem_limit_kib=65536`).
+  Expected H/P delta: a further 5-10% at small-block configs that
+  the autotuner currently rejects because the emit_pipeline path is
+  too slow. At large blocks the autotuner already picks `unroll`
+  (which uses VMEM strips), so this is a small absolute delta on the
+  headline (~5%).
+
+- **G2-H — Restructure matmul into a 3-axis outer grid with `pl.when`
+  init/store guards (DEFERRED).** Matches the hand-written
+  `examples/pallas_perf/matmul_pallas.py` exactly. Outer grid
+  becomes `(grid_m, grid_n, grid_k)` with `dimension_semantics =
+  ("parallel", "parallel", "arbitrary")`; the body uses
+  `pl.when(program_id(2) == 0)` for accumulator init and
+  `pl.when(is_last_k)` for store. Probe (§2.1 b, structural probe #2)
+  showed this matches Helion's current HBM-ref emit_pipeline within
+  ~3% (442 us vs 458 us at bm=bn=bk=128) — it is NOT the binding
+  cost. Defer until G2-F and G2-G land and we measure how much of the
+  gap remains.  When considered, write the cost: this is a deep change
+  in `_codegen_emit_pipeline` / `_codegen_fori_loop` / the host-side
+  launcher because the K loop currently lives in `_codegen_emit_pipeline`
+  and would need to be lifted into the outer-grid generation in
+  `backend.py` instead.  Pin tests would assert the launcher receives
+  a 3-axis grid and that the generated kernel body contains
+  `@pl.when(pl.program_id(2) == 0)` and `@pl.when(... is_last_k)`.
+
+- **G2-C — Block-spec layout (DEMOTED).** Originally drafted as
+  "compare BlockSpec ordering, index_map, and memory_space (VMEM vs
+  ANY) between Helion-generated and hand-written kernels". §2.1 (c)
+  + G2-G subsume the `memory_space` question (HBM ref vs VMEM strip);
+  the rest (ordering, index_map shape) showed no measurable delta in
+  probe #2. Demote to a documentation-only follow-up after G2-F/G/H.
+
 - **G2-D — Time and decide (diagnostic loop).**
 
   Run the headline benchmark (§7.1) and the full bf16 1024³ row pair.
@@ -290,19 +506,6 @@ trading block sizes.
   - **Regression > 5% vs prior cycle** → revert (manager.md Step 4d)
     and restart the same substep.
 
-- **G2-E — VMEM accumulator residency.** Confirm the f32 accumulator
-  stays in VMEM across the K loop and the K-iteration write-back stays
-  on the VMEM ref (no externalised value-flow per K step). ✅ 2026-05-23
-  (write-back rewrite in `_write_back_loop_carried` matches
-  ``acc = scratch[...] + dot(...)`` / ``scratch[...] = acc`` and fuses
-  into ``scratch[...] += dot(...)`` plus a chain-DCE of the now-dead
-  scratch read/copy intermediates; the inner ``_pipeline_body`` now
-  mirrors the hand-written ``acc_ref[...] += pl.dot(x_val, y_val)``
-  pattern. Headline median 224.26 us (was 236.75 us, +5.3% H/P shift to
-  0.60x). Pin test
-  ``test_pallas_matmul_bf16_inplace_accumulator`` asserts the new
-  marker and locks out a regression to the externalised form.)
-
 **History.**
 
 | Date       | Commit       | Headline (us) | H/P   | Alt-block H/P | Substep | Notes |
@@ -310,6 +513,7 @@ trading block sizes.
 | 2026-05-23 | G2-A-pending | 236.75        | 0.57x | 0.57x (same)  | G2-A    | `pl.dot` now fires on bf16 2D tiles; harness reports the autotuned time under both block-suffix labels so alt-block ratio is identical until per-block forced sweeps land. Headline flat (Δ -0.02x vs G1's 0.59x, within 4.3% spread). |
 | 2026-05-23 | G2-E-pending | 224.26        | 0.60x | 0.60x (same)  | G2-E    | Fuse `scratch[...] = acc; acc = scratch[...] + dot(...)` into `scratch[...] += dot(...)` inside `_write_back_loop_carried`; chain-DCE removes the now-dead scratch read/copy intermediates. Inner pipeline body matches the hand-written `acc_ref[...] += pl.dot(...)` pattern; Mosaic still serializes the K loop so this only buys back the per-K bind cost (~5%, +0.03x H/P). G2-B (`dimension_semantics`) and serialisation routing remain the dominant gap. |
 | 2026-05-23 | G2-B-pending | 219.12        | 0.61x | 0.61x (same)  | G2-B    | Threaded reduction-axis info from `_compute_reduction_grid_dims` (backend.py) into both pallas launchers and built `dimension_semantics` per-axis. For matmul the outer grid has no reduction axis, so the marker resolves to the same `("parallel","parallel")` as before; no perf delta vs G2-E (within 14.7% spread). Hand-edit ablations (probe time): outer-grid `dimension_semantics` value is empirically a no-op (~475 us regardless of label), but structurally switching to the hand-written 3-axis grid recovers ~7% (458 → 426 us). Recommend Deep Replan to weigh G2-C block-spec vs the 3-axis restructure. |
+| 2026-05-23 | G2-F-pending | 192.08        | 0.70x | 0.70x (same)  | G2-F    | Added `PopulationBasedSearch.run_final_pick_verification`: after the main search + finishing phase, the top-5 population members are rebenchmarked 3 extra times (configurable via `HELION_AUTOTUNE_FINAL_PICK_PASSES` / `HELION_AUTOTUNE_FINAL_PICK_TOP_K`) and re-ranked by the median of per-pass medians, drowning out the ±10-20% per-call noise that mis-ranked close configs. Headline autotuner picks shifted from `[512, 1024, 512] pre_broadcast=False` (Deep Replan baseline) to `[512, 512, 512] pre_broadcast=True` (Deep Replan-identified true best). Headline median 192.08 us (was 219.12 us, -12.3%, H/P 0.61x → 0.70x). 6-run sweep needed (first 3 had spread 32.4% with a 234.6us outlier); last 3 stable at 189.1 / 192.1 / 201.2 us spread 6.3%. |
 
 ---
 
@@ -408,6 +612,24 @@ _(Each entry: what's deferred, why, explicit re-open criterion.)_
   `git log upstream/main --grep 'aten.sum.dim_IntList'` or
   `--grep 'pre_broadcast'`), drop the `-k` filter from §8 and remove
   this entry.
+
+- **6.2** `pltpu.emit_pipeline` `num_stages` / `pl.Buffered(buffer_count=N)`
+  tuning. JAX/Mosaic `pipeline.py` accepts `pl.Buffered(buffer_count=N)`
+  with `num_stages=max_buffer_count` in the scheduler (default 2). A
+  buffer_count probe to N ∈ {3, 4} was queued but blocked by the TPU
+  being held by the autotuner during Deep Replan 2026-05-23.
+  **Re-open criterion.** Run the buffer_count probe after G2-G lands
+  (i.e. once the emit_pipeline path is on the critical path again);
+  if the bump moves headline by ≥ 3%, promote to an autotune knob.
+  Probe script: `/home/jongsokchoi/helion_2/.deep_replan_buffers_probe.py`
+  (not committed; local working tree only).
+
+- **6.3** Full 14-shape autotuner-pick capture (deferred from Deep
+  Replan 2026-05-23). The full-matrix autotune sweep was bounded out
+  by the 30-min-budget cap; only 3 representative shapes were captured.
+  **Re-open criterion.** When G2-F lands and the autotuner search
+  changes (different objective / repeat count), re-run the 14-shape
+  capture to confirm the new picks aren't worse than the old.
 
 ## §7. Reproduction (fixed-target benchmark configuration)
 
@@ -524,12 +746,12 @@ examples/pallas_perf/
       -x -vv
   ```
 
-- **Expected counts** (current, with the `-k` filter above): **92
+- **Expected counts** (current, with the `-k` filter above): **93
   passed, 0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests).
   Baseline at G0 was 84 passed; +4 from G1 pin tests, +2 from G2-A pin
-  tests, +1 from G2-E, +1 from G2-B. Without the filter, expect
-  **~93 passed / 40 failed / 6 xfailed / 0 skipped** on `upstream/main`
-  until §6.1 is resolved.
+  tests, +1 from G2-E, +1 from G2-B, +1 from G2-F. Without the filter,
+  expect **~94 passed / 40 failed / 6 xfailed / 0 skipped** on
+  `upstream/main` until §6.1 is resolved.
 
 ## §9. Generated-code markers
 
@@ -546,9 +768,12 @@ and `assertIn` / `assertNotIn`.
 | `lax.convert_element_type(...,` *narrow dtype*  | After f32 accumulator on bf16-output kernel           | when output is already f32                    |
 | `dimension_semantics=("parallel", ...)`         | Outer grid axes that are not reduction blocks (all of matmul M/N today; the marker comes out of the launcher call site so it does not appear in `code_and_output` text — verify it via the launcher kwarg below or by instrumenting the runtime) | when an outer-grid axis is a reduction (`_compute_reduction_grid_dims` flags it) |
 | `_reduction_grid_dims=`                          | Host wrapper passes the kwarg only when the outer grid has at least one reduction axis (matmul does not — K lives inside `pltpu.emit_pipeline`); presence flips the launcher's matching grid dim from `"parallel"` to `"arbitrary"` | matmul and other kernels whose outer grid has no reduction axis (kwarg omitted; launcher defaults every outer axis to `"parallel"`) |
-| `pltpu.emit_pipeline(`                          | _(future, after G2-D)_ when pipelined HBM↔VMEM lands  | until then                                    |
+| `pltpu.emit_pipeline(`                          | Inner-pipelined K loop (autotuner pick `pallas_loop_type='emit_pipeline'`); already lands today. The marker is in the device-fn body, not the launcher. | when autotuner picks `unroll` (which Python-unrolls the K loop) or `fori_loop` |
 | `scratch_N[...] += <dot_expr>`                  | Inner `_pipeline_body` accumulator stays on the VMEM ref between K iterations (matches hand-written `acc_ref[...] += pl.dot(...)` pattern) | until G2-E lands or a non-matmul lifecycle bypasses the rewrite (e.g. acc consumed by something other than the write-back) |
 | `scratch_N[...] = <acc_var>[...]` *inside `_pipeline_body`* | externalised acc value-flow per K step (pre-G2-E) — re-introducing this signals the in-place rewrite regressed | once G2-E's fuse is wired through the loop-carried-state write-back |
+| `pl.BlockSpec((bm, k), lambda ...)` or `((None, k), ...)` in launcher outer in_specs *for an `emit_pipeline`-chosen kernel* | _(future, after G2-G)_ outer in_specs route x/y to VMEM strips so the inner emit_pipeline body slices VMEM rather than DMAing per-K HBM | until G2-G — today the launcher always emits `pl.BlockSpec(memory_space=pltpu.HBM)` for tensors in `_pipeline_arg_indices` (see `helion/runtime/__init__.py:_pallas_build_pipeline_specs` line 470-471) |
+| `pl.BlockSpec(memory_space=pltpu.HBM)` *outer in_specs for `emit_pipeline`* | today (pre-G2-G): every pipelined arg gets an HBM ref so emit_pipeline does per-iter DMA | _(future, after G2-G)_ when the outer VMEM working set fits the chip budget |
+| `@pl.when(pl.program_id(2) == 0)` | _(future, after G2-H)_ matmul restructured to 3-axis outer grid; init guard on first K iter | today (pre-G2-H) — matmul's K is in the inner pipeline, init is unconditional before the pipeline |
 
 New strategies must add a row here before landing.
 
@@ -590,3 +815,18 @@ from real incidents, not speculation.
   commit cycle.
 - **Mentioning the plan in commit messages.** Per `manager.md` § Step 6,
   commit messages describe the change, not the plan.
+- **Trusting a single autotuner run as ground truth for what Helion can
+  achieve.** Deep Replan 2026-05-23 showed autotuner picks for the
+  headline shape were 10-15% slower than a hand-fixed
+  `block_sizes=[512, 512, 512]` config. Benchmark noise (±10-20%
+  spread) is large enough to scramble ranking on close configs. Before
+  declaring a structural gap, manually pin a few alternate configs and
+  measure them back-to-back. (See §2.1 (a).)
+- **Comparing kernels through different host launchers.** Probing
+  "Helion-emit_pipeline vs hand-written" via two different launch
+  paths (one via Helion's `_default_pallas_pipeline_launcher`, the
+  other via raw `pl.pallas_call`) mixes launcher overhead with kernel
+  perf. Either rewrite both kernels for raw `pl.pallas_call` and
+  measure, or wrap both through identical Helion plumbing. §2.1 (c)
+  separated structure from launcher by issuing both via raw
+  `pl.pallas_call`.
