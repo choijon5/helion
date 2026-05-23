@@ -941,6 +941,71 @@ class TestPallas(TestCase):
         # No outer-grid axis is a reduction, so the kwarg should be absent.
         self.assertNotIn("_reduction_grid_dims=", code)
 
+    def test_pallas_matmul_bf16_emit_pipeline_outer_vmem_strip(self) -> None:
+        """bf16 1024x1024x1024: emit_pipeline outer in_specs become VMEM strips.
+
+        The hand-written reference kernel in
+        ``examples/pallas_perf/matmul_pallas.py`` does NOT route its
+        pipelined ``x`` / ``y`` operands through ``pl.BlockSpec(
+        memory_space=pltpu.HBM)`` — it keeps them as VMEM strips
+        ``(bm, K)`` / ``(K, bn)`` indexed by the outer grid coordinate, so
+        the inner emit_pipeline slices ``bk``-wide chunks from VMEM
+        instead of DMAing each chunk from HBM per inner iteration.  A Deep
+        Replan pod probe at bf16 block 128 measured a ~1.9x speedup from
+        this single change (478 us → 249 us).
+
+        Helion's previous lowering always forced the HBM ref form via
+        ``_pallas_build_pipeline_specs``.  This pin asserts both halves of
+        the fix:
+
+        * The launcher receives ``_pipeline_vmem_strip_indices=`` so it
+          knows which pipelined args to route to the new strip BlockSpec
+          (the existing ``_pallas_make_block_spec`` already produces
+          ``(bm, K) lambda i, j: (i, 0)`` for the matmul tensors —
+          ``_pallas_build_pipeline_specs`` just stops forcing them to
+          HBM when their id is in this list).
+        * The inner emit_pipeline ``pl.BlockSpec`` lambda uses ``0`` for
+          the outer-grid M / N dim instead of ``_outer_pid_0`` /
+          ``_outer_pid_1``, because the outer ref is now already pre-
+          sliced for the outer-grid coordinate.
+
+        Block sizes ``(128, 128, 128)`` (well inside the
+        ``_OUTER_VMEM_STRIP_BUDGET_BYTES = 10MB`` budget for bf16 1024³)
+        and ``pallas_loop_type='emit_pipeline'`` force the path the
+        marker pins.  A larger block that would push the strip working
+        set past the budget would fall back to the HBM ref form — that
+        guard is intentional and not exercised here.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[128, 128, 128],
+            pallas_loop_type="emit_pipeline",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # Launcher-side: pipelined matmul operands are tagged so the
+        # launcher emits a VMEM strip BlockSpec for them rather than an
+        # HBM ref.
+        self.assertIn("_pipeline_vmem_strip_indices=", code)
+        # Inner emit_pipeline BlockSpec: the outer-grid pid (``_outer_pid_0``
+        # / ``_outer_pid_1``) is replaced by ``0`` for VMEM-strip
+        # operands.  Match strict substrings of the emitted lambdas so a
+        # regression that put the pid back in would fail.  The matmul
+        # pipelines both ``x`` (outer M dim → ``(0, _j)``) and ``y``
+        # (outer N dim → ``(_j, 0)``).
+        self.assertIn("lambda _j: (0, _j)", code)
+        self.assertIn("lambda _j: (_j, 0)", code)
+        # And the outer pid variables stay unused inside the
+        # ``_pipeline_body`` for these strip operands — i.e. they no
+        # longer appear inside the BlockSpec lambdas.
+        self.assertNotIn("lambda _j: (_outer_pid_0,", code)
+        self.assertNotIn("lambda _j: (_outer_pid_1,", code)
+
     def test_pallas_matmul_bmm_stays_on_dot_general(self) -> None:
         """3D BMM stays on ``lax.dot_general`` (``pl.dot`` is 2D-only).
 

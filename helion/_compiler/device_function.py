@@ -335,6 +335,16 @@ class DeviceFunction:
         # Pallas: id(fake_tensor) → {dim: (block_id, extra_pad)} for dims
         # using pl.ds() that may need host-side padding.
         self.pallas_pad_info: dict[int, dict[int, tuple[int, int]]] = {}
+        # Pallas: subset of pipelined tensor ids whose outer pallas_call
+        # BlockSpec should be a VMEM strip ``(outer_block, full_inner)``
+        # instead of an HBM ref.  When a tensor id is in this set AND its
+        # memory_space is ``HBM``, the launcher's
+        # ``_pallas_build_pipeline_specs`` emits a real BlockSpec for the
+        # outer in_spec so emit_pipeline slices from a VMEM ref rather than
+        # DMAing per inner-iter from HBM.  The set stays empty when the
+        # estimated outer strip working set exceeds the strip budget (see
+        # ``_OUTER_VMEM_STRIP_BUDGET_BYTES`` in ``helion/runtime/__init__.py``).
+        self.pallas_pipeline_vmem_strip: set[int] = set()
 
     def allocate_store_index(self) -> int:
         """Bump store counters and return the indexing strategy slot."""

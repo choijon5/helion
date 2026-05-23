@@ -1638,13 +1638,37 @@ def _codegen_emit_pipeline(state: CodegenState) -> object:
             )
             _bid_to_pid_var[pid.block_id] = pid_var
 
+    # Decide which pipelined tensors should keep an outer VMEM-strip
+    # BlockSpec ``(outer_block, full_inner)`` instead of an HBM ref.  The
+    # strip lets the inner ``pltpu.emit_pipeline`` slice from VMEM, which
+    # the Deep Replan pod probe showed cuts per-K HBM DMA cost ~1.9x at
+    # bf16 block 128.  We opt in only when the combined strip working set
+    # of the candidate tensors fits the strip budget (separate from the
+    # ~65 MB vmem capacity check the launcher already enforces) so that
+    # large-block configs don't accidentally OOM the TPU.
+    pipeline_vmem_strip_ids = _select_pipeline_vmem_strip_ids(
+        all_tensor_info,
+        pipelined_tensor_ids,
+        block_ids,
+        _bid_to_pid_var,
+        env,
+        state,
+    )
+
     def _make_block_spec(fake: torch.Tensor, subscript_meta: list[object]) -> str:
         """Build a BlockSpec string for a tensor accessed in the pipeline body.
 
         Encodes BOTH outer grid dims (via pl.program_id) and inner pipeline
         dims into the BlockSpec lambda, so the full HBM tensor can be passed
         without pre-slicing.
+
+        For tensors whose outer pallas_call BlockSpec is a VMEM strip
+        (id in ``pipeline_vmem_strip_ids``), the inner BlockSpec uses
+        ``0`` for outer-grid dims because the outer ref is already
+        pre-sliced for the outer grid coordinate — indexing with the outer
+        pid would go out of bounds in that dim.
         """
+        is_vmem_strip = id(fake) in pipeline_vmem_strip_ids
         dim_to_bid = _get_dim_block_ids(subscript_meta, env)
         shape = fake.shape
         block_shape_parts: list[str] = []
@@ -1678,13 +1702,15 @@ def _codegen_emit_pipeline(state: CodegenState) -> object:
                     )
             elif bid is not None and bid in _bid_to_pid_var:
                 # Outer grid dim -- select via captured program_id variable
+                # (HBM-ref path) or constant 0 when the outer pallas_call
+                # already pre-sliced this dim via a VMEM-strip BlockSpec.
                 pid_var = _bid_to_pid_var[bid]
                 bs_var = state.device_function.block_size_var(bid)
                 if bs_var:
                     block_shape_parts.append(bs_var)
                 else:
                     block_shape_parts.append(str(int(shape[dim_idx])))
-                lambda_parts.append(pid_var)
+                lambda_parts.append("0" if is_vmem_strip else pid_var)
             else:
                 block_shape_parts.append(str(int(shape[dim_idx])))
                 lambda_parts.append("0")
@@ -1754,9 +1780,13 @@ def _codegen_emit_pipeline(state: CodegenState) -> object:
     for fake, _tensor_node, _sub_meta in loaded_tensors.values():
         if id(fake) in pipelined_tensor_ids:
             state.device_function.pallas_memory_space[id(fake)] = PallasMemorySpace.HBM
+            if id(fake) in pipeline_vmem_strip_ids:
+                state.device_function.pallas_pipeline_vmem_strip.add(id(fake))
     for fake, _tensor_node, _sub_meta in stored_tensors.values():
         if id(fake) in pipelined_tensor_ids:
             state.device_function.pallas_memory_space[id(fake)] = PallasMemorySpace.HBM
+            if id(fake) in pipeline_vmem_strip_ids:
+                state.device_function.pallas_pipeline_vmem_strip.add(id(fake))
 
     for key, (fake, _tensor_node, sub_meta) in loaded_tensors.items():
         if key in stored_tensors:
@@ -1980,6 +2010,96 @@ def _compute_vmem_shapes(
                 parts.append(int(fake.shape[dim_idx]))
         vmem_shapes.append(tuple(parts))
     return vmem_shapes
+
+
+def _select_pipeline_vmem_strip_ids(
+    all_tensor_info: list[tuple[torch.Tensor, list[object], str]],
+    pipelined_tensor_ids: set[int],
+    block_ids: list[int],
+    _bid_to_pid_var: dict[int, str],
+    env: CompileEnvironment,
+    state: CodegenState,
+) -> set[int]:
+    """Return pipelined tensor ids whose outer BlockSpec should be a VMEM strip.
+
+    A pipelined tensor is strip-eligible when each of its dimensions is
+    either tiled by the inner pipeline (block_id ∈ ``block_ids`` — kept at
+    full extent in the strip) or by an outer-grid loop (block_id in
+    ``_bid_to_pid_var`` — sliced to the outer block size in the strip).
+    Other dims (no block_id) are kept at full extent.  The strip footprint
+    is the product of those resolved sizes times ``dtype.itemsize``.
+
+    All strip-eligible candidates opt in together when the combined
+    footprint fits ``_OUTER_VMEM_STRIP_BUDGET_BYTES``; otherwise none do
+    and the launcher falls back to HBM refs for every pipelined arg.
+
+    Anything that depends on a still-symbolic shape is rejected — there is
+    no safe way to estimate its strip size at codegen time, and HBM refs
+    are the conservative choice.
+    """
+    from ..runtime import _OUTER_VMEM_STRIP_BUDGET_BYTES
+
+    if not pipelined_tensor_ids:
+        return set()
+
+    candidate_ids: list[int] = []
+    candidate_bytes: list[int] = []
+
+    for fake, sub_meta, _direction in all_tensor_info:
+        if id(fake) not in pipelined_tensor_ids:
+            continue
+        dim_to_bid = _get_dim_block_ids(sub_meta, env)
+        strip_numel = 1
+        has_outer_dim = False
+        ok = True
+        for dim_idx in range(len(fake.shape)):
+            bid = dim_to_bid.get(dim_idx)
+            if bid is not None and bid in block_ids:
+                # Inner pipeline dim — kept at full extent in the strip.
+                size = fake.shape[dim_idx]
+                if not isinstance(size, int):
+                    ok = False
+                    break
+                strip_numel *= size
+            elif bid is not None and bid in _bid_to_pid_var:
+                # Outer-grid dim — strip width = outer block size.
+                resolved = state.device_function.resolved_block_size(bid)
+                if not isinstance(resolved, int):
+                    ok = False
+                    break
+                dim_size = fake.shape[dim_idx]
+                if not isinstance(dim_size, int):
+                    ok = False
+                    break
+                strip_numel *= min(resolved, dim_size)
+                has_outer_dim = True
+            else:
+                size = fake.shape[dim_idx]
+                if not isinstance(size, int):
+                    ok = False
+                    break
+                strip_numel *= size
+        if not ok:
+            # Pessimise: even one unresolved candidate disables the strip
+            # path for the whole pallas_call so we never partially commit
+            # to a strip pattern we can't size-check.
+            return set()
+        if not has_outer_dim:
+            # No outer-grid dim varies for this tensor; a full HBM strip
+            # would just be the whole tensor in VMEM, with no per-grid-iter
+            # reuse benefit.  Skip — keep the existing HBM ref for it.
+            continue
+        candidate_ids.append(id(fake))
+        candidate_bytes.append(strip_numel * fake.element_size())
+
+    if not candidate_ids:
+        return set()
+    # Double-buffered Buffered(buffer_count=2) BlockSpecs are double-VMEM
+    # at runtime; budget the worst-case strip footprint accordingly.
+    total = sum(candidate_bytes) * 2
+    if total > _OUTER_VMEM_STRIP_BUDGET_BYTES:
+        return set()
+    return set(candidate_ids)
 
 
 def _classify_pipelined_tensors(

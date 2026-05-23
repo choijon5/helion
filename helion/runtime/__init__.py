@@ -440,6 +440,17 @@ def _pallas_build_block_specs(
     return in_specs, out_specs
 
 
+# Strip-strategy budget for pipelined tensor outer BlockSpecs.  When the
+# combined outer working-set of strip-candidate tensors fits this budget,
+# the codegen marks them so the launcher emits a VMEM strip BlockSpec
+# (e.g. ``(bm, K)`` for ``x``) instead of an HBM ref; the inner
+# ``pltpu.emit_pipeline`` then slices the strip from VMEM rather than
+# DMAing per inner iteration from HBM.  TPU v7's scoped VMEM limit is
+# ~65 MB but a useful per-kernel working set on top of accumulator
+# scratch / inner buffers is much smaller, so opt in conservatively.
+_OUTER_VMEM_STRIP_BUDGET_BYTES = 10 * 1024 * 1024
+
+
 def _pallas_build_pipeline_specs(
     pl: object,
     jnp: object,
@@ -452,22 +463,32 @@ def _pallas_build_pipeline_specs(
     pipeline_arg_indices: list[int] | None,
     output_only_indices: list[int] | None = None,
     smem_arg_indices: list[int] | None = None,
+    pipeline_vmem_strip_indices: list[int] | None = None,
 ) -> tuple[list[object], object]:
     """Build in/out specs for pipeline launchers.
 
-    Pipeline-body tensors (listed in *pipeline_arg_indices*) get HBM refs.
+    Pipeline-body tensors (listed in *pipeline_arg_indices*) get HBM refs by
+    default; tensors that are *also* in *pipeline_vmem_strip_indices* get
+    real BlockSpecs that tile only the outer-grid dim and keep the inner
+    pipeline dim at its full extent (the "VMEM strip" pattern from the
+    hand-written reference kernel — e.g. ``pl.BlockSpec((bm, K), lambda
+    i, j: (i, 0))`` for ``x`` in a 2-axis outer ``(grid_m, grid_n)`` matmul).
+    The inner ``pltpu.emit_pipeline`` BlockSpec then slices the strip from
+    VMEM rather than DMAing per inner iteration from HBM.
+
     All other tensors get proper BlockSpecs for automatic VMEM prefetch.
     Tensors in *smem_arg_indices* (only ever accessed by scalar index, e.g.
     group offset tables) are placed in SMEM so dynamic scalar reads don't
     require 128-lane alignment proofs against a small VMEM ref.
     """
     pipeline_set = set(pipeline_arg_indices or [])
+    vmem_strip_set = set(pipeline_vmem_strip_indices or [])
     smem_set = set(smem_arg_indices or [])
     all_positions = sorted(set(tensor_arg_indices) | set(output_only_indices or []))
     arg_to_tpos = {orig: tpos for tpos, orig in enumerate(all_positions)}
 
     def _spec_for(idx: int) -> object:
-        if idx in pipeline_set:
+        if idx in pipeline_set and idx not in vmem_strip_set:
             return pl.BlockSpec(memory_space=pltpu.HBM)  # type: ignore[union-attr]
         tpos = arg_to_tpos[idx]
         t = args[idx]
@@ -1047,6 +1068,7 @@ def default_pallas_pipeline_launcher(
     _block_spec_info: _BlockSpecInfo | None = None,
     _scratch_shapes: list[tuple[tuple[int, ...], str]] | None = None,
     _pipeline_arg_indices: list[int] | None = None,
+    _pipeline_vmem_strip_indices: list[int] | None = None,
     _ds_pad_dims: list[tuple[int, int, int, int]] | None = None,
     _smem_arg_indices: list[int] | None = None,
     _reduction_grid_dims: list[int] | None = None,
@@ -1142,6 +1164,7 @@ def default_pallas_pipeline_launcher(
             _pipeline_arg_indices,
             output_only_indices,
             smem_arg_indices=_smem_arg_indices,
+            pipeline_vmem_strip_indices=_pipeline_vmem_strip_indices,
         )
 
         _pipeline_set = set(_pipeline_arg_indices or [])

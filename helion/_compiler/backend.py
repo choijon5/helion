@@ -1964,6 +1964,7 @@ class PallasBackend(Backend):
             # tensors (need HBM refs); all others get proper BlockSpecs.
             from .device_function import TensorArg
 
+            vmem_strip_ids = device_fn.pallas_pipeline_vmem_strip
             if sorted_args is not None:
                 pipeline_arg_indices = [
                     i
@@ -1974,6 +1975,21 @@ class PallasBackend(Backend):
                 if pipeline_arg_indices:
                     launcher_args.append(
                         f"_pipeline_arg_indices={pipeline_arg_indices!r}"
+                    )
+                # Pipelined tensors whose outer working-set fits the strip
+                # budget keep their outer BlockSpec as a VMEM strip (full
+                # inner dim) so emit_pipeline slices VMEM instead of
+                # DMAing per inner iteration from HBM.  See
+                # ``_OUTER_VMEM_STRIP_BUDGET_BYTES`` in
+                # ``helion/runtime/__init__.py``.
+                pipeline_vmem_strip_indices = [
+                    i
+                    for i in pipeline_arg_indices
+                    if id(sorted_args[i].fake_value) in vmem_strip_ids  # type: ignore[attr-defined]
+                ]
+                if pipeline_vmem_strip_indices:
+                    launcher_args.append(
+                        f"_pipeline_vmem_strip_indices={pipeline_vmem_strip_indices!r}"
                     )
 
             reduction_grid_dims = self._compute_reduction_grid_dims()
