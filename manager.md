@@ -149,10 +149,36 @@ git diff --cached --stat
 ```
 
 Scan for unrelated files (caches, logs, profiler dumps, untracked
-artifacts). Ask the subagent to unstage or remove anything that
-shouldn't be committed.
+artifacts, leftover probe scripts). Ask the subagent to unstage or
+remove anything that shouldn't be committed.
 
-Then prompt the same subagent verbatim:
+**Always run autoreview on the staged diff** (mandatory; not optional):
+
+```
+./scripts/autoreview.py
+```
+
+It spawns claude + codex reviewers in parallel; takes a few minutes.
+Two valid execution patterns:
+
+- **Blocking**: run before commit, wait, fold findings into the same
+  commit. Use when the change is small or risky.
+- **Background + next-cycle cleanup**: kick autoreview after staging
+  (`./scripts/autoreview.py --head` against the just-staged or
+  just-committed diff redirected to a temp file), continue to Step 4
+  / 5 / 6 immediately, and have the *next* commit cycle's
+  implementation subagent absorb the autoreview output as a cleanup
+  task (pass `/tmp/autoreview_<slug>.out` in the next Step 1 prompt).
+  Use for larger changes where the cycle shouldn't be gated on LLM
+  review latency.
+
+Either way, **autoreview must complete and its findings must be
+addressed within the next 1–2 cycles**; do not let autoreview output
+accumulate unread across many cycles.
+
+If autoreview finds nothing substantive, note that in the Step 7 log
+line. If it finds simplifications, prompt the same (or next cycle's)
+subagent verbatim:
 
 > Fix the following review feedback, if any feedback is incorrect push back:
 

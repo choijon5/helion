@@ -2050,6 +2050,15 @@ from real incidents, not speculation.
   commit cycle.
 - **Mentioning the plan in commit messages.** Per `manager.md` § Step 6,
   commit messages describe the change, not the plan.
+- **Skipping autoreview per commit cycle.** Cycles G1 through G2-Ndirect
+  (13 commits) ran only `./lint.sh check` and manager-level eyeballing,
+  no `./scripts/autoreview.py`. Lint catches syntax/style/types; it
+  doesn't catch unused branches, over-broad scope, simplification
+  opportunities, or test-coverage gaps that LLM reviewers find.
+  `manager.md` Step 3 now mandates autoreview per cycle (blocking, or
+  background-then-next-cycle-cleanup). Any cycle whose Step 7 log line
+  doesn't reference autoreview's outcome is a procedure violation;
+  autoreview backlog must not span more than 1–2 cycles unaddressed.
 - **Trusting a single autotuner run as ground truth for what Helion can
   achieve.** Deep Replan 2026-05-23 showed autotuner picks for the
   headline shape were 10-15% slower than a hand-fixed
