@@ -1774,6 +1774,64 @@ class PallasBackend(Backend):
 
         return result or None
 
+    def _compute_reduction_grid_dims(self) -> list[int]:
+        """Return the outer-grid axis indices that are reduction axes.
+
+        ``pltpu.CompilerParams(dimension_semantics=...)`` on the outer
+        ``pl.pallas_call`` marks each outer-grid axis as either
+        ``"parallel"`` (Mosaic may freely partition across cores and
+        reorder iterations) or ``"arbitrary"`` (no such freedom).  Reduction
+        axes do carry state across iterations and must be ``"arbitrary"``.
+
+        For typical Helion matmul kernels the user-written ``hl.tile(k)``
+        becomes an inner ``pltpu.emit_pipeline`` / ``jax.lax.fori_loop`` —
+        not an outer grid axis — so this list is empty and the launcher
+        keeps every outer-grid axis ``"parallel"``.  The fallback is in
+        place so any future kernel pattern that does put a reduction in
+        the outer grid (e.g. an explicit non-rolled K outer loop) is
+        labelled correctly.
+        """
+        from .compile_environment import CompileEnvironment
+        from .device_function import DeviceFunction
+        from .host_function import HostFunction
+
+        device_fn = DeviceFunction.current()
+        if device_fn.pid is None:
+            return []
+        env = CompileEnvironment.current()
+
+        # Outer-grid axis index → block_id via pid ordering.  Reduction
+        # block_ids are flagged on BlockSizeInfo (see ``BlockSizeInfo`` in
+        # compile_environment.py — set by ``allocate_reduction_dimension``
+        # for rolled reductions).
+        reduction_dims: list[int] = []
+        for grid_dim, pid in enumerate(device_fn.pid.pid_info):
+            bsi = env.block_sizes[pid.block_id]
+            if bsi.reduction:
+                reduction_dims.append(grid_dim)
+
+        # FlattenedTileStrategy collapses multiple block_ids into one pid;
+        # if any of the flattened block_ids is a reduction the single pid
+        # carries reduction state.  Mark its outer-grid axis accordingly.
+        from .program_id import FlatProgramIDs
+
+        if isinstance(device_fn.pid, FlatProgramIDs):
+            device_ir = HostFunction.current().device_ir
+            flat_bids = {pid.block_id for pid in device_fn.pid.pid_info}
+            for grid_block_ids in device_ir.grid_block_ids:
+                for bid in grid_block_ids:
+                    if bid in flat_bids:
+                        continue
+                    if not env.block_sizes[bid].reduction:
+                        continue
+                    # Find the pid that absorbed this flattened block.
+                    for grid_dim, pid in enumerate(device_fn.pid.pid_info):
+                        if pid.block_id in flat_bids and grid_dim not in reduction_dims:
+                            reduction_dims.append(grid_dim)
+                            break
+
+        return sorted(set(reduction_dims))
+
     def build_launcher_args(
         self,
         args: list[str],
@@ -1917,6 +1975,10 @@ class PallasBackend(Backend):
                     launcher_args.append(
                         f"_pipeline_arg_indices={pipeline_arg_indices!r}"
                     )
+
+            reduction_grid_dims = self._compute_reduction_grid_dims()
+            if reduction_grid_dims:
+                launcher_args.append(f"_reduction_grid_dims={reduction_grid_dims!r}")
 
         if CompileEnvironment.current().settings.pallas_interpret:
             launcher_args.append("_pallas_interpret=True")

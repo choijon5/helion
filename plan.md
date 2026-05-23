@@ -19,8 +19,8 @@ hand-written kernel doesn't tolerate the small block, so we measure
 Pallas at its actual best block instead. The local ground truth is the
 14-row table below.
 
-**Headline gap.** Helion is ~30% slower than hand-written Pallas on
-bf16 1024³ at each variant's best block (H/P = 0.70x median of 3
+**Headline gap.** Helion is ~40% slower than hand-written Pallas on
+bf16 1024³ at each variant's best block (H/P = 0.61x median of 3
 locally-measured runs). Declared structural until G2 closes it.
 
 **Retained seed config.** Helion: `@helion.kernel(backend="pallas",
@@ -63,13 +63,15 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > when last re-baselined (the hand-written Pallas kernel is unusually
 > slow at block 128 on the headline shape, so its best is always block
 > 512). Helion 3-run headline spread was 14.3% in G0, 20.7% in G1,
-> 4.3% in G2-A, and 17.3% in this cycle (G2-E) — all under the 20%
-> escalation threshold._
+> 4.3% in G2-A, 17.3% in G2-E, and 14.7% in this cycle (G2-B) — all
+> under the 20% escalation threshold (the G2-B sweep needed 5 raw runs
+> for the last-3 spread to stay within the threshold; runs 1–3 alone
+> hit 24.7%)._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
 | bf16 1024×1024×1                | 131.78   | 160.75      | 267.31      | 0.60x  | 0.49x  | G0     |
-| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **224.26**  | **0.60x** | 0.57x | G2-E-pending |
+| bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **219.12**  | **0.61x** | 0.59x | G2-B-pending |
 | bf16 1024×128×1024              | 138.57   | 167.21      | 218.98      | 0.76x  | 0.63x  | G0     |
 | bf16 1024×1×1024                | 140.94   | 167.14      | 175.06      | 0.95x  | 0.81x  | G0     |
 | bf16 128×1024×1024              | 138.30   | 159.13      | 267.95      | 0.59x  | 0.52x  | G0     |
@@ -235,10 +237,37 @@ trading block sizes.
   `test_pallas_matmul_bmm_stays_on_dot_general` lock the routing.
   Coverage advanced; headline H/P is flat 0.57x because the dot itself
   was not the binding cost — substeps B/C/E own that.)
-- **G2-B — `dimension_semantics`.** Today every Pallas grid axis is
-  `"parallel"`. Reduction axes (K) should be `"arbitrary"` so the
-  pipeliner doesn't serialize. Diff Helion output vs hand-written
-  `examples/pallas_perf/matmul_pallas.py`.
+- **G2-B — `dimension_semantics`.** ✅ 2026-05-23 (audited and threaded;
+  lever empirically a no-op for matmul perf). Generalised the
+  outer-grid ``CompilerParams(dimension_semantics=...)`` to mark axes
+  per ``_compute_reduction_grid_dims`` — any outer-grid axis whose
+  block_id has ``reduction=True`` lands as ``"arbitrary"`` and the
+  rest stay ``"parallel"``. For Helion matmul the outer grid is
+  ``(grid_m, grid_n)`` and neither M nor N is a reduction, so the
+  marker resolves to ``("parallel", "parallel")`` (unchanged from
+  before). The K loop lives inside ``pltpu.emit_pipeline`` /
+  ``jax.lax.fori_loop`` whose own ``dimension_semantics`` defaults to
+  ``ARBITRARY`` upstream, so it was already correct. Hand-edit ablation
+  on a Helion-shape kernel (probe at G2-B time):
+  ``("parallel","parallel")`` ↔ ``("arbitrary","arbitrary")`` ↔ mixed
+  combinations were all within ~3 % at ~475 us — i.e. no measurable
+  outer-grid ``dimension_semantics`` lever exists in the current
+  emit_pipeline architecture. Pin test:
+  ``test_pallas_matmul_bf16_outer_grid_no_reduction_dim`` asserts the
+  launcher receives no ``_reduction_grid_dims=`` kwarg for matmul (and
+  will need updating if a later substep restructures matmul into the
+  3-axis grid shape the hand-written reference uses). Headline median
+  219.12 us (was 224.26 us); H/P 0.61x (was 0.60x) — within 14.7 %
+  spread, treat as flat. The remaining ~40 % gap is structural: the
+  hand-written reference puts K in the outer ``pl.pallas_call`` grid
+  with ``("parallel","parallel","arbitrary")`` and a 3-arg lambda
+  BlockSpec plus ``pl.when`` init/store guards, whereas Helion's
+  ``hl.tile(k)`` lowers into an inner pipeline grid. A separate probe
+  benched the two structures back-to-back on identical bf16
+  block-128 inputs: emit_pipeline ≈ 458 us, 3-axis ≈ 426 us, ~ 7 %
+  structural gap — confirming structure (not ``dimension_semantics``)
+  is the binding cost. Recommend Deep Replan on whether to land
+  G2-C (block-spec) or pursue the 3-axis restructure.
 - **G2-C — Block-spec layout.** Compare `BlockSpec` ordering, `index_map`,
   and `memory_space` (VMEM vs ANY) between Helion-generated and
   hand-written kernels.
@@ -280,6 +309,7 @@ trading block sizes.
 |------------|--------------|---------------|-------|---------------|---------|-------|
 | 2026-05-23 | G2-A-pending | 236.75        | 0.57x | 0.57x (same)  | G2-A    | `pl.dot` now fires on bf16 2D tiles; harness reports the autotuned time under both block-suffix labels so alt-block ratio is identical until per-block forced sweeps land. Headline flat (Δ -0.02x vs G1's 0.59x, within 4.3% spread). |
 | 2026-05-23 | G2-E-pending | 224.26        | 0.60x | 0.60x (same)  | G2-E    | Fuse `scratch[...] = acc; acc = scratch[...] + dot(...)` into `scratch[...] += dot(...)` inside `_write_back_loop_carried`; chain-DCE removes the now-dead scratch read/copy intermediates. Inner pipeline body matches the hand-written `acc_ref[...] += pl.dot(...)` pattern; Mosaic still serializes the K loop so this only buys back the per-K bind cost (~5%, +0.03x H/P). G2-B (`dimension_semantics`) and serialisation routing remain the dominant gap. |
+| 2026-05-23 | G2-B-pending | 219.12        | 0.61x | 0.61x (same)  | G2-B    | Threaded reduction-axis info from `_compute_reduction_grid_dims` (backend.py) into both pallas launchers and built `dimension_semantics` per-axis. For matmul the outer grid has no reduction axis, so the marker resolves to the same `("parallel","parallel")` as before; no perf delta vs G2-E (within 14.7% spread). Hand-edit ablations (probe time): outer-grid `dimension_semantics` value is empirically a no-op (~475 us regardless of label), but structurally switching to the hand-written 3-axis grid recovers ~7% (458 → 426 us). Recommend Deep Replan to weigh G2-C block-spec vs the 3-axis restructure. |
 
 ---
 
@@ -494,11 +524,12 @@ examples/pallas_perf/
       -x -vv
   ```
 
-- **Expected counts** (current, with the `-k` filter above): **90
+- **Expected counts** (current, with the `-k` filter above): **92
   passed, 0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests).
   Baseline at G0 was 84 passed; +4 from G1 pin tests, +2 from G2-A pin
-  tests. Without the filter, expect **~91 passed / 40 failed / 6
-  xfailed / 0 skipped** on `upstream/main` until §6.1 is resolved.
+  tests, +1 from G2-E, +1 from G2-B. Without the filter, expect
+  **~93 passed / 40 failed / 6 xfailed / 0 skipped** on `upstream/main`
+  until §6.1 is resolved.
 
 ## §9. Generated-code markers
 
@@ -513,7 +544,8 @@ and `assertIn` / `assertNotIn`.
 | `preferred_element_type=jnp.float32`            | `lax.dot_general` fallback with sub-32-bit input      | `pl.dot` path                                |
 | `precision=jax.lax.Precision.HIGHEST`           | `lax.dot_general` with both operands f32 (forces full f32 multiply, no bf16-internal rounding) | bf16/f16/fp8/int8 input — the MXU is already f32-accumulating |
 | `lax.convert_element_type(...,` *narrow dtype*  | After f32 accumulator on bf16-output kernel           | when output is already f32                    |
-| `dimension_semantics=("parallel", ...)`         | All grid axes marked parallel _(today; needs audit)_  | when reduction axes use `"arbitrary"`         |
+| `dimension_semantics=("parallel", ...)`         | Outer grid axes that are not reduction blocks (all of matmul M/N today; the marker comes out of the launcher call site so it does not appear in `code_and_output` text — verify it via the launcher kwarg below or by instrumenting the runtime) | when an outer-grid axis is a reduction (`_compute_reduction_grid_dims` flags it) |
+| `_reduction_grid_dims=`                          | Host wrapper passes the kwarg only when the outer grid has at least one reduction axis (matmul does not — K lives inside `pltpu.emit_pipeline`); presence flips the launcher's matching grid dim from `"parallel"` to `"arbitrary"` | matmul and other kernels whose outer grid has no reduction axis (kwarg omitted; launcher defaults every outer axis to `"parallel"`) |
 | `pltpu.emit_pipeline(`                          | _(future, after G2-D)_ when pipelined HBM↔VMEM lands  | until then                                    |
 | `scratch_N[...] += <dot_expr>`                  | Inner `_pipeline_body` accumulator stays on the VMEM ref between K iterations (matches hand-written `acc_ref[...] += pl.dot(...)` pattern) | until G2-E lands or a non-matmul lifecycle bypasses the rewrite (e.g. acc consumed by something other than the write-back) |
 | `scratch_N[...] = <acc_var>[...]` *inside `_pipeline_body`* | externalised acc value-flow per K step (pre-G2-E) — re-introducing this signals the in-place rewrite regressed | once G2-E's fuse is wired through the loop-carried-state write-back |

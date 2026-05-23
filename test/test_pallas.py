@@ -894,6 +894,53 @@ class TestPallas(TestCase):
         # outside the pipeline body.
         self.assertNotIn("scratch_0[...] = acc_1[...]", code)
 
+    def test_pallas_matmul_bf16_outer_grid_no_reduction_dim(self) -> None:
+        """bf16 1024x1024x1024: outer-grid carries no reduction axis.
+
+        The hand-written reference kernel in
+        ``examples/pallas_perf/matmul_pallas.py`` uses a 3-axis outer grid
+        ``(grid_m, grid_n, grid_k)`` and marks K as ``"arbitrary"``. Helion
+        instead keeps the K reduction inside ``pltpu.emit_pipeline``, so
+        the outer ``pl.pallas_call`` grid only carries M and N — both of
+        which truly are independent and stay ``"parallel"`` (the launcher
+        default). The pin asserts:
+
+        * The host wrapper does not pass
+          ``_reduction_grid_dims=`` to the launcher for this kernel — the
+          codegen helper ``_compute_reduction_grid_dims`` returns an empty
+          list when no outer-grid axis is a reduction (M and N are not
+          ``reduction=True`` block sizes). When the list is empty the
+          ``build_launcher_args`` builder omits the kwarg entirely, and
+          the launcher falls back to marking every outer-grid axis
+          ``"parallel"``.
+
+        If the K loop were ever lifted into the outer grid (a structural
+        refactor toward the hand-written 3-axis pattern), the helper would
+        flag K's grid dim and this assertion would need updating to
+        ``assertIn("_reduction_grid_dims=", code)`` with the K axis index.
+
+        Block sizes are the headline anchor ``(128, 128, 128)`` from
+        ``examples/pallas_perf/matmul_configs.py``. ``pallas_loop_type``
+        is forced to ``"emit_pipeline"`` so the assertion targets the
+        launcher path that the headline benchmark uses; the ``"unroll"``
+        path uses a different launcher that wouldn't carry the kwarg
+        either.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        code, result = code_and_output(
+            pallas_matmul_bf16,
+            (x, y),
+            block_sizes=[128, 128, 128],
+            pallas_loop_type="emit_pipeline",
+        )
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        # No outer-grid axis is a reduction, so the kwarg should be absent.
+        self.assertNotIn("_reduction_grid_dims=", code)
+
     def test_pallas_matmul_bmm_stays_on_dot_general(self) -> None:
         """3D BMM stays on ``lax.dot_general`` (``pl.dot`` is 2D-only).
 
