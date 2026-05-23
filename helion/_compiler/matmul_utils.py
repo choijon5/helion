@@ -139,6 +139,8 @@ def _emit_pallas_matmul(
     need_f32_acc: bool = False,
     out_dtype: torch.dtype | None = None,
     lhs_ndim: int = 2,
+    lhs_dtype: torch.dtype | None = None,
+    rhs_dtype: torch.dtype | None = None,
 ) -> ast.AST:
     """Build a ``lax.dot_general`` AST node for the Pallas backend.
 
@@ -157,6 +159,15 @@ def _emit_pallas_matmul(
         decide whether a cast-back is required.
     lhs_ndim:
         Number of dimensions in the left operand (2 for mm, 3 for bmm).
+    lhs_dtype, rhs_dtype:
+        Operand dtypes. When both are ``torch.float32`` the emitted
+        ``lax.dot_general`` carries ``precision=jax.lax.Precision.HIGHEST``
+        so the TPU MXU multiplies in full f32 instead of falling back to
+        its default bf16-internal accumulation, which costs ~1e-2 of
+        absolute error on K=1024 matmuls. The two arguments default to
+        ``None`` for callers that do not yet thread dtypes through; in
+        that case the precision keyword is omitted and JAX's default
+        applies.
     """
     if lhs_ndim == 3:
         dim_numbers = "(((2,), (1,)), ((0,), (0,)))"
@@ -165,18 +176,16 @@ def _emit_pallas_matmul(
     else:
         raise ValueError(f"lhs_ndim must be 2 or 3, got {lhs_ndim}")
 
+    kwargs = [f"dimension_numbers={dim_numbers}"]
     if need_f32_acc:
-        dot_expr = expr_from_string(
-            f"lax.dot_general({{lhs}}, {{rhs}}, dimension_numbers={dim_numbers}, preferred_element_type=jnp.float32)",
-            lhs=lhs,
-            rhs=rhs,
-        )
-    else:
-        dot_expr = expr_from_string(
-            f"lax.dot_general({{lhs}}, {{rhs}}, dimension_numbers={dim_numbers})",
-            lhs=lhs,
-            rhs=rhs,
-        )
+        kwargs.append("preferred_element_type=jnp.float32")
+    if lhs_dtype == torch.float32 and rhs_dtype == torch.float32:
+        kwargs.append("precision=jax.lax.Precision.HIGHEST")
+    dot_expr = expr_from_string(
+        f"lax.dot_general({{lhs}}, {{rhs}}, {', '.join(kwargs)})",
+        lhs=lhs,
+        rhs=rhs,
+    )
 
     if acc is not None:
         dot_expr = expr_from_string("{acc} + {dot}", acc=acc, dot=dot_expr)

@@ -58,9 +58,13 @@ def run_helion_benchmarks() -> None:
             torch.manual_seed(1)
             y = torch.randn((k, n), dtype=dtype, device=DEVICE)
 
-            # Baseline reference computed in float32 for higher precision
-            # accumulation.
-            expected = (x.float() @ y.float()).cpu().numpy()
+            # Baseline reference computed on CPU in float32. Doing the
+            # matmul on the TPU/GPU device would silently fall back to
+            # bf16-internal multiplication for f32 inputs (TPU default
+            # precision), which is exactly what the high-precision
+            # Helion path now avoids — comparing against a TPU-default
+            # expected would penalize the more-accurate Helion result.
+            expected = (x.cpu().float() @ y.cpu().float()).numpy()
 
             # Hoist the autotuning search outside the block configs loop so we
             # don't pay it twice per shape.

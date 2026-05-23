@@ -121,8 +121,15 @@ trap cleanup EXIT
 
 # Commands run inside the pod after sync. tar -xf - consumes stdin
 # until EOF, then bash continues to source the venv and run the cmd.
-RUN_CMD="cd '${POD_PATH}' && source '${VENV_ACTIVATE}' && ${env_exports} ${quoted_cmd}"
-SYNC_RUN_CMD="cd '${POD_PATH}' && tar -xf - && source '${VENV_ACTIVATE}' && ${env_exports} ${quoted_cmd}"
+#
+# PYTHONPATH override: the pre-built venv has a stale `.pth` pointing at
+# `/mnt/hyperdisk/helion`, so `import helion` from any script whose
+# directory differs from POD_PATH (e.g. `examples/pallas_perf/*.py`)
+# would silently load the old tree. Prepending POD_PATH guarantees the
+# synced helion_2 source wins.
+PYPATH_PREFIX="export PYTHONPATH='${POD_PATH}'\${PYTHONPATH:+:\$PYTHONPATH}; "
+RUN_CMD="cd '${POD_PATH}' && source '${VENV_ACTIVATE}' && ${PYPATH_PREFIX}${env_exports} ${quoted_cmd}"
+SYNC_RUN_CMD="cd '${POD_PATH}' && tar -xf - && source '${VENV_ACTIVATE}' && ${PYPATH_PREFIX}${env_exports} ${quoted_cmd}"
 
 case "${sync_mode}" in
     none)

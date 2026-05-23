@@ -99,6 +99,27 @@ def pallas_matmul_broadcast_bias(
 
 
 @helion.kernel(backend="pallas", static_shapes=True)
+def pallas_matmul_f32(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """f32 matmul kernel mirroring the perf harness's helion variant.
+
+    Used by the pin tests for the degenerate shape families (M=1, N=1,
+    K=1, and combinations). On TPU the default ``lax.dot_general`` for
+    f32 inputs falls back to bf16-internal multiplication; the Pallas
+    lowering must request ``precision=jax.lax.Precision.HIGHEST`` so the
+    MXU does full f32 multiplications.
+    """
+    m, k = x.size()
+    _, n = y.size()
+    out = torch.empty([m, n], device=x.device, dtype=torch.float32)
+    for tile_m, tile_n in hl.tile([m, n]):
+        acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+        for tile_k in hl.tile(k):
+            acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+        out[tile_m, tile_n] = acc
+    return out
+
+
+@helion.kernel(backend="pallas", static_shapes=True)
 def pallas_bmm(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
     b, m, k = A.size()
     b, k, n = B.size()
@@ -775,6 +796,76 @@ class TestPallas(TestCase):
         torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
         # The bias block_spec_info must have None for dim 0 (not a grid index).
         self.assertIn("(None, 1)", code)
+
+    def test_pallas_matmul_f32_singleton_n(self) -> None:
+        """f32 1024x1024x1: N=1 (matrix x column vector).
+
+        The default ``lax.dot_general`` on TPU silently downcasts f32
+        operands to bf16 for the multiplication step. Without
+        ``precision=jax.lax.Precision.HIGHEST`` the K=1024 reduction
+        accumulates bf16-rounded products and the result drifts ~1e-1
+        absolute. The pin asserts both the numeric fix and the marker
+        in the generated code so it can't silently regress.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1024, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1, device=DEVICE, dtype=torch.float32)
+        code, result = code_and_output(
+            pallas_matmul_f32, (x, y), block_sizes=[128, 1, 128]
+        )
+        expected = x @ y
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+        self.assertIn("lax.dot_general(", code)
+        self.assertIn("precision=jax.lax.Precision.HIGHEST", code)
+
+    def test_pallas_matmul_f32_singleton_k(self) -> None:
+        """f32 1024x1x1024: K=1 (outer product).
+
+        The K-block is forced to 1 so the reduction is a single
+        ``lax.dot_general`` call. Even though K=1 there is only one
+        multiply per cell, TPU's default precision still rounds the
+        intermediate to bf16, leaking error into f32 output.
+        """
+        torch.manual_seed(0)
+        x = torch.randn(1024, 1, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.randn(1, 1024, device=DEVICE, dtype=torch.float32)
+        code, result = code_and_output(
+            pallas_matmul_f32, (x, y), block_sizes=[128, 128, 1]
+        )
+        expected = x @ y
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+        self.assertIn("lax.dot_general(", code)
+        self.assertIn("precision=jax.lax.Precision.HIGHEST", code)
+
+    def test_pallas_matmul_f32_singleton_m(self) -> None:
+        """f32 1x1024x1024: M=1 (vector x matrix)."""
+        torch.manual_seed(0)
+        x = torch.randn(1, 1024, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.randn(1024, 1024, device=DEVICE, dtype=torch.float32)
+        code, result = code_and_output(
+            pallas_matmul_f32, (x, y), block_sizes=[1, 128, 128]
+        )
+        expected = x @ y
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+        self.assertIn("lax.dot_general(", code)
+        self.assertIn("precision=jax.lax.Precision.HIGHEST", code)
+
+    def test_pallas_matmul_f32_scalar_vector(self) -> None:
+        """f32 1x1x1024: scalar broadcast through dot_general."""
+        torch.manual_seed(0)
+        x = torch.randn(1, 1, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.randn(1, 1024, device=DEVICE, dtype=torch.float32)
+        code, result = code_and_output(
+            pallas_matmul_f32, (x, y), block_sizes=[1, 128, 1]
+        )
+        expected = x @ y
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+        self.assertIn("lax.dot_general(", code)
+        self.assertIn("precision=jax.lax.Precision.HIGHEST", code)
 
     def test_bmm(self) -> None:
         """Test BMM with default config — exercises size_matches fix.
