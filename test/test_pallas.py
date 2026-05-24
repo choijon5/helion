@@ -1561,6 +1561,155 @@ class TestPallas(TestCase):
             "Skinny shape must not receive the [512, 512, 512] seed.",
         )
 
+    def test_pallas_matmul_bf16_skinny_n_seed_in_initial_population(self) -> None:
+        """Compiler seeds the skinny-N (``N == 1``) winner into the initial population.
+
+        Cycle-17 G3-A-pin ablation identified ``unroll [1024, 1024, 1]
+        pb=True`` as the per-shape best for bf16 ``1024×1024×1``
+        (single-sweep H/P 1.042 at the pinned config). Under the
+        real-user seeded-autotuner metric (cycle-18 methodology) the
+        autotuner instead consistently lands on smaller-M / smaller-K
+        ``unroll`` variants and ends up median 0.990 -- just below the
+        1.00 bar.
+
+        ``PallasMatmulSkinnyNSeedHeuristic`` plants the per-shape winner
+        in the initial population so the search no longer has to
+        rediscover it by mutation. Pin asserts: (1) the heuristic is
+        eligible for bf16 1024×1024×1; (2) ``compiler_seed_configs``
+        includes the ``[1024, 1024, 1] unroll pb=True`` entry; (3) the
+        non-targeted square ``1024×1024×1024`` shape (which has its own
+        seed via ``PallasMatmulSquareSeedHeuristic``) is NOT eligible
+        for this heuristic.
+        """
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulSkinnyNSeedHeuristic,
+        )
+
+        torch.manual_seed(0)
+        x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.empty(1024, 1, device=DEVICE, dtype=torch.bfloat16)
+        bound = pallas_matmul_bf16.bind((x, y))
+
+        self.assertTrue(
+            PallasMatmulSkinnyNSeedHeuristic.is_eligible(
+                bound.env, bound.host_function.device_ir
+            ),
+            "Heuristic must fire on bf16 1024×1024×1 (N=1, M & K >= 256).",
+        )
+        self.assertIn(
+            PallasMatmulSkinnyNSeedHeuristic.name,
+            bound.config_spec.autotuner_heuristics,
+            "Heuristic name must be recorded so the seed is attributable.",
+        )
+        seed_blocks = (1024, 1024, 1)
+        seeded = [
+            (
+                tuple(cfg.config.get("block_sizes", ())),
+                cfg.config.get("pallas_loop_type"),
+                cfg.config.get("pallas_pre_broadcast"),
+            )
+            for cfg in bound.config_spec.compiler_seed_configs
+        ]
+        self.assertIn(
+            (seed_blocks, "unroll", True),
+            seeded,
+            "Compiler seed configs must include the skinny-N winner "
+            "[1024, 1024, 1] unroll pb=True entry.",
+        )
+
+        # Square headline shape stays with its own heuristic, not this one.
+        square_x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        square_y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        square_bound = pallas_matmul_bf16.bind((square_x, square_y))
+        self.assertFalse(
+            PallasMatmulSkinnyNSeedHeuristic.is_eligible(
+                square_bound.env, square_bound.host_function.device_ir
+            ),
+            "Skinny-N heuristic must refuse the square 1024×1024×1024 shape; "
+            "PallasMatmulSquareSeedHeuristic owns that family.",
+        )
+
+    def test_pallas_matmul_bf16_tall_m_seed_in_initial_population(self) -> None:
+        """Compiler seeds the tall-M (``M`` small, ``K``/``N`` large) winner.
+
+        Cycle-17 G3-A-pin ablation identified ``unroll [128, 1024, 1024]
+        pb=True`` as the per-shape best for bf16 ``128×1024×1024``
+        (single-sweep H/P 1.021 at the pinned config). Under the
+        real-user seeded-autotuner metric the autotuner instead picks
+        ``emit_pipeline`` with smaller K/N blocks and lands median 0.992
+        -- just below the 1.00 bar.
+
+        ``PallasMatmulTallMSeedHeuristic`` plants the per-shape winner
+        in the initial population so the search reliably reaches the
+        per-shape best. Pin asserts: (1) the heuristic is eligible for
+        bf16 128×1024×1024; (2) ``compiler_seed_configs`` includes the
+        ``[128, 1024, 1024] unroll pb=True`` entry; (3) the square
+        headline shape (M=1024) and the skinny-N shape (N=1) are NOT
+        eligible -- the tall-M predicate is shape-bounded so it doesn't
+        overreach.
+        """
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulTallMSeedHeuristic,
+        )
+
+        torch.manual_seed(0)
+        x = torch.empty(128, 1024, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        bound = pallas_matmul_bf16.bind((x, y))
+
+        self.assertTrue(
+            PallasMatmulTallMSeedHeuristic.is_eligible(
+                bound.env, bound.host_function.device_ir
+            ),
+            "Heuristic must fire on bf16 128×1024×1024 (M=128, K & N >= 512).",
+        )
+        self.assertIn(
+            PallasMatmulTallMSeedHeuristic.name,
+            bound.config_spec.autotuner_heuristics,
+            "Heuristic name must be recorded so the seed is attributable.",
+        )
+        seed_blocks = (128, 1024, 1024)
+        seeded = [
+            (
+                tuple(cfg.config.get("block_sizes", ())),
+                cfg.config.get("pallas_loop_type"),
+                cfg.config.get("pallas_pre_broadcast"),
+            )
+            for cfg in bound.config_spec.compiler_seed_configs
+        ]
+        self.assertIn(
+            (seed_blocks, "unroll", True),
+            seeded,
+            "Compiler seed configs must include the tall-M winner "
+            "[128, 1024, 1024] unroll pb=True entry.",
+        )
+
+        # Square headline shape (M=1024) is too large for the tall-M predicate.
+        square_x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        square_y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        square_bound = pallas_matmul_bf16.bind((square_x, square_y))
+        self.assertFalse(
+            PallasMatmulTallMSeedHeuristic.is_eligible(
+                square_bound.env, square_bound.host_function.device_ir
+            ),
+            "Tall-M heuristic must refuse the square 1024×1024×1024 shape; "
+            "PallasMatmulSquareSeedHeuristic owns that family.",
+        )
+
+        # Skinny-N shape (N=1) is below the tall-M K/N floor.
+        skinny_x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        skinny_y = torch.empty(1024, 1, device=DEVICE, dtype=torch.bfloat16)
+        skinny_bound = pallas_matmul_bf16.bind((skinny_x, skinny_y))
+        self.assertFalse(
+            PallasMatmulTallMSeedHeuristic.is_eligible(
+                skinny_bound.env, skinny_bound.host_function.device_ir
+            ),
+            "Tall-M heuristic must refuse the skinny-N 1024×1024×1 shape; "
+            "PallasMatmulSkinnyNSeedHeuristic owns that family.",
+        )
+
     def test_pallas_autotuner_compiler_seed_survives_final_pick(self) -> None:
         """Compiler-seeded members are re-considered during final-pick verification.
 
