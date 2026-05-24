@@ -1,4 +1,4 @@
-"""Single-shape headline measurements for the bf16 1024x1024x1024 matmul.
+"""Single-shape headline measurements for bf16 matmul (default 1024x1024x1024).
 
 Emits two complementary metrics in one run (G2-closure dual-metric setup,
 per the manager's cycle-15 decision):
@@ -13,12 +13,18 @@ per the manager's cycle-15 decision):
    Pallas kernel pulled out of the launcher cache and invoked through
    ``jax.jit(pl.pallas_call(...))`` with JAX arrays, identical to how
    the hand-written Pallas reference is invoked. Isolates the kernel
-   body from launcher / torch_tpu dispatch overhead. The kernel-only
-   measurement uses a **pinned** config (``emit_pipeline [512, 512, 512]
-   pb=False`` -- the known-best per Deep Replan §2.5 row 2, 161 us
-   full-path / ~126us kernel-only) so the per-sweep signal is
-   deterministic (autotuner-pick variance is the dominant noise source
-   for kernel-only timing -- see plan.md §2.9 (h)).
+   body from launcher / torch_tpu dispatch overhead. For the default
+   bf16 1024^3 headline shape the kernel-only measurement uses a
+   **pinned** config (``emit_pipeline [512, 512, 512] pb=False`` -- the
+   known-best per Deep Replan §2.5 row 2, 161 us full-path / ~126us
+   kernel-only) so the per-sweep signal is deterministic
+   (autotuner-pick variance is the dominant noise source for
+   kernel-only timing on the headline -- see plan.md §2.9 (h)).  For
+   other shapes (passed via ``--shape M K N``) the kernel-only path
+   reuses the autotuner's full-path pick: we don't have per-shape
+   pin candidates ablated yet, so picking the autotuner choice gives
+   an apples-to-apples kernel-vs-kernel comparison without
+   speculative per-shape pinning.
 
 The kernel-only path is built by patching ``helion.runtime._pallas_build_callable``
 to stash the JAX ``jit_fn`` argument (``pl.pallas_call(...)``) right
@@ -29,12 +35,19 @@ into a binary blob bound to ``call_custom_kernel``). The captured
 construction site, and we time it directly with JAX inputs -- identical
 to the way the hand-written ``pallas_matmul`` reference is called.
 
+CLI:
+
+```
+python measure_headline.py                    # default bf16 1024x1024x1024
+python measure_headline.py --shape 1024 128 1024
+```
+
 Output (parseable lines, one per metric):
 
 ```
-helion_full_path_bf16_1024x1024x1024 [autotuner pick: <config>]: median=<us> us
-helion_kernel_only_bf16_1024x1024x1024 [pinned: emit_pipeline 512 pb=False]: median=<us> us
-pallas_kernel_only_bf16_1024x1024x1024: median=<us> us
+helion_full_path_bf16_<M>x<K>x<N> [autotuner pick: <config>]: median=<us> us
+helion_kernel_only_bf16_<M>x<K>x<N> [<pin label>]: median=<us> us
+pallas_kernel_only_bf16_<M>x<K>x<N>: median=<us> us
 full_path_H_over_P: <ratio>
 kernel_only_H_over_P: <ratio>
 launcher_overhead_us: <helion_full - helion_kernel_only> us
@@ -50,6 +63,7 @@ x 5 repeats, warmup excluded, ``synchronize_device`` (or
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import timeit
@@ -74,18 +88,24 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from matmul_helion import helion_matmul_kernel  # pyrefly: ignore [missing-import]
 from matmul_pallas import pallas_matmul  # pyrefly: ignore [missing-import]
 
-# Pinned config for the kernel-only measurement -- the Deep Replan §2.5
-# row 2 known-best ``emit_pipeline [512, 512, 512] pb=False`` family
-# (161us full-path / ~126us kernel-only on bf16 1024^3 at HEAD).
-# Kernel-only timing is deterministic at this config (no autotuner picks
-# leaking into the per-sweep signal), unlike the full-path measurement
-# which still goes through the autotuner per plan.md §7.1.
-_PINNED_KERNEL_ONLY_CONFIG = helion.Config(
+# Default (headline) shape for back-compat with the legacy single-shape probe.
+_DEFAULT_SHAPE: tuple[int, int, int] = (1024, 1024, 1024)
+
+# Pinned config for the kernel-only measurement at the bf16 1024^3 headline
+# only -- the Deep Replan §2.5 row 2 known-best ``emit_pipeline [512, 512,
+# 512] pb=False`` family (161us full-path / ~126us kernel-only). Kernel-only
+# timing is deterministic at this config (no autotuner picks leaking into
+# the per-sweep signal), unlike the full-path measurement which still goes
+# through the autotuner per plan.md §7.1. Non-headline shapes don't have
+# per-shape pin candidates yet, so they fall back to the autotuner's
+# full-path pick for kernel-only too (see ``_resolve_kernel_only_config``
+# below).
+_PINNED_HEADLINE_KERNEL_ONLY_CONFIG = helion.Config(
     block_sizes=[512, 512, 512],
     pallas_loop_type="emit_pipeline",
     pallas_pre_broadcast=False,
 )
-_PINNED_KERNEL_ONLY_LABEL = "emit_pipeline [512, 512, 512] pb=False"
+_PINNED_HEADLINE_KERNEL_ONLY_LABEL = "pinned: emit_pipeline [512, 512, 512] pb=False"
 
 # Module-level slot populated by ``_install_jit_fn_capture`` whenever
 # Helion's runtime calls ``_pallas_build_callable``. After Helion finishes
@@ -166,8 +186,54 @@ def _time(fn: Callable[[], object], n_iter: int = 20, n_repeats: int = 5) -> flo
     return float(np.median(samples)) * 1e6
 
 
-def main() -> None:
-    m, k, n = 1024, 1024, 1024
+def _resolve_kernel_only_config(
+    shape: tuple[int, int, int],
+    autotuned_config: helion.Config,
+) -> tuple[helion.Config | None, str]:
+    """Pick the kernel-only Helion config for ``shape``.
+
+    For the bf16 1024^3 headline (G2 closure shape) we pin to the Deep
+    Replan §2.5 row 2 known-best ``emit_pipeline [512, 512, 512] pb=False``
+    to keep the gating signal deterministic; non-headline shapes don't have
+    per-shape pin candidates yet, so they reuse the autotuner's full-path
+    pick for the kernel-only timing too -- still apples-to-apples vs the
+    hand-written Pallas reference at its own best block.
+
+    Returns ``(config_to_recompile, label)``. When ``config_to_recompile``
+    is ``None``, the caller should reuse the already-captured full-path
+    autotuner ``jit_fn``; otherwise the caller should ``compile_config``
+    the returned config to trigger a fresh ``_pallas_build_callable``
+    capture.
+    """
+    if shape == _DEFAULT_SHAPE:
+        return _PINNED_HEADLINE_KERNEL_ONLY_CONFIG, _PINNED_HEADLINE_KERNEL_ONLY_LABEL
+    return None, f"autotuner pick: {autotuned_config}"
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Measure Helion (full-path + kernel-only) vs hand-written Pallas "
+            "for a single bf16 matmul shape. Defaults to the bf16 1024x1024x1024 "
+            "headline."
+        )
+    )
+    parser.add_argument(
+        "--shape",
+        nargs=3,
+        type=int,
+        metavar=("M", "K", "N"),
+        default=list(_DEFAULT_SHAPE),
+        help="Matmul shape as three ints: M K N (default: 1024 1024 1024).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv if argv is not None else sys.argv[1:])
+    m, k, n = args.shape
+    shape: tuple[int, int, int] = (m, k, n)
+
     torch.manual_seed(0)
     x_torch = torch.randn((m, k), dtype=torch.bfloat16, device=DEVICE)
     torch.manual_seed(1)
@@ -178,7 +244,7 @@ def main() -> None:
     _install_jit_fn_capture()
 
     # ----- Helion full-path: bind + autotune + compile + run (production path).
-    # Same ``bound`` instance is reused for the pinned compile_config below
+    # Same ``bound`` instance is reused for any pinned compile_config below
     # (the Helion compile cache keys on Config equality so the two compiles
     # produce different cache entries -- and therefore different
     # ``_pallas_build_callable`` invocations + captures).
@@ -199,21 +265,33 @@ def main() -> None:
         f"[autotuner pick: {best_config}]: median={helion_full_us:.2f} us"
     )
 
+    # Snapshot the autotuner-picked ``jit_fn`` (captured during the
+    # ``compile_config(best_config)`` above) before any further
+    # ``compile_config`` calls overwrite the module-level slot. Non-headline
+    # shapes time the kernel-only metric against this snapshot.
+    autotuned_jit_fn = _find_helion_jit_fn()
+
     # ----- Helion kernel-only: compile the pinned config explicitly so the
     # capture patch records a deterministic, known-best kernel jit_fn rather
     # than whatever the autotuner happened to pick this run (the autotuner
     # optimises *full-path* time, which is not necessarily optimal for the
     # kernel-only signal; per-sweep autotuner-pick variance is the dominant
     # source of kernel-only timing noise -- see plan.md §2.9 (h)).
-    pinned_compiled_fn = bound.compile_config(
-        _PINNED_KERNEL_ONLY_CONFIG, allow_print=False
+    kernel_only_config, kernel_only_label = _resolve_kernel_only_config(
+        shape, best_config
     )
-    # The pinned compile_config caches a fresh pallas_kernel; running it
-    # once triggers ``_pallas_build_callable`` and the capture patch
-    # records the pinned config's ``jit_fn`` as the most-recent capture.
-    pinned_compiled_fn(x_torch, y_torch)
-    synchronize_device(x_torch)
-    jit_fn = _find_helion_jit_fn()
+    if kernel_only_config is not None:
+        pinned_compiled_fn = bound.compile_config(kernel_only_config, allow_print=False)
+        # The pinned compile_config caches a fresh pallas_kernel; running it
+        # once triggers ``_pallas_build_callable`` and the capture patch
+        # records the pinned config's ``jit_fn`` as the most-recent capture.
+        pinned_compiled_fn(x_torch, y_torch)
+        synchronize_device(x_torch)
+        jit_fn = _find_helion_jit_fn()
+    else:
+        # No pin candidate for this shape; reuse the autotuner-picked
+        # ``jit_fn`` captured above.
+        jit_fn = autotuned_jit_fn
 
     # The cached pallas_call's input refs are ordered as
     # ``[tensor_inputs..., output_only_refs...]``; Helion's matmul has no
@@ -235,15 +313,16 @@ def main() -> None:
     helion_kernel_us = _time(_run_helion_kernel_only)
     print(
         f"helion_kernel_only_bf16_{m}x{k}x{n} "
-        f"[pinned: {_PINNED_KERNEL_ONLY_LABEL}]: median={helion_kernel_us:.2f} us"
+        f"[{kernel_only_label}]: median={helion_kernel_us:.2f} us"
     )
 
     # ----- Pallas reference kernel-only: hand-written ``pallas_matmul`` via
     # the same pure-JAX path. ``pallas_matmul`` is already ``@jax.jit``
     # (``static_argnames=["bm", "bk", "bn"]``), so calling it directly is
     # apples-to-apples with Helion's cached ``jax.jit(pl.pallas_call(...))``.
-    # Use bm=bn=bk=512 (the Pallas reference's best block for the headline
-    # shape, per §1).
+    # ``pallas_matmul`` clamps each block to ``min(dim, requested_block)``,
+    # so passing 512 across the board gives the hand-written best block for
+    # the headline shape and the natural cap for skinny / shallow shapes.
     def _run_pallas_kernel_only() -> None:
         out = pallas_matmul(x_jax, y_jax, bm=512, bk=512, bn=512)
         jax.block_until_ready(out)

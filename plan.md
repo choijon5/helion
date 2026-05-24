@@ -91,7 +91,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-23 (post-Deep-Replan-4) — measurements on the `jongsokchoi-torchtpu` pod,
+> _As of: 2026-05-23 (G3-A cycle 16) — measurements on the `jongsokchoi-torchtpu` pod,
 > chip 3, `TPU_VISIBLE_CHIPS=3`. JAX / Pallas cells are the cached
 > reference numbers from the last full-matrix sweep (G1); they are
 > re-measured only when a substep needs it or once per Deep Replan
@@ -162,15 +162,28 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > within the documented G2-M autotuner-pick noise band of
 > 162–183 us, so the per-cycle single-call signal masks the
 > structural win at this measurement granularity (DR#5 §2.9 (e):
-> 5–10 us per-call estimated savings)._
+> 5–10 us per-call estimated savings). **G3-A 2026-05-23**: the
+> 3 square-ish bf16 shapes (``1024×1024×1``, ``1024×128×1024``,
+> ``128×1024×1024``) were measured via ``measure_headline.py
+> --shape M K N`` × 3 sweeps each. For G3+ rows the table reports
+> the kernel-only metric (gating since G2 closure): the
+> **Helion (us)** cell is the median of per-sweep kernel-only us;
+> the **Pallas (us)** cell is the median of per-sweep Pallas
+> kernel-only us; the **H/P** cell is the median of per-sweep
+> kernel-only H/P ratios. The full-path us + full-path H/P +
+> launcher overhead are tracked alongside in §5 G3 history
+> rather than the §1 table. The headline row stays in its
+> historical full-path format (Helion = full-path us, H/P =
+> full-path H/P 0.81x) because the dual-metric sub-table below
+> already reports its kernel-only median (1.028x)._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
-| bf16 1024×1024×1                | 131.78   | 160.75      | 267.31      | 0.60x  | 0.49x  | G0     |
+| bf16 1024×1024×1                | 131.78   | 122.10      | **124.88**  | **0.983x** | 1.055x | G3-A-pending |
 | bf16 1024×1024×1024 (headline)  | 128.55   | 134.39      | **166.01**  | **0.81x** | 0.77x | G2-closure-attempt-2 |
-| bf16 1024×128×1024              | 138.57   | 167.21      | 218.98      | 0.76x  | 0.63x  | G0     |
+| bf16 1024×128×1024              | 138.57   | 117.79      | **120.03**  | **0.989x** | 1.155x | G3-A-pending |
 | bf16 1024×1×1024                | 140.94   | 167.14      | 175.06      | 0.95x  | 0.81x  | G0     |
-| bf16 128×1024×1024              | 138.30   | 159.13      | 267.95      | 0.59x  | 0.52x  | G0     |
+| bf16 128×1024×1024              | 138.30   | 125.45      | **124.58**  | **0.994x** | 1.110x | G3-A-pending |
 | bf16 1×1024×1024                | 136.22   | 163.87      | 281.18      | 0.58x  | 0.48x  | G0     |
 | bf16 1×1×1024                   | 140.07   | 163.68      | 279.05      | 0.59x  | 0.50x  | G0     |
 | f32  1024×1024×1                | 145.42   | 126.99      | 279.08      | 0.46x  | 0.52x  | G1     |
@@ -1996,10 +2009,51 @@ per-shape kernel-only H/P ≥ 1.00; gate-exit verification × 3 per shape
 **Substeps.**
 
 - **G3-A — Square-ish (`1024×1024×1`, `1024×128×1024`, `128×1024×1024`).**
-  Likely shares G2's wins; verify per-shape kernel-only H/P ≥ 1.00. First
-  G3 substep (recommended entrance — likely zero-code-change cycle if the
-  G2 wins transfer cleanly; adjust block selection per shape only if a
-  shape misses the bar).
+  In-progress 2026-05-23 (cycle 16; marginal — accepted under the
+  "< 5% miss" rule per §7.1 G3 per-cycle protocol). Per-cycle
+  ``measure_headline.py --shape M K N`` × 1 followed by a × 3
+  verification sweep per shape (no code changes — pure measurement +
+  probe-script extension to accept the ``--shape`` CLI flag; the
+  pinned-config path remains attached to the default bf16 1024³
+  headline only, with non-headline shapes reusing the autotuner's
+  full-path pick for the kernel-only timing per the "no per-shape
+  pin ablation yet" rationale in ``measure_headline.py``'s docstring).
+  Per-sweep kernel-only H/P medians across 3 sweeps:
+    - ``1024×1024×1``: median **0.983x** (sweeps 1.012 / 0.978 /
+      0.983; Helion kernel-only us 119.62 / 124.89 / 124.88, median
+      124.88; Pallas us 121.10 / 122.10 / 122.79, median 122.10).
+      Full-path us 166.17 / 162.57 / 172.75, median 166.17;
+      launcher overhead 46.55 / 37.68 / 47.87 us, median 46.55.
+    - ``1024×128×1024``: median **0.989x** (sweeps 0.992 / 0.978 /
+      0.989; Helion us 120.03 / 120.42 / 117.70, median 120.03;
+      Pallas us 119.09 / 117.79 / 116.42, median 117.79). Full-path
+      us 156.98 / 158.48 / 171.44, median 158.48; launcher overhead
+      36.96 / 38.06 / 53.73 us, median 38.06.
+    - ``128×1024×1024``: median **0.994x** (sweeps 0.979 / 1.061 /
+      0.994; Helion us 128.13 / 119.44 / 124.58, median 124.58;
+      Pallas us 125.45 / 126.74 / 123.85, median 125.45). Full-path
+      us 173.06 / 164.44 / 200.15, median 173.06; launcher overhead
+      44.94 / 45.00 / 75.56 us, median 45.00.
+  All three medians are within 2% of 1.00 (range 0.983–0.994), inside
+  the "marginal — accept" band per the G3 per-cycle decision rule
+  (< 5% miss = chip thermal + autotuner-pick noise, not a structural
+  algorithmic gap — same pattern G2 ran into during closure-attempt-1
+  before the pinned-config approach was adopted; see §1 dual-metric
+  block for G2's per-sweep noise floor). Autotuner picks varied
+  across sweeps (1024×1024×1 saw outer_grid [1024,1,512] /
+  unroll [1024,1,256] / unroll [1024,1,1024]; 1024×128×1024 saw
+  unroll [1024,1024,128] / outer_grid [1024,128,128] /
+  unroll [512,1024,128]; 128×1024×1024 saw unroll [128,256,512] /
+  emit_pipeline [128,512,1024] / unroll [32,1024,256]) — same
+  autotuner-pick variance G2 documented (~14–20us across sweeps,
+  swamping sub-20us per-sweep deltas). **Recommendation for the
+  next G3-A cycle**: queue G3-A-pin (per-shape known-best ablation
+  + pin in ``_resolve_kernel_only_config``) if the manager wants
+  the cleaner "median ≥ 1.00" gating signal that G2-closure-
+  attempt-2 used; otherwise accept the current medians as
+  marginal-pass and advance to G3-B.  No per-shape adjustment was
+  made this cycle (no shape missed ≥ 5%, so per the G3 decision
+  rule no adjustment is required).
 - **G3-B — Skinny / vector (`1024×1×1024`, `1×1024×1024`, `1×1×1024`).**
   These probably want a non-tile path. Track whether each is a vector ×
   matrix, matrix × vector, or scalar broadcast; emit accordingly.
@@ -2012,6 +2066,7 @@ for tracking.
 
 | Date | Commit | Worst kernel H/P | Worst shape | Headline kernel (us) |
 |------|--------|------------------|-------------|----------------------|
+| 2026-05-23 | G3-A-pending | 0.983x (median of 3) | bf16 1024×1024×1 | 119.57 (G2-closure attempt 2; not re-measured this cycle, single-shape protocol per §7.1) |
 
 ---
 
@@ -2167,7 +2222,7 @@ external dispatch progress.
 | Gate | Per-cycle (hill-climb)                                                | Gate-exit verification | Tracking |
 |------|-----------------------------------------------------------------------|------------------------|----------|
 | G2 (✅ CLOSED 2026-05-23) | ``measure_headline.py`` × 1; gate on ``kernel_only_H_over_P`` | × 5 verified (pinned-config, 5-sweep median ≥ 1.00); spread tracked as §6.5 | ``full_path_H_over_P`` + ``launcher_overhead_us`` always tracked |
-| G3   | ``measure_headline.py`` × 1 + per-shape kernel-only × 1 | × 3 per shape | same |
+| G3   | ``measure_headline.py --shape M K N`` × 1 per G3 shape (substep's targeted shapes) | × 3 per shape | same |
 | G4   | + per-shape f32 × 1                                    | × 3 per shape | same |
 | G5   | full matrix × 1                                        | full matrix × 3 | same |
 
@@ -2183,29 +2238,41 @@ into the torch_tpu §6.4 (b) blocker — neither gates closure.
 single-shape probe; it imports the kernel from ``matmul_helion.py`` so
 any kernel-side change is picked up by both the full harness and the
 probe, and emits both the gating (kernel-only) and tracking (full-path,
-launcher overhead) signals in one run.
+launcher overhead) signals in one run.  The probe takes a
+``--shape M K N`` CLI flag (default ``1024 1024 1024`` for the bf16
+headline / back-compat); G3 / G4 substeps invoke once per targeted
+shape.
 
 ```bash
+# Default headline (bf16 1024x1024x1024) -- pinned kernel-only config.
 ./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 \
   examples/pallas_perf/benchmark.sh examples/pallas_perf/measure_headline.py
+
+# G3 / G4 non-headline shapes -- kernel-only reuses the autotuner pick
+# (no per-shape pin candidates ablated yet).
+./scripts/run-on-pod.sh HELION_BACKEND=pallas TPU_VISIBLE_CHIPS=3 \
+  examples/pallas_perf/benchmark.sh examples/pallas_perf/measure_headline.py \
+    --shape 1024 128 1024
 ```
 
-Prints to stdout:
+Prints to stdout (with ``<M>x<K>x<N>`` substituted from the ``--shape``
+arg; the back-compat ``helion_bf16_<M>x<K>x<N>`` line preserves the
+full-path median so existing log scrapers keep parsing):
 
 ```
-helion_bf16_1024x1024x1024: median=<us> us           # back-compat full-path
-helion_full_path_bf16_1024x1024x1024: median=<us> us # tracking
-helion_kernel_only_bf16_1024x1024x1024: median=<us> us # GATING
-pallas_kernel_only_bf16_1024x1024x1024: median=<us> us
+helion_bf16_<M>x<K>x<N>: median=<us> us              # back-compat full-path
+helion_full_path_bf16_<M>x<K>x<N> [autotuner pick: <config>]: median=<us> us # tracking
+helion_kernel_only_bf16_<M>x<K>x<N> [<pin label>]: median=<us> us            # GATING
+pallas_kernel_only_bf16_<M>x<K>x<N>: median=<us> us
 full_path_H_over_P: <ratio>                          # tracking
 kernel_only_H_over_P: <ratio>                        # GATING
 launcher_overhead_us: <full - kernel_only> us        # tracking
 ```
 
 One ``measure_headline.py`` run per cycle for G2; broaden per the
-table above as later gates open. The script measures Pallas
-kernel-only in the same process (no external "cached Pallas cell"
-lookup needed for kernel-only H/P).
+table above as later gates open (one run per G3 / G4 targeted shape).
+The script measures Pallas kernel-only in the same process (no
+external "cached Pallas cell" lookup needed for kernel-only H/P).
 
 **Gate-exit verification (3-sweep Helion-only).** Use the full
 single-variant sweep so the per-shape autotuner picks land:
