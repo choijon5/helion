@@ -7,6 +7,8 @@ from .common import dedupe_configs
 from .cute import CuteReductionTileHeuristic
 from .cute import CuteReductionWideChunkHeuristic
 from .cute import CuteTcgen05ClusterM2Heuristic
+from .pallas import PallasMatmulF32SkinnyNSeedHeuristic
+from .pallas import PallasMatmulF32SquareSeedHeuristic
 from .pallas import PallasMatmulSkinnyNSeedHeuristic
 from .pallas import PallasMatmulSquareSeedHeuristic
 from .pallas import PallasMatmulTallMSeedHeuristic
@@ -30,6 +32,8 @@ HEURISTICS_BY_BACKEND: dict[str, tuple[AutotunerHeuristicType, ...]] = {
         PallasMatmulSquareSeedHeuristic,
         PallasMatmulSkinnyNSeedHeuristic,
         PallasMatmulTallMSeedHeuristic,
+        PallasMatmulF32SquareSeedHeuristic,
+        PallasMatmulF32SkinnyNSeedHeuristic,
     ),
 }
 

@@ -131,8 +131,21 @@ def matmul_kernel(
     x_val = _mask_tile(x_val, k_rem, 1, is_last_k)
     y_val = _mask_tile(y_val, k_rem, 0, is_last_k)
 
-    # No f32 cast needed here; the MXU accumulates in f32.
-    acc_ref[...] += pl.dot(x_val, y_val)
+    # Precision selection mirrors Helion's behavior so the H/P comparison is
+    # apples-to-apples (a probe documented Pallas-default vs Pallas-HIGHEST
+    # for f32: with HIGHEST on both sides, Helion's forced [512,512,512]
+    # unroll config measures H/P 1.018 vs 0.96 under default precision).
+    # bf16/f16/fp8 inputs use the MXU's free f32 accumulator (no precision
+    # arg needed); f32 inputs route through Precision.HIGHEST so the MXU
+    # multiplies in full f32 instead of silently down-casting to bf16-
+    # internal precision -- the latter is faster but accumulates ~1e-2
+    # absolute error on K=1024 matmuls, which Helion's f32 path explicitly
+    # avoids per ``test_pallas_matmul_f32_singleton_*`` pin tests.
+    is_f32 = x_ref.dtype == jnp.float32 and y_ref.dtype == jnp.float32
+    if is_f32:
+        acc_ref[...] += pl.dot(x_val, y_val, precision=jax.lax.Precision.HIGHEST)
+    else:
+        acc_ref[...] += pl.dot(x_val, y_val)
 
     @pl.when(is_last_k)
     def _store() -> None:

@@ -1710,6 +1710,147 @@ class TestPallas(TestCase):
             "PallasMatmulSkinnyNSeedHeuristic owns that family.",
         )
 
+    def test_pallas_matmul_f32_square_seed_in_initial_population(self) -> None:
+        """Compiler seeds the f32 square per-shape winner into initial population.
+
+        G4 f32 ablation identified ``unroll [512, 512, 512] pb=True``
+        as the per-shape best for f32 ``1024×1024×1024``. The autotuner
+        under seed=0 picks across ``unroll`` / ``outer_grid`` /
+        ``emit_pipeline`` families per sweep; the seed brings the
+        autotuner's pick consistently onto the ``[512, 512, 512]
+        unroll`` family. Note: landing the seed does NOT, by itself,
+        close H/P ≥ 1.00 on the f32 headline shape — the kernel at the
+        seed config is ~3% behind Pallas under matched-precision
+        timing per plan.md §5 G4 (G4-headline-tuner-v2 follow-up
+        queued). This pin test asserts the heuristic plumbing fires;
+        closure is tracked separately.
+
+        Pin asserts: (1) the heuristic is eligible for f32 1024×1024×1024
+        (2D, M=N=K=1024, both f32); (2) ``compiler_seed_configs`` includes
+        the ``[512, 512, 512] unroll pb=True`` entry; (3) the bf16 square
+        headline does NOT trigger this f32 heuristic (the bf16 square
+        heuristic owns that family).
+        """
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulF32SquareSeedHeuristic,
+        )
+
+        torch.manual_seed(0)
+        x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.float32)
+        bound = pallas_matmul_f32.bind((x, y))
+
+        self.assertTrue(
+            PallasMatmulF32SquareSeedHeuristic.is_eligible(
+                bound.env, bound.host_function.device_ir
+            ),
+            "Heuristic must fire on f32 1024×1024×1024 (M, N, K >= 512).",
+        )
+        self.assertIn(
+            PallasMatmulF32SquareSeedHeuristic.name,
+            bound.config_spec.autotuner_heuristics,
+            "Heuristic name must be recorded so the seed is attributable.",
+        )
+        seed_blocks = (512, 512, 512)
+        seeded = [
+            (
+                tuple(cfg.config.get("block_sizes", ())),
+                cfg.config.get("pallas_loop_type"),
+                cfg.config.get("pallas_pre_broadcast"),
+            )
+            for cfg in bound.config_spec.compiler_seed_configs
+        ]
+        self.assertIn(
+            (seed_blocks, "unroll", True),
+            seeded,
+            "Compiler seed configs must include the f32 square winner "
+            "[512, 512, 512] unroll pb=True entry.",
+        )
+
+        # bf16 square shape goes through PallasMatmulSquareSeedHeuristic,
+        # not the f32 variant.
+        bf16_x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        bf16_y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        bf16_bound = pallas_matmul_bf16.bind((bf16_x, bf16_y))
+        self.assertFalse(
+            PallasMatmulF32SquareSeedHeuristic.is_eligible(
+                bf16_bound.env, bf16_bound.host_function.device_ir
+            ),
+            "f32 square heuristic must refuse bf16 inputs; "
+            "PallasMatmulSquareSeedHeuristic owns the bf16 family.",
+        )
+
+    def test_pallas_matmul_f32_skinny_n_seed_in_initial_population(self) -> None:
+        """Compiler seeds the f32 skinny-N (``N == 1``) winner into the population.
+
+        G4 f32 ablation identified ``unroll [512, 1, 512] pb=True`` as
+        the per-shape best for f32 ``1024×1024×1``. The autotuner under
+        seed=0 picks the right family but often lands on small k_tile
+        (128) which puts H/P just below 1.00; seeding the better block
+        split improves pick consistency. Note: landing the seed brings
+        the 10-sweep median within paired-sample precision of 1.00
+        (0.9985 per plan.md §5 G4) but does NOT, by itself, reliably
+        clear the bar (G4-skinny-N-tuner-v2 follow-up queued). This
+        pin test asserts the heuristic plumbing fires; closure is
+        tracked separately.
+
+        Pin asserts: (1) the heuristic is eligible for f32 1024×1024×1
+        (N=1, M & K >= 256); (2) ``compiler_seed_configs`` includes the
+        ``[512, 1, 512] unroll pb=True`` entry (canonical [m, n, k]
+        positional order); (3) the bf16 N=1 shape does NOT trigger this
+        f32 heuristic (the bf16 skinny-N heuristic owns that family).
+        """
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulF32SkinnyNSeedHeuristic,
+        )
+
+        torch.manual_seed(0)
+        x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.empty(1024, 1, device=DEVICE, dtype=torch.float32)
+        bound = pallas_matmul_f32.bind((x, y))
+
+        self.assertTrue(
+            PallasMatmulF32SkinnyNSeedHeuristic.is_eligible(
+                bound.env, bound.host_function.device_ir
+            ),
+            "Heuristic must fire on f32 1024×1024×1 (N=1, M & K >= 256).",
+        )
+        self.assertIn(
+            PallasMatmulF32SkinnyNSeedHeuristic.name,
+            bound.config_spec.autotuner_heuristics,
+            "Heuristic name must be recorded so the seed is attributable.",
+        )
+        seed_blocks = (512, 1, 512)
+        seeded = [
+            (
+                tuple(cfg.config.get("block_sizes", ())),
+                cfg.config.get("pallas_loop_type"),
+                cfg.config.get("pallas_pre_broadcast"),
+            )
+            for cfg in bound.config_spec.compiler_seed_configs
+        ]
+        self.assertIn(
+            (seed_blocks, "unroll", True),
+            seeded,
+            "Compiler seed configs must include the f32 skinny-N winner "
+            "[512, 1, 512] unroll pb=True entry (canonical [m, n, k] order).",
+        )
+
+        # bf16 N=1 shape goes through PallasMatmulSkinnyNSeedHeuristic,
+        # not the f32 variant.
+        bf16_x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.bfloat16)
+        bf16_y = torch.empty(1024, 1, device=DEVICE, dtype=torch.bfloat16)
+        bf16_bound = pallas_matmul_bf16.bind((bf16_x, bf16_y))
+        self.assertFalse(
+            PallasMatmulF32SkinnyNSeedHeuristic.is_eligible(
+                bf16_bound.env, bf16_bound.host_function.device_ir
+            ),
+            "f32 skinny-N heuristic must refuse bf16 inputs; "
+            "PallasMatmulSkinnyNSeedHeuristic owns the bf16 family.",
+        )
+
     def test_pallas_autotuner_compiler_seed_survives_final_pick(self) -> None:
         """Compiler-seeded members are re-considered during final-pick verification.
 

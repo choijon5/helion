@@ -1,4 +1,4 @@
-"""Single-shape headline measurements for bf16 matmul (default 1024x1024x1024).
+"""Single-shape headline measurements for bf16/f32 matmul (default bf16 1024x1024x1024).
 
 Cycle-18 autotuner-seed refactor (manager directive 2026-05-23): the
 prior pinned-config path (``_PINNED_KERNEL_ONLY_CONFIGS``) was a
@@ -29,6 +29,7 @@ CLI:
 ```
 python measure_headline.py                    # default bf16 1024x1024x1024
 python measure_headline.py --shape 1024 128 1024
+python measure_headline.py --dtype float32 --shape 1024 1024 1024   # G4 f32 path
 python measure_headline.py --seed 7           # override default seed (0)
 ```
 
@@ -95,6 +96,14 @@ from matmul_pallas import pallas_matmul  # pyrefly: ignore [missing-import]
 _DEFAULT_SHAPE: tuple[int, int, int] = (1024, 1024, 1024)
 # Default autotuner seed mirrored from the env var setdefault above.
 _DEFAULT_AUTOTUNE_SEED = int(os.environ["HELION_AUTOTUNE_RANDOM_SEED"])
+# CLI ``--dtype`` choices map to ``(torch dtype, jax dtype)``. bf16 is the
+# default for back-compat with cycles 15-22 invocations; float32 is the G4
+# f32 path (TPU MXU has no f32 shortcut, so Helion routes through
+# ``lax.dot_general(precision=HIGHEST)``).
+_DTYPE_CHOICES = {
+    "bfloat16": (torch.bfloat16, jnp.bfloat16),
+    "float32": (torch.float32, jnp.float32),
+}
 
 
 # Module-level slot populated by ``_install_jit_fn_capture`` whenever
@@ -225,11 +234,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Measure Helion (real-user full-path + real-user kernel-only) "
-            "vs hand-written Pallas for a single bf16 matmul shape. "
-            "Defaults to the bf16 1024x1024x1024 headline. The Helion "
-            "autotuner is seeded via ``HELION_AUTOTUNE_RANDOM_SEED`` so "
-            "every run picks the same config — real-user metric, "
-            "reproducible."
+            "vs hand-written Pallas for a single matmul shape (bf16 default, "
+            "f32 via --dtype). Defaults to the bf16 1024x1024x1024 headline. "
+            "The Helion autotuner is seeded via "
+            "``HELION_AUTOTUNE_RANDOM_SEED`` so every run picks the same "
+            "config — real-user metric, reproducible."
         )
     )
     parser.add_argument(
@@ -254,6 +263,19 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--dtype",
+        choices=tuple(_DTYPE_CHOICES.keys()),
+        default="bfloat16",
+        help=(
+            "Element dtype for both Helion and the Pallas reference. "
+            "Defaults to ``bfloat16`` (back-compat with cycles 15-22 "
+            "invocations). ``float32`` opts into the G4 f32 path which "
+            "has no MXU shortcut — Helion routes through "
+            "``lax.dot_general(precision=HIGHEST)`` and the Pallas "
+            "reference does the same."
+        ),
+    )
+    parser.add_argument(
         "--timing-mode",
         choices=("sequential", "interleaved", "both"),
         default="sequential",
@@ -275,6 +297,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     m, k, n = args.shape
+    torch_dtype, jax_dtype = _DTYPE_CHOICES[args.dtype]
 
     # If CLI seed was given, re-set the env var. ``Settings`` reads the
     # env var via ``_get_autotune_random_seed`` at the point the
@@ -291,9 +314,9 @@ def main(argv: list[str] | None = None) -> None:
     os.environ["HELION_AUTOTUNE_RANDOM_SEED"] = str(seed)
 
     torch.manual_seed(0)
-    x_torch = torch.randn((m, k), dtype=torch.bfloat16, device=DEVICE)
+    x_torch = torch.randn((m, k), dtype=torch_dtype, device=DEVICE)
     torch.manual_seed(1)
-    y_torch = torch.randn((k, n), dtype=torch.bfloat16, device=DEVICE)
+    y_torch = torch.randn((k, n), dtype=torch_dtype, device=DEVICE)
 
     # Install the ``_pallas_build_callable`` capture so we can lift the
     # autotuner-picked ``jit_fn`` (real-user kernel-only) out of Helion's
@@ -323,8 +346,12 @@ def main(argv: list[str] | None = None) -> None:
         synchronize_device(out)
 
     helion_full_us = _time(_run_full_path)
-    # Back-compat line for older log scrapers.
-    print(f"helion_bf16_{m}x{k}x{n}: median={helion_full_us:.2f} us")
+    # Back-compat line for older log scrapers. The ``helion_bf16_…`` name
+    # is preserved unchanged when ``--dtype bfloat16`` (default) so cycles
+    # 15-22 log scrapers keep parsing; ``--dtype float32`` emits
+    # ``helion_float32_…`` so the dtype is parseable downstream.
+    back_compat_dtype_tag = "bf16" if args.dtype == "bfloat16" else args.dtype
+    print(f"helion_{back_compat_dtype_tag}_{m}x{k}x{n}: median={helion_full_us:.2f} us")
     print(
         f"helion_full_path_{m}x{k}x{n} "
         f"[autotuner pick: {best_config}, seed={seed}]: "
@@ -346,8 +373,8 @@ def main(argv: list[str] | None = None) -> None:
     # reference path does (``jax.random.normal`` -> ``jax.device_put`` -> jit).
     # Values are arbitrary; only the shape / dtype affect timing.
     key0, key1 = jax.random.split(jax.random.PRNGKey(0))
-    x_jax = jax.device_put(jax.random.normal(key0, (m, k), dtype=jnp.bfloat16))
-    y_jax = jax.device_put(jax.random.normal(key1, (k, n), dtype=jnp.bfloat16))
+    x_jax = jax.device_put(jax.random.normal(key0, (m, k), dtype=jax_dtype))
+    y_jax = jax.device_put(jax.random.normal(key1, (k, n), dtype=jax_dtype))
     jax.block_until_ready((x_jax, y_jax))
 
     # ----- Helion kernel-only: time the autotuner-picked ``jit_fn``
