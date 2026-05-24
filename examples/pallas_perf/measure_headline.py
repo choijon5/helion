@@ -13,18 +13,17 @@ per the manager's cycle-15 decision):
    Pallas kernel pulled out of the launcher cache and invoked through
    ``jax.jit(pl.pallas_call(...))`` with JAX arrays, identical to how
    the hand-written Pallas reference is invoked. Isolates the kernel
-   body from launcher / torch_tpu dispatch overhead. For the default
-   bf16 1024^3 headline shape the kernel-only measurement uses a
-   **pinned** config (``emit_pipeline [512, 512, 512] pb=False`` -- the
-   known-best per Deep Replan §2.5 row 2, 161 us full-path / ~126us
-   kernel-only) so the per-sweep signal is deterministic
+   body from launcher / torch_tpu dispatch overhead. For shapes with a
+   known-best ablated config (registered in
+   ``_PINNED_KERNEL_ONLY_CONFIGS``) the kernel-only measurement uses a
+   pinned config so the per-sweep signal is deterministic
    (autotuner-pick variance is the dominant noise source for
-   kernel-only timing on the headline -- see plan.md §2.9 (h)).  For
-   other shapes (passed via ``--shape M K N``) the kernel-only path
-   reuses the autotuner's full-path pick: we don't have per-shape
-   pin candidates ablated yet, so picking the autotuner choice gives
-   an apples-to-apples kernel-vs-kernel comparison without
-   speculative per-shape pinning.
+   kernel-only timing -- see plan.md §2.9 (h)).  Shapes not in the
+   table fall back to the autotuner's full-path pick for the
+   kernel-only timing, which gives an apples-to-apples kernel-vs-
+   kernel comparison without speculative per-shape pinning.  A
+   ``--kernel-only-config`` CLI flag overrides both the pin table and
+   the autotuner fallback for one-off ablation runs.
 
 The kernel-only path is built by patching ``helion.runtime._pallas_build_callable``
 to stash the JAX ``jit_fn`` argument (``pl.pallas_call(...)``) right
@@ -91,21 +90,49 @@ from matmul_pallas import pallas_matmul  # pyrefly: ignore [missing-import]
 # Default (headline) shape for back-compat with the legacy single-shape probe.
 _DEFAULT_SHAPE: tuple[int, int, int] = (1024, 1024, 1024)
 
-# Pinned config for the kernel-only measurement at the bf16 1024^3 headline
-# only -- the Deep Replan §2.5 row 2 known-best ``emit_pipeline [512, 512,
-# 512] pb=False`` family (161us full-path / ~126us kernel-only). Kernel-only
-# timing is deterministic at this config (no autotuner picks leaking into
-# the per-sweep signal), unlike the full-path measurement which still goes
-# through the autotuner per plan.md §7.1. Non-headline shapes don't have
-# per-shape pin candidates yet, so they fall back to the autotuner's
+# Per-shape pinned configs for the kernel-only measurement. The headline
+# (1024, 1024, 1024) entry is the Deep Replan §2.5 row 2 known-best
+# ``emit_pipeline [512, 512, 512] pb=False`` family (161us full-path /
+# ~126us kernel-only); the G3-A entries are the per-shape ablation winners
+# (single-sweep us picked from a 3-4 candidate set per shape, then verified
+# 5-sweep). Kernel-only timing is deterministic at these pinned configs
+# (no autotuner picks leaking into the per-sweep signal), unlike the
+# full-path measurement which still goes through the autotuner per
+# plan.md §7.1. Shapes not in the table fall back to the autotuner's
 # full-path pick for kernel-only too (see ``_resolve_kernel_only_config``
 # below).
-_PINNED_HEADLINE_KERNEL_ONLY_CONFIG = helion.Config(
-    block_sizes=[512, 512, 512],
-    pallas_loop_type="emit_pipeline",
-    pallas_pre_broadcast=False,
-)
-_PINNED_HEADLINE_KERNEL_ONLY_LABEL = "pinned: emit_pipeline [512, 512, 512] pb=False"
+_PINNED_KERNEL_ONLY_CONFIGS: dict[tuple[int, int, int], helion.Config] = {
+    (1024, 1024, 1024): helion.Config(
+        block_sizes=[512, 512, 512],
+        pallas_loop_type="emit_pipeline",
+        pallas_pre_broadcast=False,
+    ),
+    (1024, 1024, 1): helion.Config(
+        block_sizes=[1024, 1024, 1],
+        pallas_loop_type="unroll",
+        pallas_pre_broadcast=True,
+    ),
+    (1024, 128, 1024): helion.Config(
+        block_sizes=[1024, 128, 128],
+        pallas_loop_type="emit_pipeline",
+        pallas_pre_broadcast=False,
+    ),
+    (128, 1024, 1024): helion.Config(
+        block_sizes=[128, 1024, 1024],
+        pallas_loop_type="unroll",
+        pallas_pre_broadcast=True,
+    ),
+}
+
+
+def _pin_label(config: helion.Config) -> str:
+    loop_type = config.config.get("pallas_loop_type", "unroll")
+    pre_broadcast = bool(config.config.get("pallas_pre_broadcast", False))
+    return (
+        f"pinned: {loop_type} {list(config.block_sizes)} "
+        f"pb={'T' if pre_broadcast else 'F'}"
+    )
+
 
 # Module-level slot populated by ``_install_jit_fn_capture`` whenever
 # Helion's runtime calls ``_pallas_build_callable``. After Helion finishes
@@ -189,15 +216,20 @@ def _time(fn: Callable[[], object], n_iter: int = 20, n_repeats: int = 5) -> flo
 def _resolve_kernel_only_config(
     shape: tuple[int, int, int],
     autotuned_config: helion.Config,
+    override_config: helion.Config | None = None,
 ) -> tuple[helion.Config | None, str]:
     """Pick the kernel-only Helion config for ``shape``.
 
-    For the bf16 1024^3 headline (G2 closure shape) we pin to the Deep
-    Replan §2.5 row 2 known-best ``emit_pipeline [512, 512, 512] pb=False``
-    to keep the gating signal deterministic; non-headline shapes don't have
-    per-shape pin candidates yet, so they reuse the autotuner's full-path
-    pick for the kernel-only timing too -- still apples-to-apples vs the
-    hand-written Pallas reference at its own best block.
+    Resolution order:
+      1. ``override_config`` (CLI ``--kernel-only-config``) wins
+         outright -- the caller pinned a specific config for one-off
+         ablation; pin it without consulting the table.
+      2. Shapes registered in ``_PINNED_KERNEL_ONLY_CONFIGS`` use their
+         per-shape pin -- the G2 closure / G3-A-pin known-bests.
+      3. Otherwise return ``(None, ...)`` so the caller reuses the
+         autotuner's full-path pick for the kernel-only timing too --
+         still apples-to-apples vs the hand-written Pallas reference at
+         its own best block.
 
     Returns ``(config_to_recompile, label)``. When ``config_to_recompile``
     is ``None``, the caller should reuse the already-captured full-path
@@ -205,9 +237,44 @@ def _resolve_kernel_only_config(
     the returned config to trigger a fresh ``_pallas_build_callable``
     capture.
     """
-    if shape == _DEFAULT_SHAPE:
-        return _PINNED_HEADLINE_KERNEL_ONLY_CONFIG, _PINNED_HEADLINE_KERNEL_ONLY_LABEL
+    if override_config is not None:
+        return override_config, _pin_label(override_config) + " (CLI override)"
+    if shape in _PINNED_KERNEL_ONLY_CONFIGS:
+        config = _PINNED_KERNEL_ONLY_CONFIGS[shape]
+        return config, _pin_label(config)
     return None, f"autotuner pick: {autotuned_config}"
+
+
+def _parse_kernel_only_config(spec: str) -> helion.Config:
+    """Parse a ``--kernel-only-config`` argument of the form
+    ``<loop_type>:<bm>,<bk>,<bn>:<pb>`` (e.g. ``emit_pipeline:512,512,512:F``).
+
+    Used by per-shape ablation harnesses that drive ``measure_headline.py``
+    once per candidate config to time the kernel-only path. ``<pb>`` is
+    ``T`` or ``F`` for ``pallas_pre_broadcast``.
+    """
+    parts = spec.split(":")
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError(
+            f"expected --kernel-only-config of form "
+            f"'<loop_type>:<bm>,<bk>,<bn>:<T|F>' (got {spec!r})"
+        )
+    loop_type, block_str, pb_str = parts
+    block_sizes = [int(x) for x in block_str.split(",")]
+    if len(block_sizes) != 3:
+        raise argparse.ArgumentTypeError(
+            f"expected 3 block sizes in --kernel-only-config (got {block_str!r})"
+        )
+    if pb_str not in ("T", "F"):
+        raise argparse.ArgumentTypeError(
+            "expected T or F for pre_broadcast in --kernel-only-config "
+            f"(got {pb_str!r})"
+        )
+    return helion.Config(
+        block_sizes=block_sizes,
+        pallas_loop_type=loop_type,
+        pallas_pre_broadcast=(pb_str == "T"),
+    )
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -225,6 +292,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         metavar=("M", "K", "N"),
         default=list(_DEFAULT_SHAPE),
         help="Matmul shape as three ints: M K N (default: 1024 1024 1024).",
+    )
+    parser.add_argument(
+        "--kernel-only-config",
+        type=_parse_kernel_only_config,
+        default=None,
+        metavar="LOOP_TYPE:BM,BK,BN:PB",
+        help=(
+            "Override the per-shape pin table for the kernel-only timing. "
+            "Format: '<loop_type>:<bm>,<bk>,<bn>:<T|F>' "
+            "(e.g. 'emit_pipeline:512,512,512:F'). Used by per-shape "
+            "ablation harnesses; not needed for routine cycle runs."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -278,7 +357,7 @@ def main(argv: list[str] | None = None) -> None:
     # kernel-only signal; per-sweep autotuner-pick variance is the dominant
     # source of kernel-only timing noise -- see plan.md §2.9 (h)).
     kernel_only_config, kernel_only_label = _resolve_kernel_only_config(
-        shape, best_config
+        shape, best_config, override_config=args.kernel_only_config
     )
     if kernel_only_config is not None:
         pinned_compiled_fn = bound.compile_config(kernel_only_config, allow_print=False)
