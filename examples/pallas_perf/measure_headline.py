@@ -64,6 +64,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 import timeit
 from typing import Callable
 
@@ -175,6 +176,51 @@ def _time(fn: Callable[[], object], n_iter: int = 20, n_repeats: int = 5) -> flo
     return float(np.median(samples)) * 1e6
 
 
+def _time_interleaved(
+    fn_helion: Callable[[], object],
+    fn_pallas: Callable[[], object],
+    n_iter: int = 20,
+    n_repeats: int = 5,
+) -> tuple[float, float]:
+    """Paired-sample timing of Helion vs Pallas. Returns (helion_us, pallas_us).
+
+    For each of ``n_iter * n_repeats`` iterations, we time one Helion
+    call immediately followed by one Pallas call via
+    ``time.perf_counter_ns()``. Each call has a per-call ``block_until_ready``
+    so the measured window is the full host+device latency, matching the
+    sequential ``_time`` semantics. We then take the median across all
+    ``n_iter * n_repeats`` per-call samples per side.
+
+    Rationale: per-call thermal / scheduler noise correlates across the
+    pair (both calls run in the same ~microsecond window), so the H/P
+    ratio is dominated by kernel quality rather than drift. The sequential
+    form measures Helion and Pallas in fully separate windows; if pod
+    temperature drifts between the two windows, the ratio absorbs the
+    drift.
+
+    Warmup: 5 paired warmup iterations (same as sequential ``_time``).
+    """
+    for _ in range(5):
+        fn_helion()
+        fn_pallas()
+
+    helion_samples_ns: list[int] = []
+    pallas_samples_ns: list[int] = []
+    total = n_iter * n_repeats
+    for _ in range(total):
+        t0 = time.perf_counter_ns()
+        fn_helion()
+        t1 = time.perf_counter_ns()
+        fn_pallas()
+        t2 = time.perf_counter_ns()
+        helion_samples_ns.append(t1 - t0)
+        pallas_samples_ns.append(t2 - t1)
+
+    helion_us = float(np.median(np.array(helion_samples_ns))) / 1000.0
+    pallas_us = float(np.median(np.array(pallas_samples_ns))) / 1000.0
+    return helion_us, pallas_us
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -205,6 +251,22 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "var, but only takes effect if the autotuner reads the seed "
             "at autotune time rather than import time — kept as a CLI "
             "for multi-seed sweep harnesses."
+        ),
+    )
+    parser.add_argument(
+        "--timing-mode",
+        choices=("sequential", "interleaved", "both"),
+        default="sequential",
+        help=(
+            "Kernel-only timing methodology. ``sequential`` (default, "
+            "back-compat with cycles 15-19) measures Helion and Pallas "
+            "in separate timing windows. ``interleaved`` pairs each "
+            "Helion call with a Pallas call inside the same per-call "
+            "``time.perf_counter_ns()`` window, so chip-thermal drift "
+            "cancels in the H/P ratio. ``both`` runs each mode in "
+            "sequence and prints both result blocks (DR#6 methodology "
+            "comparison probe). Full-path Helion timing is unaffected "
+            "by this flag (it always uses the sequential form)."
         ),
     )
     return parser.parse_args(argv)
@@ -294,13 +356,6 @@ def main(argv: list[str] | None = None) -> None:
         out = autotuned_jit_fn(x_jax, y_jax)
         jax.block_until_ready(out)
 
-    helion_kernel_us = _time(_run_helion_kernel_only)
-    print(
-        f"helion_kernel_only_{m}x{k}x{n} "
-        f"[autotuner pick: {best_config}, seed={seed}]: "
-        f"median={helion_kernel_us:.2f} us"
-    )
-
     # ----- Pallas reference kernel-only: hand-written ``pallas_matmul`` via
     # the same pure-JAX path. ``pallas_matmul`` is already ``@jax.jit``
     # (``static_argnames=["bm", "bk", "bn"]``), so calling it directly is
@@ -312,17 +367,53 @@ def main(argv: list[str] | None = None) -> None:
         out = pallas_matmul(x_jax, y_jax, bm=512, bk=512, bn=512)
         jax.block_until_ready(out)
 
-    pallas_kernel_us = _time(_run_pallas_kernel_only)
-    print(f"pallas_kernel_only_{m}x{k}x{n}: median={pallas_kernel_us:.2f} us")
+    timing_modes = (
+        ("sequential", "interleaved")
+        if args.timing_mode == "both"
+        else (args.timing_mode,)
+    )
+    # When only one mode is requested, omit the per-line tag so the
+    # printed format stays bit-identical with cycles 15-19 log scrapers
+    # (back-compat). When both modes run, prepend a ``[sequential]`` /
+    # ``[interleaved]`` tag so each block is parseable separately.
+    tag_lines = len(timing_modes) > 1
 
-    # ----- Derived ratios.
-    full_h_over_p = pallas_kernel_us / helion_full_us
-    kernel_h_over_p = pallas_kernel_us / helion_kernel_us
-    launcher_overhead_us = helion_full_us - helion_kernel_us
+    for mode in timing_modes:
+        if mode == "sequential":
+            helion_kernel_us = _time(_run_helion_kernel_only)
+            pallas_kernel_us = _time(_run_pallas_kernel_only)
+            mode_tag = "[sequential] " if tag_lines else ""
+        else:  # interleaved
+            helion_kernel_us, pallas_kernel_us = _time_interleaved(
+                _run_helion_kernel_only, _run_pallas_kernel_only
+            )
+            mode_tag = "[interleaved] " if tag_lines else ""
 
-    print(f"full_path_H_over_P: {full_h_over_p:.3f}")
-    print(f"kernel_only_H_over_P: {kernel_h_over_p:.3f}")
-    print(f"launcher_overhead_us: {launcher_overhead_us:.2f} us")
+        # Pre-shape tag (after the shape suffix, before the rest of the
+        # line) preserves the bit-identical legacy single-mode output;
+        # tagged output for the both-mode comparison adds the tag suffix
+        # to the metric name itself so each metric is uniquely parseable
+        # (``kernel_only_H_over_P_sequential`` / ``..._interleaved``).
+        ratio_tag = f"_{mode}" if tag_lines else ""
+        line_tag = f" {mode_tag.strip()}" if tag_lines else ""
+        print(
+            f"helion_kernel_only_{m}x{k}x{n}{line_tag} "
+            f"[autotuner pick: {best_config}, seed={seed}]: "
+            f"median={helion_kernel_us:.2f} us"
+        )
+        print(
+            f"pallas_kernel_only_{m}x{k}x{n}{line_tag}: "
+            f"median={pallas_kernel_us:.2f} us"
+        )
+
+        # ----- Derived ratios.
+        full_h_over_p = pallas_kernel_us / helion_full_us
+        kernel_h_over_p = pallas_kernel_us / helion_kernel_us
+        launcher_overhead_us = helion_full_us - helion_kernel_us
+
+        print(f"full_path_H_over_P{ratio_tag}: {full_h_over_p:.3f}")
+        print(f"kernel_only_H_over_P{ratio_tag}: {kernel_h_over_p:.3f}")
+        print(f"launcher_overhead_us{ratio_tag}: {launcher_overhead_us:.2f} us")
 
 
 if __name__ == "__main__":
