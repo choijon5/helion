@@ -63,6 +63,7 @@ x 5 repeats, warmup excluded, ``synchronize_device`` (or
 from __future__ import annotations
 
 import argparse
+import inspect
 import os
 import sys
 import time
@@ -165,6 +166,87 @@ def _find_helion_jit_fn() -> Callable[..., object]:
             "(non-interpret) Pallas launcher path."
         )
     return _CAPTURED_HELION_JIT_FN
+
+
+def _reset_capture() -> None:
+    """Clear the captured ``jit_fn`` so the next ``_pallas_build_callable``
+    call repopulates it.
+
+    Used by ``_refresh_capture_for_compiled_fn`` to guarantee the post-
+    autotune capture is the one that corresponds to the autotuner-picked
+    config, not whatever the last autotuner trial happened to build.
+    """
+    global _CAPTURED_HELION_JIT_FN
+    _CAPTURED_HELION_JIT_FN = None
+
+
+def _refresh_capture_for_compiled_fn(
+    compiled_fn: Callable[..., object],
+    *invocation_args: object,
+) -> None:
+    """Refresh the captured ``jit_fn`` so it matches the launcher built by
+    ``compiled_fn`` (the autotuner-picked config).
+
+    The autotuner evaluates many configs, each triggering
+    ``_pallas_build_callable`` and overwriting ``_CAPTURED_HELION_JIT_FN``.
+    By the time ``bound.compile_config(best_config)`` returns, the
+    callable's underlying ``pallas_kernel`` already has a populated
+    ``_pallas_cache`` (because the autotuner exercised that exact
+    Python module while ranking), so the subsequent first call of
+    ``compiled_fn`` hits the cache and does NOT re-invoke
+    ``_pallas_build_callable``. The result is a kernel-only timing that
+    references the LAST autotuner trial's ``jit_fn`` -- a completely
+    unrelated config in the typical case -- inflating noise and
+    occasionally pinning H/P far below 1.00 even when the picked kernel
+    is competitive.
+
+    Fix: walk the module that holds ``compiled_fn`` (returned from
+    ``PyCodeCache.load`` inside ``BoundKernel.compile_config``), find each
+    inner ``pallas_kernel`` Python function, and null its
+    ``_pallas_cache`` attribute. Then invoke ``compiled_fn`` once with
+    the supplied torch args so the launcher rebuilds via
+    ``_pallas_build_callable`` -- our capture wrapper observes that call
+    and stores the correct ``jit_fn``.
+
+    Safe to call multiple times; idempotent after a fresh autotune.
+    """
+    mod = inspect.getmodule(compiled_fn)
+    if mod is None:  # pragma: no cover - defensive
+        raise RuntimeError(
+            "Could not locate the module holding the compiled callable to "
+            "invalidate the stale launcher cache."
+        )
+
+    # The three Pallas launcher families
+    # (``default_pallas_launcher`` / ``default_pallas_pipeline_launcher`` /
+    # ``default_pallas_fori_launcher``) each maintain their own per-
+    # ``pallas_kernel`` cache attribute. Clear whichever ones are populated
+    # so the next call rebuilds via ``_pallas_build_callable``.
+    cache_attrs = ("_pallas_cache", "_pallas_pipeline_cache", "_pallas_fori_cache")
+    cleared = 0
+    for attr_name in dir(mod):
+        if attr_name.startswith(("_default_", "__")):
+            continue
+        candidate = getattr(mod, attr_name)
+        for cache_attr in cache_attrs:
+            if (
+                hasattr(candidate, cache_attr)
+                and getattr(candidate, cache_attr) is not None
+            ):
+                setattr(candidate, cache_attr, None)
+                cleared += 1
+
+    _reset_capture()
+    compiled_fn(*invocation_args)
+    synchronize_device(invocation_args[0])
+
+    if _CAPTURED_HELION_JIT_FN is None:  # pragma: no cover - defensive
+        raise RuntimeError(
+            "Launcher cache invalidation did not trigger the capture "
+            f"wrapper (cleared {cleared} cache entry/entries). The chosen "
+            "kernel may be on an interpret path or "
+            "``_install_jit_fn_capture`` was not installed early enough."
+        )
 
 
 def _time(fn: Callable[[], object], n_iter: int = 20, n_repeats: int = 5) -> float:
@@ -340,6 +422,18 @@ def main(argv: list[str] | None = None) -> None:
         file=sys.stderr,
     )
     compiled_fn = bound.compile_config(best_config, allow_print=False)
+
+    # The autotuner-driven path leaves the launcher cache populated by
+    # whichever trial last compiled this exact ``pallas_kernel``; the
+    # capture wrapper therefore points at that trial's ``jit_fn`` rather
+    # than the one we actually picked. Invalidate the stale cache and
+    # re-run once so the launcher rebuilds via ``_pallas_build_callable``
+    # and the capture refreshes to the chosen config's ``jit_fn``. This
+    # has to happen BEFORE ``_time(_run_full_path)`` so the full-path
+    # measurement is also against the freshly-built launcher (matches the
+    # production first-call cost) and so the kernel-only path that
+    # follows lifts the correct ``jit_fn`` out of the capture slot.
+    _refresh_capture_for_compiled_fn(compiled_fn, x_torch, y_torch)
 
     def _run_full_path() -> None:
         out = compiled_fn(x_torch, y_torch)

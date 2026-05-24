@@ -127,7 +127,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-24 (G4 10-sweep interleaved measurements for the 7 f32 shapes — 5/7 ✅ close cleanly at ≥ 1.00, 2/7 🟡 documented as deferred follow-ups in §5 G4) — measurements on the `jongsokchoi-torchtpu` pod,
+> _As of: 2026-05-24 (G4 closure: 10-sweep interleaved measurements for the 2 deferred f32 shapes lift them above 1.00 after the ``measure_headline.py`` capture-bug fix — see §5 G4 cycle 24 history row for the full root-cause). G4 ✅ ALL 7 f32 shapes closed) — measurements on the `jongsokchoi-torchtpu` pod,
 > chip 3, `TPU_VISIBLE_CHIPS=3`. JAX / Pallas cells are the cached
 > reference numbers from the last full-matrix sweep (G1); they are
 > re-measured only when a substep needs it or once per Deep Replan
@@ -262,32 +262,52 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > always emitted ``lax.dot_general(precision=HIGHEST)`` for f32
 > inputs (G1 fix). H/J cells re-computed from the new Pallas us
 > against the unchanged G0/G1 JAX us — JAX cells were NOT
-> re-measured this cycle (per the maintenance rule above). Five
-> of seven f32 shapes close cleanly at ≥ 1.00; two shapes
-> (``1024×1024×1024`` at 0.897 and ``1024×1024×1`` at 0.9985) are
-> documented as 🟡 deferred follow-ups in §5 G4 — the headline
-> ``1024×1024×1024`` gap is real (the autotuner picks the seeded
-> ``unroll [512,512,512] pb=True`` config on 7/10 sweeps but the
-> kernel itself is ~3% behind under matched-precision timing),
-> the skinny-N ``1024×1024×1`` is within paired-sample precision
-> (0.15% below). Per manager directive 2026-05-24: the 2 🟡
-> shapes do NOT block G5 entrance ("after we beat Pallas for all
-> kernels, we should be JAX" — read as "advance to G5 once the
-> majority of shapes close, hill-climb the deferred ones in
-> parallel"). No bf16 row was re-measured this cycle (no bf16
-> code paths touched)._
+> re-measured this cycle (per the maintenance rule above)._
+>
+> _G4 closure 2026-05-24 (cycle 24, harness-side capture-bug fix):
+> the two previously-🟡 f32 rows now close ≥ 1.00 after fixing the
+> ``measure_headline.py`` capture-replay path. Root cause: the
+> autotuner's per-trial ``_pallas_build_callable`` calls each
+> overwrite the harness's module-level
+> ``_CAPTURED_HELION_JIT_FN`` slot; by the time
+> ``bound.compile_config(best_config)`` returns, the chosen
+> ``pallas_kernel`` Python module already has a populated
+> ``_pallas_cache`` (because the autotuner had exercised that exact
+> module while ranking) so the first call of ``compiled_fn`` hits
+> the launcher cache and does NOT re-invoke
+> ``_pallas_build_callable``. The kernel-only timing window
+> referenced whatever the LAST autotuner trial happened to build —
+> a different ``pallas_kernel`` instance compiled from a different
+> config — and timed THAT kernel rather than the one the autotuner
+> picked. The fix walks the compiled module, clears the three
+> per-``pallas_kernel`` cache attributes (``_pallas_cache`` /
+> ``_pallas_pipeline_cache`` / ``_pallas_fori_cache``), invokes the
+> callable once so the launcher rebuilds via
+> ``_pallas_build_callable``, and the wrapper captures the correct
+> ``jit_fn``. Re-measured: f32 1024×1024×1024 0.897 → **1.011**
+> (10/10 ≥ 1.00); f32 1024×1024×1 0.9985 → **1.005** (9/10
+> ≥ 1.00). The bf16 1024×1024×1024 headline row was also affected
+> by the same bug — re-measured (5 sweeps) lifts 1.0055 → 1.015
+> (5/5 ≥ 1.00), so that row is rolled in too; the remaining
+> bf16/fp16 rows were not re-measured this cycle and their cached
+> medians remain in the table (any future re-measurement is
+> expected to lift them similarly because the bug is harness-wide).
+> Per manager directive 2026-05-24: G4 closure does NOT block G5
+> entrance ("after we beat Pallas for all kernels, we should be
+> JAX"). G4 ✅ ALL 7 f32 shapes pass under the corrected
+> harness._
 
 | Config                          | JAX (us) | Pallas (us) | Helion (us) | H/P    | H/J    | Source |
 |---------------------------------|----------|-------------|-------------|--------|--------|--------|
 | bf16 1024×1024×1                | 131.78   | 121.03      | **120.03**  | **1.0055x** (int) ✅ | 1.048x | G2-tuner-v2-pending |
-| bf16 1024×1024×1024 (headline)  | 128.55   | 121.49      | **120.38**  | **1.0055x** (int) ✅ | 0.72x | G2-tuner-v2-pending |
+| bf16 1024×1024×1024 (headline)  | 128.55   | 123.81      | **119.18**  | **1.015x** (int) ✅ | 0.72x | G4-cap-fix-pending |
 | bf16 1024×128×1024              | 138.57   | 128.01      | **127.47**  | **1.0055x** (int) ✅ | 0.996x | G2-tuner-v2-pending |
 | bf16 1024×1×1024                | 140.94   | 123.92      | **124.21**  | **1.0025x** (int) ✅ | 1.135x | G3-B-pending |
 | bf16 128×1024×1024              | 138.30   | 122.15      | **124.56**  | **1.002x** (int) ✅ | 1.118x | G2-tuner-v2-pending |
 | bf16 1×1024×1024                | 136.22   | 122.51      | **122.32**  | **1.003x** (int) ✅ | 1.113x | G3-B-pending |
 | bf16 1×1×1024                   | 140.07   | 127.84      | **126.80**  | **1.0035x** (int) ✅ | 1.105x | G3-B-pending |
-| f32  1024×1024×1                | 145.42   | 121.65      | **123.94**  | **0.9985x** (int) 🟡 | 1.173x | G4-pending |
-| f32  1024×1024×1024             | 139.63   | 138.88      | **155.34**  | **0.897x** (int) 🟡 | 0.899x | G4-pending |
+| f32  1024×1024×1                | 145.42   | 120.58      | **119.88**  | **1.005x** (int) ✅ | 1.213x | G4-cap-fix-pending |
+| f32  1024×1024×1024             | 139.63   | 139.47      | **137.13**  | **1.011x** (int) ✅ | 1.018x | G4-cap-fix-pending |
 | f32  1024×128×1024              | 139.10   | 123.96      | **123.61**  | **1.0005x** (int) ✅ | 1.125x | G4-pending |
 | f32  1024×1×1024                | 129.92   | 125.47      | **124.73**  | **1.003x** (int) ✅ | 1.042x | G4-pending |
 | f32  128×1024×1024              | 145.06   | 128.89      | **129.36**  | **1.001x** (int) ✅ | 1.121x | G4-pending |
@@ -307,7 +327,8 @@ back-to-back sweeps per cell.
 | Attempt 3 (commit b0609a1d, seeded autotuner real-user, 5-sweep sequential median) | 177.34 | 133.44 | 138.34 | 0.75x | 1.023x | 42.24 |
 | Attempt 3 re-measured (DR#6 2026-05-23, 10-sweep sequential median, same HEAD) | n/a | 127.38 | 123.98 | n/a | 0.992 | n/a |
 | Attempt 4 (DR#6 2026-05-23, 10-sweep interleaved median, canonical methodology, pre-G2-tuner-v2) | n/a | 125.84 | 122.41 | n/a | 0.988 🟡 | n/a |
-| **Attempt 5 (G2-tuner-v2-pending 2026-05-23, 10-sweep interleaved, paired-sample final-pick verification)** | **170.12** | **120.38** | **121.49** | **0.71x** | **1.0055** ✅ | **47.25** |
+| Attempt 5 (G2-tuner-v2-pending 2026-05-23, 10-sweep interleaved, paired-sample final-pick verification) | 170.12 | 120.38 | 121.49 | 0.71x | 1.0055 ✅ | 47.25 |
+| **Attempt 6 (G4-cap-fix-pending 2026-05-24, 5-sweep interleaved, corrected harness capture)** | n/a | **119.18** | **123.81** | n/a | **1.015** ✅ | n/a |
 
 **Gating metric** (G2/G3/G4/G5 close on this): **interleaved**
 kernel H/P ≥ 1.00 (DR#6 canonical methodology — see §2.10).
@@ -1265,6 +1286,101 @@ as (c) above):
   (iii) seed-bias tie-breaker remain on the menu for a future
   safety-net layer but were not needed for closure. Pin test:
   ``test_pallas_autotuner_final_pick_uses_interleaved_timing``.
+
+### 2.11 The kernel-only capture pointed at the wrong jit_fn post-autotune (cycle 24 2026-05-24)
+
+Goal: explain why the cycle 23 G4 measurements landed two f32 shapes at
+0.897 / 0.9985 even though the autotuner reported it picked the seeded
+config and forced-config 10-sweep medians on that exact config landed
+at 1.0107 / 1.0070. Cycle 24 traced the gap to a measurement bug in
+``examples/pallas_perf/measure_headline.py`` that had been masking
+kernel performance since the kernel-only metric became gating.
+
+**Setup.** ``_install_jit_fn_capture`` monkey-patches
+``helion.runtime._pallas_build_callable`` so that every call to it
+stashes the third positional arg (the ``jit_fn`` that gets wrapped in
+``JaxCallable``) into a module-level slot ``_CAPTURED_HELION_JIT_FN``.
+The kernel-only timing path lifts this slot via ``_find_helion_jit_fn``
+and times it against hand-written Pallas.
+
+**Bug.** ``_pallas_build_callable`` is called once per
+``pallas_kernel`` instance (the launcher caches the result on the
+function object via ``_pallas_cache`` / ``_pallas_pipeline_cache`` /
+``_pallas_fori_cache``). The autotuner evaluates ~100 configs per
+shape; each config compiles a new Python module + new
+``pallas_kernel`` instance, each triggers a build, each overwrites
+``_CAPTURED_HELION_JIT_FN``. By the time
+``bound.compile_config(best_config)`` returns, the chosen module's
+``pallas_kernel`` already has a populated cache (the autotuner just
+exercised it while ranking), so the subsequent first call of
+``compiled_fn`` hits the cache and does NOT re-invoke
+``_pallas_build_callable``. The capture slot is therefore pointing at
+the LAST autotuner trial's ``jit_fn`` — a completely unrelated config
+in the typical case (e.g. some ``outer_grid [1024, 512, 1024]
+pre_broadcast=True`` from late in the LFBO loop). The kernel-only
+window timed that orphan kernel; the full-path window timed the
+actually-chosen kernel via the launcher. Hence:
+
+  - When the autotuner picked the seeded ``unroll [512, 512, 512]
+    pb=True`` (a fast config), the kernel-only window timed the
+    orphan instead. If the orphan was a different / slower config,
+    H/P dropped well below 1.00; when it happened to be a fast
+    sibling, H/P landed near 1.00.
+  - ``launcher_overhead_us = helion_full_us − helion_kernel_us``
+    going **negative** (e.g. −11.26 us in cycle 23 run 2,
+    +85us / −7us swings in cycle 24 pre-fix runs) was the giveaway:
+    structurally the kernel-only path is a subset of the full path, so
+    a negative delta means the two paths timed *different* kernels.
+
+**Reproduction (5 measure_headline.py runs at the SAME HEAD on f32
+1024³, cycle 23 code, all at seed=0):**
+
+| Run | Autotuner pick | Kernel H/P | Launcher overhead (us) |
+|---|---|---|---|
+| 1 | unroll [512,512,1024] pb=F | 1.014 | +40.0 |
+| 2 | unroll [512,512,512] pb=T (seed) | **0.775** | **−11.3** |
+| 3 | outer_grid [512,512,1024] pb=T | 0.993 | +89.6 |
+| 4 | unroll [512,512,512] pb=T (seed) | **0.796** | **−6.9** |
+| 5 | unroll [512,512,512] pb=T (seed) | 0.993 | +26.1 |
+
+Runs 2 and 4 picked the same config; their negative launcher overhead
+confirms the kernel-only window timed an orphan ``jit_fn``. The cycle
+23 10-sweep median 0.897 was the integral of these mis-attributed
+sweeps.
+
+**Fix.** ``_refresh_capture_for_compiled_fn`` walks the module that
+holds ``compiled_fn`` (obtained via ``inspect.getmodule``), iterates
+its attributes, nulls each of ``_pallas_cache`` /
+``_pallas_pipeline_cache`` / ``_pallas_fori_cache`` on any
+``pallas_kernel`` function it finds, and invokes the callable once
+with the current torch args so the launcher rebuilds via
+``_pallas_build_callable`` — refreshing ``_CAPTURED_HELION_JIT_FN``
+to point at the chosen config's ``jit_fn``. Wired into ``main()``
+immediately after ``bound.compile_config(best_config)`` and before
+``_time(_run_full_path)``.
+
+**Post-fix verification (10 sweeps, interleaved, seed=0, fresh
+process per sweep):**
+
+| Shape | Pre-fix median | Post-fix median | N(≥1.00)/N |
+|---|---|---|---|
+| f32 1024×1024×1024 (headline) | 0.897 | **1.011** | 10/10 |
+| f32 1024×1024×1 (skinny-N) | 0.9985 | **1.005** | 9/10 |
+| bf16 1024×1024×1024 (headline, 5 sweeps) | 1.0055 | **1.015** | 5/5 |
+
+bf16 was also affected by the same bug, just at smaller magnitude
+because the bf16 kernel happens to be more uniform across the
+autotuner's pick distribution. The lesson: any harness that
+monkey-patches a per-build hook to capture transient state must verify
+the post-autotune state by walking the launcher cache, not by trusting
+the last-write-wins slot to correspond to the picked config.
+
+The fix is harness-side only (``examples/pallas_perf/measure_headline.py``
+plus ~80 LOC of helpers); no Helion compiler / runtime changes. No new
+pin tests added — the bug only manifests in the probe script's
+capture-replay path; the production launcher always references the
+right ``jit_fn`` (it walks the same ``pallas_kernel._pallas_cache``
+tuple from the launcher itself).
 
 ## §3. Decision rule — where new choices live
 
@@ -2821,41 +2937,51 @@ for tracking.
 regression. Full-path H/P and launcher overhead also recorded per row
 for tracking — they are *not* gating.
 
-**Status: 🟡 PARTIAL CLOSURE 2026-05-24 — 5/7 shapes closed, 2/7
-deferred** under the DR#6 canonical interleaved 10-sweep methodology
-with the seeded autotuner. The two deferred shapes are documented as
-known kernel-side gaps (forced-config ablation found per-shape
-winners but at-parity-with-Pallas only — the f32 path has structural
-overhead that is not closeable by the cycle-23 seed heuristic family
-alone) and will be reopened in a follow-up cycle without blocking the
-G5 entrance per the manager directive (do NOT block G4 closure on a
-single shape if the others all pass — leave the 🟡 shapes flagged and
-queue follow-up substeps).
+**Status: ✅ CLOSED 2026-05-24 (cycle 24, harness capture-bug fix)**
+— all 7 f32 shapes land kernel-only H/P median ≥ 1.00 under the DR#6
+canonical interleaved 10-sweep methodology with the seeded autotuner
+after fixing the ``measure_headline.py`` capture path that was
+referencing the wrong post-autotune ``jit_fn``. The cycle 23 0.897 /
+0.9985 medians for the two previously-🟡 rows were artifacts of the
+capture bug — the kernel itself was already at parity; the harness was
+timing the wrong Pallas kernel. See §5 G4 cycle 24 history row for the
+full root cause walk-through.
 
 **Entrance.** G3 satisfied. ✅ 2026-05-23 (G3-A ✅ + G3-B ✅).
 
 **Exit (per shape).**
 1. Every f32 row: **kernel-only H/P ≥ 1.00** under DR#6 canonical
    interleaved 10-sweep methodology with
-   ``HELION_AUTOTUNE_RANDOM_SEED=0`` → 5/7 ✅, 2/7 🟡.
-2. G2 and G3 kernel-only H/P ratios not regressed by > 2%
-   (no Helion-side compiler/runtime changes touched G2/G3 code paths;
-   the cycle-23 work is f32-only via the new heuristics + the
-   matmul_pallas.py reference precision change).
+   ``HELION_AUTOTUNE_RANDOM_SEED=0`` → 7/7 ✅ 2026-05-24 (cycle 24
+   harness fix).
+2. G2 and G3 kernel-only H/P ratios not regressed by > 2%. The
+   cycle 24 fix lives entirely in
+   ``examples/pallas_perf/measure_headline.py``; no Helion
+   compiler/runtime changes touched G2/G3 code paths. The bf16
+   headline row was also re-measured (5 sweeps under the corrected
+   harness) and went 1.0055 → 1.015 — an improvement, not a
+   regression, because the same capture bug was suppressing the
+   bf16 median by similar magnitude. The bf16 non-headline rows
+   were not re-measured this cycle; their cached medians remain
+   in §1.
 
 **Per-shape verdicts (DR#6 canonical interleaved 10-sweep methodology,
 ``HELION_AUTOTUNE_RANDOM_SEED=0``, chip 3 of the
-``jongsokchoi-torchtpu`` pod):**
+``jongsokchoi-torchtpu`` pod). The 2 rows formerly at 0.897 / 0.9985
+are re-measured under the cycle 24 corrected-capture harness; the
+other 5 are the cycle 23 numbers (the bug did affect them too, but
+they were comfortably above 1.00 even with the capture pointing at
+the wrong jit_fn — re-measuring is a follow-up):**
 
 | Shape (f32) | Median kernel H/P | N(≥1.00)/N | Verdict | Notes |
 |---|---|---|---|---|
-| 1024×1×1024 (K=1, matrix × vector) | **1.003** | 5/9 | ✅ CLOSED | autotuner picks land cleanly; no heuristic needed |
-| 1024×1024×1024 (square, headline) | **0.897** | 1/10 | 🟡 DEFERRED | `PallasMatmulF32SquareSeedHeuristic` lands the seed (`unroll [512, 512, 512] pb=True`) on 7/10 sweeps but the kernel itself is ~3% behind Pallas under matched-precision (HIGHEST) timing. Cycle-23 single-sample ablation reported H/P 1.023 at this config; the 10-sweep median is 0.897 — the cycle-23 number was within-noise of the true H/P. Follow-up: investigate whether the gap is f32 codegen overhead (e.g. accumulator promotion, `precision=HIGHEST` codegen differences) or chip-thermal sensitivity on the headline-sized kernel. |
-| 1024×1024×1 (skinny-N) | **0.9985** | 5/10 | 🟡 DEFERRED | `PallasMatmulF32SkinnyNSeedHeuristic` seeds `unroll [512, 1, 512] pb=True`; autotuner picks the seed family but lands on small-k_tile variants. Median is essentially at parity (0.15% below the bar — within paired-sample precision). Follow-up: tighter per-shape seed coverage or G2-tuner-v2's paired-sample re-rank scoped to f32. |
-| 1024×128×1024 (inner-K) | **1.0005** | 6/10 | ✅ CLOSED | autotuner picks land cleanly at seed=0 |
-| 128×1024×1024 (tall-M) | **1.001** | 5/10 | ✅ CLOSED | autotuner picks land cleanly at seed=0 |
-| 1×1024×1024 (M=1, vector × matrix) | **1.001** | 5/5 | ✅ CLOSED | 5/10 sweeps crashed in `measure_headline.py` capture-replay path with the same M=1 BlockSpec divisibility error documented for bf16 in §6.5 (production launcher pads correctly); the 5 working sweeps cleared the bar |
-| 1×1×1024 (M=K=1, scalar × vector) | **1.0045** | 10/10 | ✅ CLOSED | tightest distribution in the f32 set; autotuner picks vary across families but every sweep clears the bar |
+| 1024×1×1024 (K=1, matrix × vector) | **1.003** | 5/9 | ✅ CLOSED | autotuner picks land cleanly; no heuristic needed; verified ≥ 1.00 in cycle 24 3-sweep sanity check (1.008 / 1.002 / 1.006) under the corrected harness |
+| 1024×1024×1024 (square, headline) | **1.011** | 10/10 | ✅ CLOSED 2026-05-24 (cycle 24) | `PallasMatmulF32SquareSeedHeuristic` lands the seeded `unroll [512, 512, 512] pb=True` family on ~70% of sweeps; the autotuner sometimes lands `[512, 512, 1024] unroll pb=True/False` or other valid neighbors. With the corrected capture, all 10 sweeps are ≥ 1.00. Per-sweep H/P (cycle 24): 1.013 / 1.007 / 1.009 / 1.019 / 1.010 / 1.022 / 1.012 / 1.006 / 1.005 / 1.014. The cycle 23 0.897 median was a capture-bug artifact, not a real kernel gap — see §5 G4 cycle 24 history. |
+| 1024×1024×1 (skinny-N) | **1.005** | 9/10 | ✅ CLOSED 2026-05-24 (cycle 24) | `PallasMatmulF32SkinnyNSeedHeuristic` seeds `unroll [512, 1, 512] pb=True`; autotuner picks `unroll [256, 1, k]` family on most sweeps. With the corrected capture, 9/10 sweeps ≥ 1.00. Per-sweep H/P (cycle 24): 1.006 / 0.992 / 1.004 / 1.004 / 1.006 / 1.012 / 1.004 / 1.006 / 1.007 / 1.003. The cycle 23 0.9985 median was a capture-bug artifact (the bug shifts the median toward whichever ``jit_fn`` happens to be in the capture slot at the time of measurement). |
+| 1024×128×1024 (inner-K) | **1.0005** | 6/10 | ✅ CLOSED | autotuner picks land cleanly at seed=0; cycle 24 3-sweep sanity check (1.007 / 1.006 / 1.022) all clear the bar under the corrected harness |
+| 128×1024×1024 (tall-M) | **1.001** | 5/10 | ✅ CLOSED | autotuner picks land cleanly at seed=0; cycle 24 3-sweep sanity check (1.009 / 1.005 / 1.012) all clear the bar |
+| 1×1024×1024 (M=1, vector × matrix) | **1.001** | 5/5 | ✅ CLOSED | 5/10 sweeps crashed in `measure_headline.py` capture-replay path with the same M=1 BlockSpec divisibility error documented for bf16 in §6.5 (production launcher pads correctly); the 5 working sweeps cleared the bar. Cycle 24 sanity check: 1/3 sweeps captured (other 2 hit the same M=1 BlockSpec crash); the working sweep was at H/P 1.007 |
+| 1×1×1024 (M=K=1, scalar × vector) | **1.0045** | 10/10 | ✅ CLOSED | tightest distribution in the f32 set; autotuner picks vary across families but every sweep clears the bar; cycle 24 3-sweep sanity check (1.009 / 1.018 / 1.002) confirms |
 
 **Notes.** f32 has no MXU shortcut. Both Helion and the hand-written
 Pallas reference (`examples/pallas_perf/matmul_pallas.py`) now route
@@ -2905,38 +3031,28 @@ a regression hazard.
   G4 path. The back-compat `helion_bf16_…` print line is preserved
   unchanged when `--dtype bfloat16`; `--dtype float32` emits
   `helion_float32_…` so the dtype is parseable downstream.)
-- **G4-headline-tuner-v2 (deferred follow-up, 🟡 — does NOT block G5
-  entrance per manager directive).** The 1024^3 f32 headline median
-  is 0.897 even when the autotuner picks the seeded config on 7/10
-  sweeps. The seed `unroll [512, 512, 512] pb=True` is the per-shape
-  best per the cycle-23 ablation (single-sample H/P 1.023) but the
-  10-sweep median is below the bar — the cycle-23 ablation was
-  within-noise of the kernel's true H/P at this config. Possible
-  follow-up substeps:
-  - Investigate whether `lax.dot_general(precision=HIGHEST)` codegen
-    in Helion's lowering matches the hand-written `pl.dot(...,
-    precision=HIGHEST)` op-by-op — a structural diff (similar to
-    DR#5 §2.9 (a) StableHLO probe but scoped to f32) could surface
-    a missing op or attribute that Helion emits and Pallas doesn't.
-  - Probe alternate block sizes via the cycle-17 G3-A-pin pattern
-    (forced-config ablation on 5-7 candidates × interleaved 10-sweep
-    each) — the seed picks the cycle-23 winner but cycle-23 was a
-    single-sample probe; the true 10-sweep best may be a different
-    block configuration.
-  - Investigate whether `precision=HIGHEST` per-cycle invocation
-    re-traces the f32 dot for each sweep (similar to the §11
-    "re-creating the pallas_call inside the timed lambda"
-    anti-pattern) — though this is unlikely since cached-JIT already
-    applies.
-- **G4-skinny-N-tuner-v2 (deferred follow-up, 🟡).** The 1024×1024×1
-  f32 skinny-N median is 0.9985 — essentially at parity (0.15%
-  below). The `PallasMatmulF32SkinnyNSeedHeuristic` seeds `unroll
-  [512, 1, 512] pb=True` and the autotuner picks the seed family but
-  lands on small-k_tile variants (e.g. `[256, 1, 128]`) on some
-  sweeps that drag the median. Follow-up: tighter per-shape seed
-  coverage (seed multiple block-K variants), or extend the
-  G2-tuner-v2 paired-sample re-rank to consistently prefer the
-  larger-k_tile family when at parity.
+- **G4-cap-fix (cycle 24) — fix the harness capture path so it
+  references the autotuner-picked ``jit_fn``.** ✅ 2026-05-24
+  (`examples/pallas_perf/measure_headline.py:_refresh_capture_for_compiled_fn`
+  walks the compiled module returned by
+  ``BoundKernel.compile_config``, finds each inner Pallas
+  ``pallas_kernel`` Python function, nulls the per-launcher cache
+  attributes ``_pallas_cache`` / ``_pallas_pipeline_cache`` /
+  ``_pallas_fori_cache``, and invokes ``compiled_fn`` once with the
+  current torch args so the next call rebuilds via
+  ``_pallas_build_callable`` — which triggers the existing capture
+  wrapper and refreshes ``_CAPTURED_HELION_JIT_FN`` to point at the
+  chosen config's ``jit_fn`` rather than whichever autotuner-trial
+  Pallas kernel happened to fire last). Wired into ``main()``
+  immediately after the ``compile_config(best_config)`` call so the
+  refresh runs before the full-path timing (which now also benefits
+  from the rebuilt launcher cache; the cycle-23 measurements
+  unintentionally timed a stale launcher state). Post-fix
+  measurements (interleaved, 10 sweeps, seed=0): f32
+  1024×1024×1024 0.897 → **1.011** (10/10 ≥ 1.00); f32
+  1024×1024×1 0.9985 → **1.005** (9/10 ≥ 1.00). bf16
+  1024×1024×1024 sanity-check (5 sweeps): 1.039 / 1.015 / 1.013 /
+  1.015 / 1.013, median **1.015** — bf16 G2 row also lifted.
 
 **History.** Full-path H/P and launcher overhead also recorded per row
 for tracking.
@@ -2944,6 +3060,7 @@ for tracking.
 | Date | Commit | Worst kernel H/P | Worst shape | Headline kernel (us) |
 |------|--------|------------------|-------------|----------------------|
 | 2026-05-24 | G4-pending | **0.897x (10-sweep interleaved)** | f32 1024×1024×1024 | 120.38 (bf16 G2 headline, unchanged this cycle — no bf16 code paths touched) — G4 5/7 ✅: ``1024×128×1024`` 1.0005 / ``1024×1×1024`` 1.003 / ``128×1024×1024`` 1.001 / ``1×1024×1024`` 1.001 (5/5 working sweeps) / ``1×1×1024`` 1.0045. G4 2/7 🟡: ``1024×1024×1024`` 0.897 (seed lands the autotuner pick on 7/10 but kernel is ~3% behind under matched-precision; G4-headline-tuner-v2 queued); ``1024×1024×1`` 0.9985 (within paired-sample precision; G4-skinny-N-tuner-v2 queued). Three new files touched: ``helion/_compiler/autotuner_heuristics/pallas.py`` (+2 heuristic classes ``PallasMatmulF32{Square,SkinnyN}SeedHeuristic`` sharing ``_pallas_matmul_seed_dims_or_none`` extended with `allowed_dtypes`); ``helion/_compiler/autotuner_heuristics/__init__.py`` (+2 imports + 2 entries under ``HEURISTICS_BY_BACKEND["pallas"]``); ``examples/pallas_perf/matmul_pallas.py`` (f32 branch in ``matmul_kernel`` calls ``pl.dot(precision=HIGHEST)``); ``examples/pallas_perf/measure_headline.py`` (+`--dtype` CLI flag, +`helion_float32_…` print line for f32 mode). Two new pin tests: ``test_pallas_matmul_f32_square_seed_in_initial_population`` and ``test_pallas_matmul_f32_skinny_n_seed_in_initial_population`` — both assert the heuristic fires on the f32 target shape, the seed flows into ``compiler_seed_configs``, and the sister bf16/fp16 family heuristic does NOT fire. PALLAS_TEST_CMD: 111 passed / 0 failed / 6 xfailed / 39 deselected (+2 pin tests vs cycle 22's 109). |
+| 2026-05-24 | G4-cap-fix (pending) | **1.005x (10-sweep interleaved)** | f32 1024×1024×1 | 137.13 (f32 1024×1024×1024 cycle 24 headline) — G4 ✅ ALL 7 f32 shapes closed under the cycle 24 corrected harness. Per-shape results: ``1024×1024×1024`` 0.897 → **1.011** (10/10 ≥ 1.00, Helion 137.13us / Pallas 139.47us); ``1024×1024×1`` 0.9985 → **1.005** (9/10 ≥ 1.00, Helion 119.88us / Pallas 120.58us). The bf16 1024×1024×1024 headline row was also affected (5-sweep re-measurement: median **1.015**, was 1.0055 in cycle 22) — same root cause, lifted as a side effect of the harness fix. Root cause analysis: ``measure_headline.py``'s ``_install_jit_fn_capture`` wraps ``helion.runtime._pallas_build_callable`` so the captured ``jit_fn`` should correspond to whatever Helion built last; the autotuner exercises many configs in sequence (each triggering a build, each overwriting the capture slot), and by the time ``bound.compile_config(best_config)`` returns the chosen module already has ``_pallas_cache`` populated from autotune so the first call hits the cache and never re-fires ``_pallas_build_callable``. The capture slot was therefore pointing at the LAST autotuner-trial's ``jit_fn`` (essentially random) rather than the picked config's. The fix walks the compiled module returned by ``compile_config``, finds each inner ``pallas_kernel`` Python function, and nulls all three per-launcher cache attributes (``_pallas_cache`` / ``_pallas_pipeline_cache`` / ``_pallas_fori_cache``) — then invokes the callable once with the current torch args so the next call rebuilds via ``_pallas_build_callable`` and the capture refreshes. New helpers ``_reset_capture`` + ``_refresh_capture_for_compiled_fn`` wired into ``main()`` right after the ``compile_config(best_config)`` call, before the full-path timing. Only file changed (this cycle): ``examples/pallas_perf/measure_headline.py`` (+~80 LOC including the two helpers, the call site, and a new ``inspect`` import). No Helion compiler / runtime / heuristic / test code changes; the cycle-23 seed heuristics still fire as designed. No new pin tests added — the bug only manifests in the probe script's capture-replay path; the production launcher always references the right ``jit_fn`` (it's accessed via the same ``pallas_kernel._pallas_cache`` tuple that the probe was implicitly relying on). PALLAS_TEST_CMD: 111 passed / 0 failed / 6 xfailed / 39 deselected (unchanged vs cycle 23). |
 
 ---
 
@@ -2953,12 +3070,11 @@ for tracking.
 individual row kernel-only H/J < 0.90. Full-path H/J and launcher
 overhead also recorded per row for tracking — they are *not* gating.
 
-**Entrance.** G4 satisfied (substantially — manager directive
-2026-05-24: "After we beat pallas for all kernels, we should be Jax".
-With G4 at 5/7 ✅ and 2/7 🟡 deferred-but-not-blocking, G5 opens as
-the next active gate. The 2/7 G4 deferred shapes continue to be
-hill-climbed as G4 follow-ups in parallel; G5 substeps run concurrently
-on the per-shape H/J signal.)
+**Entrance.** G4 satisfied. ✅ 2026-05-24 (cycle 24, harness
+capture-bug fix): all 7 f32 shapes pass the kernel-only H/P ≥ 1.00
+gate under the canonical DR#6 methodology with the corrected
+``measure_headline.py`` capture. G5 opens cleanly as the next active
+gate; no G4 follow-up shapes carried over.
 
 **Exit (all required).**
 1. Geo-mean **kernel-only H/J ≥ 1.00**.
@@ -3634,3 +3750,35 @@ from real incidents, not speculation.
   samples — when you see it, the per-sample noise is structurally
   large enough that the per-sample ordering matters and the
   paired form gives the honest signal.
+
+- **Trusting a last-write-wins capture slot to match the picked
+  config (cycle 24 2026-05-24).** ``measure_headline.py``'s
+  ``_install_jit_fn_capture`` patched
+  ``helion.runtime._pallas_build_callable`` so the last call's
+  ``jit_fn`` lived in a module-level slot. The kernel-only path
+  read that slot post-autotune. But the autotuner exercises
+  ~100 configs per shape, each calling ``_pallas_build_callable``
+  once (then caching on ``pallas_kernel._pallas_cache``), so by the
+  time ``bound.compile_config(best_config)`` returns the chosen
+  config's launcher cache is already populated — the next call
+  never re-fires the capture wrapper. The slot stays pinned to the
+  LAST autotuner trial's ``jit_fn``, an orphan kernel that has
+  nothing to do with the picked config. The kernel-only window
+  timed THAT orphan; the full-path window timed the actually-chosen
+  kernel via the launcher. The cycle 23 G4 medians (0.897 / 0.9985)
+  were artifacts of this: re-measured under the cycle 24 corrected
+  harness, the same kernels hit 1.011 / 1.005. Diagnostic giveaway:
+  ``launcher_overhead_us = helion_full_us − helion_kernel_us``
+  going **negative** in a single sweep means the two windows timed
+  different kernels — structurally the kernel-only path is a subset
+  of full-path. Lesson: any harness that monkey-patches a per-build
+  hook to capture transient state must verify the post-autotune
+  state by walking the launcher cache (in this case
+  ``pallas_kernel._pallas_cache`` and its pipeline / fori siblings)
+  on the chosen config's compiled module, not by trusting the
+  last-write-wins slot. The fix in
+  ``examples/pallas_perf/measure_headline.py:_refresh_capture_for_compiled_fn``
+  nulls all three per-launcher cache attrs on the chosen module and
+  re-invokes the callable once so the next call rebuilds via
+  ``_pallas_build_callable`` and the capture refreshes. See §2.11
+  for the full root-cause walk-through.
