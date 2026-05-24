@@ -1,59 +1,58 @@
 """Single-shape headline measurements for bf16 matmul (default 1024x1024x1024).
 
-Emits two complementary metrics in one run (G2-closure dual-metric setup,
-per the manager's cycle-15 decision):
+Cycle-18 autotuner-seed refactor (manager directive 2026-05-23): the
+prior pinned-config path (``_PINNED_KERNEL_ONLY_CONFIGS``) was a
+measurement crutch that bypassed the autotuner entirely. Real Helion
+users never get the pinned configs — only our measurement did, so
+closing G2 / G3-A on the pinned medians measured a *kernel-quality
+ceiling*, not the *real-user* experience. The fix: seed the autotuner
+deterministically (``HELION_AUTOTUNE_RANDOM_SEED``) so every measurement
+run picks the same config. The autotuner-picked config is what users
+get; the seed makes it reproducible; the remaining per-sweep variance
+is only chip thermal noise.
 
-1. **Full-path metric** (tracked, not gating): Helion via ``torch_tpu``
-   end-to-end (the production user-facing path) vs hand-written Pallas
-   via pure JAX. Captures launcher overhead AND torch_tpu C++ dispatch.
-   The full-path measurement uses the **autotuner-picked** config
-   (matches production behavior).
+This script now emits **two** Helion measurements per shape (both at
+the autotuner-picked config; pinning is gone):
 
-2. **Kernel-only metric** (gating for G2/G3/G4/G5): Helion's generated
-   Pallas kernel pulled out of the launcher cache and invoked through
-   ``jax.jit(pl.pallas_call(...))`` with JAX arrays, identical to how
-   the hand-written Pallas reference is invoked. Isolates the kernel
-   body from launcher / torch_tpu dispatch overhead. For shapes with a
-   known-best ablated config (registered in
-   ``_PINNED_KERNEL_ONLY_CONFIGS``) the kernel-only measurement uses a
-   pinned config so the per-sweep signal is deterministic
-   (autotuner-pick variance is the dominant noise source for
-   kernel-only timing -- see plan.md §2.9 (h)).  Shapes not in the
-   table fall back to the autotuner's full-path pick for the
-   kernel-only timing, which gives an apples-to-apples kernel-vs-
-   kernel comparison without speculative per-shape pinning.  A
-   ``--kernel-only-config`` CLI flag overrides both the pin table and
-   the autotuner fallback for one-off ablation runs.
-
-The kernel-only path is built by patching ``helion.runtime._pallas_build_callable``
-to stash the JAX ``jit_fn`` argument (``pl.pallas_call(...)``) right
-before Helion wraps it in torch_tpu's ``JaxCallable`` (which throws away
-the original ``jit_fn`` reference by ``jax.export``-serializing the body
-into a binary blob bound to ``call_custom_kernel``). The captured
-``jit_fn`` is re-wrapped in ``jax.jit`` to match the JaxCallable
-construction site, and we time it directly with JAX inputs -- identical
-to the way the hand-written ``pallas_matmul`` reference is called.
+1. **Real-user full-path** (production behavior): Helion via
+   ``torch_tpu`` end-to-end at the autotuner-picked config. Includes
+   launcher overhead AND torch_tpu C++ dispatch.
+2. **Real-user kernel-only** (gating since cycle 18): Helion's
+   generated Pallas kernel pulled out of the launcher cache at the
+   *autotuner-picked* config and invoked through
+   ``jax.jit(pl.pallas_call(...))`` with JAX arrays, identical to the
+   hand-written Pallas reference. Isolates the kernel body from
+   launcher / torch_tpu dispatch overhead.
 
 CLI:
 
 ```
 python measure_headline.py                    # default bf16 1024x1024x1024
 python measure_headline.py --shape 1024 128 1024
+python measure_headline.py --seed 7           # override default seed (0)
 ```
 
 Output (parseable lines, one per metric):
 
 ```
-helion_full_path_bf16_<M>x<K>x<N> [autotuner pick: <config>]: median=<us> us
-helion_kernel_only_bf16_<M>x<K>x<N> [<pin label>]: median=<us> us
-pallas_kernel_only_bf16_<M>x<K>x<N>: median=<us> us
+helion_bf16_<M>x<K>x<N>: median=<us> us                                                  # back-compat full-path
+helion_full_path_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us
+helion_kernel_only_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us
+pallas_kernel_only_<M>x<K>x<N>: median=<us> us
 full_path_H_over_P: <ratio>
-kernel_only_H_over_P: <ratio>
-launcher_overhead_us: <helion_full - helion_kernel_only> us
+kernel_only_H_over_P: <ratio>     # GATING since cycle 18 (real-user, seeded autotuner)
+launcher_overhead_us: <full - kernel> us
 ```
 
-The ``helion_bf16_<shape>`` legacy line (full-path median) is also
-emitted for back-compat with older log scrapers.
+The kernel-only path is built by patching
+``helion.runtime._pallas_build_callable`` to stash the JAX ``jit_fn``
+argument (``pl.pallas_call(...)``) right before Helion wraps it in
+torch_tpu's ``JaxCallable`` (which throws away the original ``jit_fn``
+reference by ``jax.export``-serializing the body into a binary blob
+bound to ``call_custom_kernel``). The captured ``jit_fn`` is re-wrapped
+in ``jax.jit`` to match the JaxCallable construction site, and we time
+it directly with JAX inputs — identical to the way the hand-written
+``pallas_matmul`` reference is called.
 
 Timing convention matches the production harness everywhere: 20 iters
 x 5 repeats, warmup excluded, ``synchronize_device`` (or
@@ -68,16 +67,20 @@ import sys
 import timeit
 from typing import Callable
 
-# Force full autotuning effort to mirror the production harness; set before
-# importing helion so the value is picked up at autotuner initialization.
+# Force full autotuning effort + seed the autotuner deterministically;
+# set before importing helion so the values are picked up at autotuner
+# initialization. Cycle-18 reproducibility refactor (manager directive
+# 2026-05-23): ``HELION_AUTOTUNE_RANDOM_SEED`` pins the random sampling
+# trajectory through config space; the CLI ``--seed`` flag overrides
+# the default 0 for multi-seed sweeps (real-user H/P distribution).
 os.environ.setdefault("HELION_AUTOTUNE_EFFORT", "full")
+os.environ.setdefault("HELION_AUTOTUNE_RANDOM_SEED", "0")
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
 
-import helion
 from helion._testing import DEVICE
 from helion.autotuner.benchmarking import synchronize_device
 
@@ -89,49 +92,8 @@ from matmul_pallas import pallas_matmul  # pyrefly: ignore [missing-import]
 
 # Default (headline) shape for back-compat with the legacy single-shape probe.
 _DEFAULT_SHAPE: tuple[int, int, int] = (1024, 1024, 1024)
-
-# Per-shape pinned configs for the kernel-only measurement. The headline
-# (1024, 1024, 1024) entry is the Deep Replan §2.5 row 2 known-best
-# ``emit_pipeline [512, 512, 512] pb=False`` family (161us full-path /
-# ~126us kernel-only); the G3-A entries are the per-shape ablation winners
-# (single-sweep us picked from a 3-4 candidate set per shape, then verified
-# 5-sweep). Kernel-only timing is deterministic at these pinned configs
-# (no autotuner picks leaking into the per-sweep signal), unlike the
-# full-path measurement which still goes through the autotuner per
-# plan.md §7.1. Shapes not in the table fall back to the autotuner's
-# full-path pick for kernel-only too (see ``_resolve_kernel_only_config``
-# below).
-_PINNED_KERNEL_ONLY_CONFIGS: dict[tuple[int, int, int], helion.Config] = {
-    (1024, 1024, 1024): helion.Config(
-        block_sizes=[512, 512, 512],
-        pallas_loop_type="emit_pipeline",
-        pallas_pre_broadcast=False,
-    ),
-    (1024, 1024, 1): helion.Config(
-        block_sizes=[1024, 1024, 1],
-        pallas_loop_type="unroll",
-        pallas_pre_broadcast=True,
-    ),
-    (1024, 128, 1024): helion.Config(
-        block_sizes=[1024, 128, 128],
-        pallas_loop_type="emit_pipeline",
-        pallas_pre_broadcast=False,
-    ),
-    (128, 1024, 1024): helion.Config(
-        block_sizes=[128, 1024, 1024],
-        pallas_loop_type="unroll",
-        pallas_pre_broadcast=True,
-    ),
-}
-
-
-def _pin_label(config: helion.Config) -> str:
-    loop_type = config.config.get("pallas_loop_type", "unroll")
-    pre_broadcast = bool(config.config.get("pallas_pre_broadcast", False))
-    return (
-        f"pinned: {loop_type} {list(config.block_sizes)} "
-        f"pb={'T' if pre_broadcast else 'F'}"
-    )
+# Default autotuner seed mirrored from the env var setdefault above.
+_DEFAULT_AUTOTUNE_SEED = int(os.environ["HELION_AUTOTUNE_RANDOM_SEED"])
 
 
 # Module-level slot populated by ``_install_jit_fn_capture`` whenever
@@ -213,76 +175,15 @@ def _time(fn: Callable[[], object], n_iter: int = 20, n_repeats: int = 5) -> flo
     return float(np.median(samples)) * 1e6
 
 
-def _resolve_kernel_only_config(
-    shape: tuple[int, int, int],
-    autotuned_config: helion.Config,
-    override_config: helion.Config | None = None,
-) -> tuple[helion.Config | None, str]:
-    """Pick the kernel-only Helion config for ``shape``.
-
-    Resolution order:
-      1. ``override_config`` (CLI ``--kernel-only-config``) wins
-         outright -- the caller pinned a specific config for one-off
-         ablation; pin it without consulting the table.
-      2. Shapes registered in ``_PINNED_KERNEL_ONLY_CONFIGS`` use their
-         per-shape pin -- the G2 closure / G3-A-pin known-bests.
-      3. Otherwise return ``(None, ...)`` so the caller reuses the
-         autotuner's full-path pick for the kernel-only timing too --
-         still apples-to-apples vs the hand-written Pallas reference at
-         its own best block.
-
-    Returns ``(config_to_recompile, label)``. When ``config_to_recompile``
-    is ``None``, the caller should reuse the already-captured full-path
-    autotuner ``jit_fn``; otherwise the caller should ``compile_config``
-    the returned config to trigger a fresh ``_pallas_build_callable``
-    capture.
-    """
-    if override_config is not None:
-        return override_config, _pin_label(override_config) + " (CLI override)"
-    if shape in _PINNED_KERNEL_ONLY_CONFIGS:
-        config = _PINNED_KERNEL_ONLY_CONFIGS[shape]
-        return config, _pin_label(config)
-    return None, f"autotuner pick: {autotuned_config}"
-
-
-def _parse_kernel_only_config(spec: str) -> helion.Config:
-    """Parse a ``--kernel-only-config`` argument of the form
-    ``<loop_type>:<bm>,<bk>,<bn>:<pb>`` (e.g. ``emit_pipeline:512,512,512:F``).
-
-    Used by per-shape ablation harnesses that drive ``measure_headline.py``
-    once per candidate config to time the kernel-only path. ``<pb>`` is
-    ``T`` or ``F`` for ``pallas_pre_broadcast``.
-    """
-    parts = spec.split(":")
-    if len(parts) != 3:
-        raise argparse.ArgumentTypeError(
-            f"expected --kernel-only-config of form "
-            f"'<loop_type>:<bm>,<bk>,<bn>:<T|F>' (got {spec!r})"
-        )
-    loop_type, block_str, pb_str = parts
-    block_sizes = [int(x) for x in block_str.split(",")]
-    if len(block_sizes) != 3:
-        raise argparse.ArgumentTypeError(
-            f"expected 3 block sizes in --kernel-only-config (got {block_str!r})"
-        )
-    if pb_str not in ("T", "F"):
-        raise argparse.ArgumentTypeError(
-            "expected T or F for pre_broadcast in --kernel-only-config "
-            f"(got {pb_str!r})"
-        )
-    return helion.Config(
-        block_sizes=block_sizes,
-        pallas_loop_type=loop_type,
-        pallas_pre_broadcast=(pb_str == "T"),
-    )
-
-
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Measure Helion (full-path + kernel-only) vs hand-written Pallas "
-            "for a single bf16 matmul shape. Defaults to the bf16 1024x1024x1024 "
-            "headline."
+            "Measure Helion (real-user full-path + real-user kernel-only) "
+            "vs hand-written Pallas for a single bf16 matmul shape. "
+            "Defaults to the bf16 1024x1024x1024 headline. The Helion "
+            "autotuner is seeded via ``HELION_AUTOTUNE_RANDOM_SEED`` so "
+            "every run picks the same config — real-user metric, "
+            "reproducible."
         )
     )
     parser.add_argument(
@@ -294,15 +195,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Matmul shape as three ints: M K N (default: 1024 1024 1024).",
     )
     parser.add_argument(
-        "--kernel-only-config",
-        type=_parse_kernel_only_config,
+        "--seed",
+        type=int,
         default=None,
-        metavar="LOOP_TYPE:BM,BK,BN:PB",
         help=(
-            "Override the per-shape pin table for the kernel-only timing. "
-            "Format: '<loop_type>:<bm>,<bk>,<bn>:<T|F>' "
-            "(e.g. 'emit_pipeline:512,512,512:F'). Used by per-shape "
-            "ablation harnesses; not needed for routine cycle runs."
+            "Autotuner random seed. Defaults to 0 (or whatever the "
+            "``HELION_AUTOTUNE_RANDOM_SEED`` env var is set to BEFORE "
+            "the script is imported). Overriding here re-sets the env "
+            "var, but only takes effect if the autotuner reads the seed "
+            "at autotune time rather than import time — kept as a CLI "
+            "for multi-seed sweep harnesses."
         ),
     )
     return parser.parse_args(argv)
@@ -311,7 +213,20 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     m, k, n = args.shape
-    shape: tuple[int, int, int] = (m, k, n)
+
+    # If CLI seed was given, re-set the env var. ``Settings`` reads the
+    # env var via ``_get_autotune_random_seed`` at the point the
+    # ``Settings`` instance is constructed (typically the first time
+    # ``@helion.kernel`` decorates a function), so this override is
+    # effective whenever the kernel hasn't already been bound. Setting
+    # it before ``bound = helion_matmul_kernel.bind(...)`` is the
+    # safest place — ``Settings`` for ``helion_matmul_kernel`` is
+    # already constructed at import time, but ``base_search.prepare()``
+    # uses ``self.settings.autotune_random_seed`` which is read from
+    # the live env if not pre-cached. For belt-and-suspenders we set
+    # both the env var AND seed the Python global ``random`` here.
+    seed = args.seed if args.seed is not None else _DEFAULT_AUTOTUNE_SEED
+    os.environ["HELION_AUTOTUNE_RANDOM_SEED"] = str(seed)
 
     torch.manual_seed(0)
     x_torch = torch.randn((m, k), dtype=torch.bfloat16, device=DEVICE)
@@ -319,17 +234,26 @@ def main(argv: list[str] | None = None) -> None:
     y_torch = torch.randn((k, n), dtype=torch.bfloat16, device=DEVICE)
 
     # Install the ``_pallas_build_callable`` capture so we can lift the
-    # final compiled config's ``jit_fn`` for the kernel-only path.
+    # autotuner-picked ``jit_fn`` (real-user kernel-only) out of Helion's
+    # cache.
     _install_jit_fn_capture()
 
     # ----- Helion full-path: bind + autotune + compile + run (production path).
-    # Same ``bound`` instance is reused for any pinned compile_config below
-    # (the Helion compile cache keys on Config equality so the two compiles
-    # produce different cache entries -- and therefore different
-    # ``_pallas_build_callable`` invocations + captures).
     bound = helion_matmul_kernel.bind((x_torch, y_torch))
+    # Force a fresh autotune at the seeded random state so seed determines
+    # the pick (``force=True`` bypasses the autotune cache). The kernel's
+    # ``Settings`` already read ``HELION_AUTOTUNE_RANDOM_SEED`` from the
+    # env at decoration time; setting the env var above is a no-op for
+    # the already-constructed Settings instance. The autotuner reads
+    # ``settings.autotune_random_seed`` from its own Settings reference,
+    # which IS the same Settings instance — so to actually override it
+    # mid-process we patch the live settings here.
+    bound.kernel.settings.autotune_random_seed = seed  # type: ignore[attr-defined]
     best_config = bound.autotune((x_torch, y_torch), force=True)
-    print(f"Optimal autotuned config: {best_config}", file=sys.stderr)
+    print(
+        f"Optimal autotuned config (seed={seed}): {best_config}",
+        file=sys.stderr,
+    )
     compiled_fn = bound.compile_config(best_config, allow_print=False)
 
     def _run_full_path() -> None:
@@ -340,38 +264,17 @@ def main(argv: list[str] | None = None) -> None:
     # Back-compat line for older log scrapers.
     print(f"helion_bf16_{m}x{k}x{n}: median={helion_full_us:.2f} us")
     print(
-        f"helion_full_path_bf16_{m}x{k}x{n} "
-        f"[autotuner pick: {best_config}]: median={helion_full_us:.2f} us"
+        f"helion_full_path_{m}x{k}x{n} "
+        f"[autotuner pick: {best_config}, seed={seed}]: "
+        f"median={helion_full_us:.2f} us"
     )
 
     # Snapshot the autotuner-picked ``jit_fn`` (captured during the
-    # ``compile_config(best_config)`` above) before any further
-    # ``compile_config`` calls overwrite the module-level slot. Non-headline
-    # shapes time the kernel-only metric against this snapshot.
+    # ``compile_config(best_config)`` above) for the kernel-only
+    # measurement.
     autotuned_jit_fn = _find_helion_jit_fn()
 
-    # ----- Helion kernel-only: compile the pinned config explicitly so the
-    # capture patch records a deterministic, known-best kernel jit_fn rather
-    # than whatever the autotuner happened to pick this run (the autotuner
-    # optimises *full-path* time, which is not necessarily optimal for the
-    # kernel-only signal; per-sweep autotuner-pick variance is the dominant
-    # source of kernel-only timing noise -- see plan.md §2.9 (h)).
-    kernel_only_config, kernel_only_label = _resolve_kernel_only_config(
-        shape, best_config, override_config=args.kernel_only_config
-    )
-    if kernel_only_config is not None:
-        pinned_compiled_fn = bound.compile_config(kernel_only_config, allow_print=False)
-        # The pinned compile_config caches a fresh pallas_kernel; running it
-        # once triggers ``_pallas_build_callable`` and the capture patch
-        # records the pinned config's ``jit_fn`` as the most-recent capture.
-        pinned_compiled_fn(x_torch, y_torch)
-        synchronize_device(x_torch)
-        jit_fn = _find_helion_jit_fn()
-    else:
-        # No pin candidate for this shape; reuse the autotuner-picked
-        # ``jit_fn`` captured above.
-        jit_fn = autotuned_jit_fn
-
+    # ----- Materialise JAX inputs once for the kernel-only timings.
     # The cached pallas_call's input refs are ordered as
     # ``[tensor_inputs..., output_only_refs...]``; Helion's matmul has no
     # output-only input that needs a host-side buffer here -- the kernel
@@ -385,14 +288,17 @@ def main(argv: list[str] | None = None) -> None:
     y_jax = jax.device_put(jax.random.normal(key1, (k, n), dtype=jnp.bfloat16))
     jax.block_until_ready((x_jax, y_jax))
 
+    # ----- Helion kernel-only: time the autotuner-picked ``jit_fn``
+    # (what real users get) through the pure-JAX path.
     def _run_helion_kernel_only() -> None:
-        out = jit_fn(x_jax, y_jax)
+        out = autotuned_jit_fn(x_jax, y_jax)
         jax.block_until_ready(out)
 
     helion_kernel_us = _time(_run_helion_kernel_only)
     print(
-        f"helion_kernel_only_bf16_{m}x{k}x{n} "
-        f"[{kernel_only_label}]: median={helion_kernel_us:.2f} us"
+        f"helion_kernel_only_{m}x{k}x{n} "
+        f"[autotuner pick: {best_config}, seed={seed}]: "
+        f"median={helion_kernel_us:.2f} us"
     )
 
     # ----- Pallas reference kernel-only: hand-written ``pallas_matmul`` via
@@ -407,15 +313,15 @@ def main(argv: list[str] | None = None) -> None:
         jax.block_until_ready(out)
 
     pallas_kernel_us = _time(_run_pallas_kernel_only)
-    print(f"pallas_kernel_only_bf16_{m}x{k}x{n}: median={pallas_kernel_us:.2f} us")
+    print(f"pallas_kernel_only_{m}x{k}x{n}: median={pallas_kernel_us:.2f} us")
 
     # ----- Derived ratios.
-    full_path_h_over_p = pallas_kernel_us / helion_full_us
-    kernel_only_h_over_p = pallas_kernel_us / helion_kernel_us
+    full_h_over_p = pallas_kernel_us / helion_full_us
+    kernel_h_over_p = pallas_kernel_us / helion_kernel_us
     launcher_overhead_us = helion_full_us - helion_kernel_us
 
-    print(f"full_path_H_over_P: {full_path_h_over_p:.3f}")
-    print(f"kernel_only_H_over_P: {kernel_only_h_over_p:.3f}")
+    print(f"full_path_H_over_P: {full_h_over_p:.3f}")
+    print(f"kernel_only_H_over_P: {kernel_h_over_p:.3f}")
     print(f"launcher_overhead_us: {launcher_overhead_us:.2f} us")
 
 
