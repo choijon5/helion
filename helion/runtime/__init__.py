@@ -554,6 +554,29 @@ def _reset_call_custom_kernel_direct_hits() -> None:
     _CALL_CUSTOM_KERNEL_DIRECT_HITS = 0
 
 
+# Pin-test counter for host-side output meta-tensor allocations.  Static-shape
+# kernels cache the placeholder once on the inner device function (bumps once
+# per output slot); dynamic-shape kernels bump on every call.
+_OUTPUT_TENSOR_ALLOCATIONS = 0
+
+
+def _output_tensor_allocations() -> int:
+    """Return the count of generated-host-code output meta allocations."""
+    return _OUTPUT_TENSOR_ALLOCATIONS
+
+
+def _reset_output_tensor_allocations() -> None:
+    """Reset the output-meta-allocation counter (test instrumentation)."""
+    global _OUTPUT_TENSOR_ALLOCATIONS
+    _OUTPUT_TENSOR_ALLOCATIONS = 0
+
+
+def _bump_output_tensor_allocations() -> None:
+    """Increment the output-meta-allocation counter (called from generated host code)."""
+    global _OUTPUT_TENSOR_ALLOCATIONS
+    _OUTPUT_TENSOR_ALLOCATIONS += 1
+
+
 @dataclass(slots=True)
 class _DirectCallKernel:
     """Pre-captured metadata for a direct ``call_custom_kernel`` invocation.

@@ -878,10 +878,21 @@ def generate_ast(
             output_only_names = getattr(
                 CompileEnvironment.current().backend, "_output_only_names", []
             )
+            output_meta_init_stmts: list[ast.stmt] = []
             if output_only_names:
                 oo_set = set(output_only_names)
+                # ``static_shapes=True``: hoist the output-only meta placeholder
+                # ``torch.empty(..., device='meta')`` to a one-shot cache slot
+                # on the inner device function (shape/dtype/device are constant).
+                # ``static_shapes=False`` keeps the per-call allocation.
+                cache_static_shapes = (
+                    CompileEnvironment.current().settings.static_shapes
+                )
+                inner_fn_name = codegen.device_function.name
+                cached_meta_index = 0
+                new_host_statements: list[ast.AST] = []
                 for stmt in codegen.host_statements:
-                    if (
+                    if not (
                         isinstance(stmt, ast.Assign)
                         and len(stmt.targets) == 1
                         and isinstance(stmt.targets[0], ast.Name)
@@ -889,12 +900,39 @@ def generate_ast(
                         and not getattr(stmt, "_is_kernel_call", False)
                         and isinstance(stmt.value, ast.Call)
                     ):
-                        call = stmt.value
-                        call.keywords = [
-                            kw for kw in call.keywords if kw.arg != "device"
-                        ] + [
-                            ast.keyword(arg="device", value=ast.Constant(value="meta"))
-                        ]
+                        new_host_statements.append(stmt)
+                        continue
+                    call = stmt.value
+                    call.keywords = [
+                        kw for kw in call.keywords if kw.arg != "device"
+                    ] + [ast.keyword(arg="device", value=ast.Constant(value="meta"))]
+                    if not cache_static_shapes:
+                        new_host_statements.append(stmt)
+                        continue
+                    varname = stmt.targets[0].id
+                    cache_attr = f"_helion_output_meta_cache_{cached_meta_index}"
+                    cached_meta_index += 1
+                    # Replace the per-call ``torch.empty`` with a cache-slot read
+                    # plus an ``if None: build + bump`` first-call population.
+                    # The slot is initialized to ``None`` via
+                    # ``output_meta_init_stmts`` (inserted between the inner
+                    # device-function def and the host function def).
+                    get_stmt = statement_from_string(
+                        f"{varname} = {inner_fn_name}.{cache_attr}"
+                    )
+                    if_template = (
+                        f"if {varname} is None:\n"
+                        f"    {varname} = {{__orig_call__}}\n"
+                        f"    {inner_fn_name}.{cache_attr} = {varname}\n"
+                        f"    _helion_runtime._bump_output_tensor_allocations()\n"
+                    )
+                    if_stmt = statement_from_string(if_template, __orig_call__=call)
+                    new_host_statements.extend([get_stmt, if_stmt])
+                    output_meta_init_stmts.append(
+                        statement_from_string(f"{inner_fn_name}.{cache_attr} = None")
+                    )
+                if cache_static_shapes and output_meta_init_stmts:
+                    codegen.host_statements = new_host_statements
 
             # Inject RNG seed buffer creation if needed
             rng_statements = (
@@ -1075,6 +1113,10 @@ def generate_ast(
                 *codegen.module_statements,
                 *codegen.device_function.codegen_helper_functions(),
                 *kernel_def,
+                # Init per-output cache slots to ``None`` on the inner device
+                # function (between kernel_def and host_def so host_def sees
+                # the slots).  Empty for non-static / no-output-only kernels.
+                *output_meta_init_stmts,
                 *generated_direct_entry_defs,
                 host_def,
                 *call_def,

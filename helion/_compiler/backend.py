@@ -1167,6 +1167,9 @@ class PallasBackend(Backend):
             "_default_pallas_launcher": "from helion.runtime import default_pallas_launcher as _default_pallas_launcher",
             "_default_pallas_pipeline_launcher": "from helion.runtime import default_pallas_pipeline_launcher as _default_pallas_pipeline_launcher",
             "_default_pallas_fori_launcher": "from helion.runtime import default_pallas_fori_launcher as _default_pallas_fori_launcher",
+            # For the output-meta cache bump in generated host code
+            # (see ``output_meta_init_stmts`` in ``generate_ast.py``).
+            "_helion_runtime": "import helion.runtime as _helion_runtime",
         }
 
     # Config keys that Pallas actually uses.  Everything else
