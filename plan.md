@@ -4296,6 +4296,79 @@ G5's prior closure.
 
 ---
 
+### G7 — Push Helion kernel quality past JAX/Pallas parity (reopen 2026-05-25)
+
+**Manager directive (2026-05-25)**: G6 closed at Helion ceiling under
+the `Helion-side only` constraint. Audience is **torch_tpu users**.
+Even with kernel +10% improvement, full-path H/J only moves 0.73 →
+~0.79 because the structural torch_tpu wrapper still dominates. **G7
+pursues kernel-quality improvements as an intrinsic engineering goal**
+— for torch_tpu users, this means real per-call speedup on the kernel
+portion of every call, independent of the wrapper tax.
+
+**Goal**: kernel H/P median ≥ 1.10 (Helion 10% faster than hand-written
+Pallas) AND kernel H/J median ≥ 1.10 (Helion 10% faster than JAX) under
+unified 4-way paired sampling. We're currently at H/P 1.026-1.039 and
+kH/J 0.998-1.016. Need another 6-9% kernel speedup.
+
+**Honest expectation**: each substep gives 1-3% kernel improvement.
+Stacking 3-5 substeps could plausibly reach H/P 1.05-1.10 (and kH/J
+similar). Pushing to 1.10+ on every shape would require novel
+Helion-DSL-specific kernel patterns that hand-written Pallas didn't
+explore — genuinely hard research, not just tuning.
+
+**Entrance.** G6 closed at Helion ceiling (cycle 32 ✅).
+
+**Exit (all required).**
+1. Kernel H/P median ≥ 1.05 across geo-mean of 14 shapes.
+2. Kernel H/J median ≥ 1.05 across geo-mean of 14 shapes.
+3. PALLAS_TEST_CMD clean.
+4. No G2/G3/G4/G5/G6 closure regressed.
+
+**Stretch exit**: kernel H/P AND kernel H/J both ≥ 1.10 geo-mean.
+
+**Substep menu** (data-driven; pursue in order of expected leverage):
+
+- **G7-Mosaic** _(1-2 cycles)_. Explore Mosaic `CompilerParams` we
+  haven't touched: `vmem_limit_bytes`, `cost_estimate`,
+  `dimension_semantics` corrections, scoped VMEM hints. These are
+  per-pallas_call kwargs the user doesn't normally tune; Helion's
+  autotuner doesn't currently explore them. Expected: 1-3% per shape on
+  shapes that hit VMEM pressure.
+
+- **G7-cluster** _(2-3 cycles)_. TPU v7 supports cluster grids
+  (multiple SMs cooperating). Pallas exposes this via
+  `pltpu.PrefetchScalarGridSpec` + cluster config. Helion's `outer_grid`
+  strategy lowers to a 2D grid today; extending to a cluster grid
+  could exploit TPU v7's interconnect bandwidth on large shapes.
+  Expected: 2-5% on the 1024×1024×1024 family; 0% on skinny shapes.
+
+- **G7-search** _(1-2 cycles, gated on G7-Mosaic + G7-cluster
+  landing)_. After new lowering levers exist, expand the autotuner's
+  search to cover them. May need to bump search budget, add new
+  config-space dimensions, or add Pareto-frontier tracking. Expected:
+  surfaces wins from the new levers; 1-2% headline incremental.
+
+- **G7-algo** _(speculative, 2-4 cycles)_. Investigate algorithmic
+  kernel rewrites Helion can express but hand-written Pallas didn't
+  try: split-K accumulation in mid-precision, asymmetric tiling
+  (different bm vs bn), Pallas micro-kernels for matmul-fused-
+  bias/scale/quant fusions. Expected: shape-specific, hit-or-miss.
+
+**G7 ceiling clause**: if all 4 substeps land structurally but kernel
+H/P + H/J don't move ≥ 5%, mark G7 ✅ AT HELION CEILING with
+attribution to "hand-written Pallas is already near the chip's matmul
+ceiling on TPU v7; Helion-DSL-specific gains beyond this require
+hardware-architecture changes or novel algorithmic patterns out of
+scope for matmul." Don't stack more substeps without Deep Replan.
+
+**History.** _(append one row per cycle)_
+
+| Date | Commit | Substep | Kernel H/P | Kernel H/J | Notes |
+|------|--------|---------|------------|------------|-------|
+
+---
+
 ## §6. Deferred work (open blockers)
 
 _(Each entry: what's deferred, why, explicit re-open criterion.)_
