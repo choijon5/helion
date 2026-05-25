@@ -627,6 +627,50 @@ def _reset_call_custom_kernel_direct_hits() -> None:
     _CALL_CUSTOM_KERNEL_DIRECT_HITS = 0
 
 
+# Per-call host-side output ``torch.Tensor`` allocations performed by the
+# generated launcher wrapper.  For ``static_shapes=True`` kernels the
+# generated host function caches the meta-device placeholder for each
+# output-only tensor as a function attribute on the inner Helion-emitted
+# function so the per-call ``torch.empty(..., device='meta')`` (~2us)
+# only runs once at first invocation; subsequent calls reuse the cached
+# placeholder.  This counter increments exactly once per cached slot
+# (i.e. once per output-only tensor, the first time it is built); pin
+# tests assert that ``N`` repeat calls produce no additional
+# increments.
+#
+# For dynamic-shape kernels the generated host function still allocates
+# a fresh meta placeholder each call (shape may change), so the
+# counter bumps on every call.
+_OUTPUT_TENSOR_ALLOCATIONS = 0
+
+
+def _output_tensor_allocations() -> int:
+    """Return the count of generated-host-code output meta allocations.
+
+    Test instrumentation: pin tests assert that a static-shape Pallas
+    kernel allocates each output-only meta placeholder exactly once
+    across ``1 + n_repeats`` consecutive calls.
+    """
+    return _OUTPUT_TENSOR_ALLOCATIONS
+
+
+def _reset_output_tensor_allocations() -> None:
+    """Reset the output-meta-allocation counter (test instrumentation)."""
+    global _OUTPUT_TENSOR_ALLOCATIONS
+    _OUTPUT_TENSOR_ALLOCATIONS = 0
+
+
+def _bump_output_tensor_allocations() -> None:
+    """Increment the output-meta-allocation counter.
+
+    Called from generated host code on each fresh meta-tensor allocation
+    (i.e. on the cache-population path for ``static_shapes=True`` kernels,
+    or on every call for dynamic-shape kernels).
+    """
+    global _OUTPUT_TENSOR_ALLOCATIONS
+    _OUTPUT_TENSOR_ALLOCATIONS += 1
+
+
 @dataclass(slots=True)
 class _DirectCallKernel:
     """Pre-captured metadata for a direct ``call_custom_kernel`` invocation.

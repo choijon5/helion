@@ -2550,6 +2550,118 @@ class TestPallas(TestCase):
             "Three repeat calls must each hit the direct-dispatch path.",
         )
 
+    def test_pallas_launcher_caches_output_tensor(self) -> None:
+        """Static-shape kernel caches the per-call output meta placeholder.
+
+        The generated host code's ``torch.empty(..., device='meta')`` for
+        each output-only tensor is hoisted to a one-shot cache slot
+        attached to the inner Helion-emitted function (see the
+        ``output_meta_init_stmts`` block in
+        ``helion/_compiler/generate_ast.py``).  On a
+        ``static_shapes=True`` kernel the output shape / dtype / device
+        are constant across calls, so the meta placeholder is built
+        exactly once on the first call and reused on every subsequent
+        call; the runtime counter
+        ``helion.runtime._OUTPUT_TENSOR_ALLOCATIONS`` is bumped exactly
+        once per cached slot.
+        """
+        from helion import runtime as helion_runtime
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_output_meta_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_output_meta_pin.bind((x, y))
+        config = bound.config_spec.default_config()
+        compiled_fn = bound.compile_config(config)
+
+        helion_runtime._reset_output_tensor_allocations()
+        self.assertEqual(helion_runtime._output_tensor_allocations(), 0)
+
+        # First call populates the cache and bumps the counter once.
+        # Save the result so we can confirm bitwise equality vs a
+        # freshly-compiled baseline (which proves that the cached meta
+        # placeholder does not contaminate the result).
+        reference = compiled_fn(x, y).clone()
+        self.assertEqual(
+            helion_runtime._output_tensor_allocations(),
+            1,
+            "First call must allocate the meta placeholder exactly once.",
+        )
+
+        # Repeat invocations: the cache slot is now populated, so the
+        # ``if out is None`` branch in the generated host code does not
+        # fire and the counter stays at 1.
+        n_repeats = 10
+        for _ in range(n_repeats):
+            result = compiled_fn(x, y)
+            self.assertTrue(
+                torch.equal(result, reference),
+                "Output diverged after cached meta-placeholder reuse "
+                f"(max_abs_diff="
+                f"{(result.float() - reference.float()).abs().max().item()}).",
+            )
+        self.assertEqual(
+            helion_runtime._output_tensor_allocations(),
+            1,
+            f"Repeat calls must reuse the cached meta placeholder; "
+            f"expected exactly 1 allocation across "
+            f"{1 + n_repeats} calls, got "
+            f"{helion_runtime._output_tensor_allocations()}.",
+        )
+
+        # Compare to a freshly-compiled baseline kernel (no caching
+        # state on the inner device function): the result must be
+        # bitwise identical, proving the cache only stores the meta
+        # placeholder (zero-storage metadata only), not any kernel
+        # output bytes.
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_output_meta_baseline(
+            x: torch.Tensor, y: torch.Tensor
+        ) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        bound_baseline = _matmul_output_meta_baseline.bind((x, y))
+        baseline_fn = bound_baseline.compile_config(
+            bound_baseline.config_spec.default_config()
+        )
+        baseline_result = baseline_fn(x, y)
+        self.assertTrue(
+            torch.equal(reference, baseline_result),
+            "Cached-meta result diverged from freshly-compiled baseline "
+            f"(max_abs_diff="
+            f"{(reference.float() - baseline_result.float()).abs().max().item()}).",
+        )
+
     def test_bmm(self) -> None:
         """Test BMM with default config — exercises size_matches fix.
 
