@@ -31,6 +31,7 @@ from .._utils import triton_is_available
 from .config import Config as Config
 from .kernel import Kernel as Kernel
 from .kernel import kernel as kernel
+from .settings import is_pallas_interpret as _module_is_pallas_interpret
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -577,14 +578,35 @@ def _bump_output_tensor_allocations() -> None:
     _OUTPUT_TENSOR_ALLOCATIONS += 1
 
 
+# Pin-test counter for direct-dispatch sig-check elisions on the sig-locked
+# fast path (after the first match flips ``_DirectCallKernel.sig_locked``).
+_DIRECT_CALL_SIG_CHECKS_SKIPPED = 0
+
+
+def _direct_call_sig_checks_skipped() -> int:
+    """Return the count of direct-dispatch sig-check elisions."""
+    return _DIRECT_CALL_SIG_CHECKS_SKIPPED
+
+
+def _reset_direct_call_sig_checks_skipped() -> None:
+    """Reset the sig-check-skip counter (test instrumentation)."""
+    global _DIRECT_CALL_SIG_CHECKS_SKIPPED
+    _DIRECT_CALL_SIG_CHECKS_SKIPPED = 0
+
+
 @dataclass(slots=True)
 class _DirectCallKernel:
     """Pre-captured metadata for a direct ``call_custom_kernel`` invocation.
 
     Built lazily on the first call of a static-shape Pallas kernel and
     attached to the launcher cache so subsequent calls bypass
-    ``JaxCallable.__call__``.  ``sig`` guards against shape changes on a
-    reused cache entry (mismatch falls back to the JaxCallable slow path).
+    ``JaxCallable.__call__``.  ``sig`` guards against shape changes (mismatch
+    falls back to JaxCallable); ``sig_locked`` flips after the first match so
+    later calls skip the sig check.  ``invoke`` / ``full_invoke`` are
+    pre-baked closures populated by ``_build_direct_call_invoke`` and
+    ``_maybe_bake_full_invoke``; ``full_invoke`` falls back to the
+    ``_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE`` sentinel for kernel shapes that
+    can't be pre-baked safely.
     """
 
     call_custom_kernel: object
@@ -595,6 +617,131 @@ class _DirectCallKernel:
     out_tree: object
     alias_items: tuple[tuple[int, int], ...]
     sig: tuple[object, ...]
+    invoke: object
+    full_invoke: object = None
+    sig_locked: bool = False
+
+
+def _bump_direct_locked_counters() -> None:
+    """Bump both locked-direct-dispatch counters as one call (saves two
+    LOAD_GLOBAL/STORE_GLOBAL pairs in the closure)."""
+    global _CALL_CUSTOM_KERNEL_DIRECT_HITS, _DIRECT_CALL_SIG_CHECKS_SKIPPED
+    _CALL_CUSTOM_KERNEL_DIRECT_HITS += 1
+    _DIRECT_CALL_SIG_CHECKS_SKIPPED += 1
+
+
+def _build_direct_call_invoke(
+    call_custom_kernel: object,
+    kernel_name: str,
+    kernel_key: str,
+    output_shapes: object,
+    donate_argnums: object,
+    out_tree: object,
+    alias_items: tuple[tuple[int, int], ...],
+) -> object:
+    """Pre-bake a closure that runs the direct-dispatch hot path; two variants
+    (no-alias / with-alias) avoid a per-call branch on ``alias_items``."""
+    if not alias_items:
+
+        def invoke_no_alias(input_tensors: list[object]) -> object:
+            results = call_custom_kernel(  # type: ignore[operator]
+                kernel_name,
+                kernel_key,
+                inputs=input_tensors,
+                output_shapes=output_shapes,
+                donate_argnums=donate_argnums,
+            )
+            return out_tree.unflatten(results)  # type: ignore[attr-defined]
+
+        return invoke_no_alias
+
+    def invoke_with_alias(input_tensors: list[object]) -> object:
+        results = call_custom_kernel(  # type: ignore[operator]
+            kernel_name,
+            kernel_key,
+            inputs=input_tensors,
+            output_shapes=output_shapes,
+            donate_argnums=donate_argnums,
+        )
+        for in_idx, out_idx in alias_items:
+            input_tensors[in_idx].copy_(results[out_idx])  # type: ignore[attr-defined]
+        return out_tree.unflatten(results)  # type: ignore[attr-defined]
+
+    return invoke_with_alias
+
+
+def _build_direct_call_full_invoke(
+    call_custom_kernel: object,
+    kernel_name: str,
+    kernel_key: str,
+    output_shapes: object,
+    donate_argnums: object,
+    out_tree: object,
+    alias_items: tuple[tuple[int, int], ...],
+    tensor_arg_indices: tuple[int, ...],
+    output_only_count: int,
+) -> object | None:
+    """Pre-bake the full locked-path closure: folds the cache-hit branch,
+    ``_pallas_invoke_and_return_fast``, and ``invoke_*`` into one call.
+
+    Returns the matmul / pure-output variant for ``output_only_count == 1``
+    with no aliases, the in-place variant for ``output_only_count == 0``,
+    else ``None`` (multi-output / mixed: launcher falls back to
+    ``_pallas_invoke_and_return_fast``).
+    """
+    bump_counters = _bump_direct_locked_counters
+
+    if output_only_count == 1 and not alias_items:
+
+        def full_invoke_pure_output(args: tuple[object, ...]) -> object:
+            bump_counters()
+            input_tensors = [
+                args[i].contiguous()  # type: ignore[attr-defined]
+                for i in tensor_arg_indices
+            ]
+            results = call_custom_kernel(  # type: ignore[operator]
+                kernel_name,
+                kernel_key,
+                inputs=input_tensors,
+                output_shapes=output_shapes,
+                donate_argnums=donate_argnums,
+            )
+            # Mirror the regular fast-path single-output short-circuit;
+            # fall through to unflatten on non-tensor results (interpret mode).
+            if isinstance(results, torch.Tensor):
+                return results
+            if isinstance(results, (tuple, list)) and len(results) == 1:
+                first = results[0]
+                if isinstance(first, torch.Tensor):
+                    return first
+            return out_tree.unflatten(results)  # type: ignore[attr-defined]
+
+        return full_invoke_pure_output
+
+    if output_only_count == 0:
+
+        def full_invoke_inplace_only(args: tuple[object, ...]) -> object | None:
+            bump_counters()
+            input_tensors = [
+                args[i].contiguous()  # type: ignore[attr-defined]
+                for i in tensor_arg_indices
+            ]
+            results = call_custom_kernel(  # type: ignore[operator]
+                kernel_name,
+                kernel_key,
+                inputs=input_tensors,
+                output_shapes=output_shapes,
+                donate_argnums=donate_argnums,
+            )
+            for in_idx, out_idx in alias_items:
+                input_tensors[in_idx].copy_(results[out_idx])  # type: ignore[attr-defined]
+            return None
+
+        return full_invoke_inplace_only
+
+    # Multi-output / mixed: post-call filter/re-pack isn't safely pre-bakable
+    # without diverging from the regular path; fall back.
+    return None
 
 
 _HELION_STATIC_JAX_CALLABLE_CLASS: type | None = None
@@ -656,7 +803,19 @@ def _make_helion_static_jax_callable_class() -> type:
             )
             alias_items = tuple(self.input_output_aliases.items())
             # Stash the launcher-side direct-call structure so the next call
-            # can bypass this ``__call__`` entirely.
+            # can bypass this ``__call__`` entirely.  Pre-bake ``invoke`` now
+            # so the hot path skips the attribute walk + kwargs dict alloc.
+            # ``full_invoke`` is populated lazily by the launcher (it needs
+            # ``tensor_arg_indices`` / ``fast_path.output_only_count``).
+            invoke = _build_direct_call_invoke(
+                tpu_torch_pallas.call_custom_kernel,
+                self.name,
+                kernel_key,
+                output_shapes,
+                self.donate_argnums,
+                out_tree,
+                alias_items,
+            )
             self._helion_direct_call = _DirectCallKernel(
                 call_custom_kernel=tpu_torch_pallas.call_custom_kernel,
                 kernel_name=self.name,
@@ -666,6 +825,7 @@ def _make_helion_static_jax_callable_class() -> type:
                 out_tree=out_tree,
                 alias_items=alias_items,
                 sig=sig_tuple,
+                invoke=invoke,
             )
             return result
 
@@ -765,6 +925,33 @@ def _pallas_apply_ds_padding_fast(
     return tuple(args_list), orig_output_tensors, True
 
 
+_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE: object = object()
+
+
+def _maybe_bake_full_invoke(
+    direct_call: _DirectCallKernel,
+    fast_path: _LauncherFastPath,
+    tensor_arg_indices: list[int],
+) -> None:
+    """Populate ``direct_call.full_invoke`` once sig has locked and the path
+    is safe (no ds-padding).  Sets the ``_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE``
+    sentinel for kernels ``_build_direct_call_full_invoke`` can't pre-bake."""
+    invoke = _build_direct_call_full_invoke(
+        direct_call.call_custom_kernel,
+        direct_call.kernel_name,
+        direct_call.kernel_key,
+        direct_call.output_shapes,
+        direct_call.donate_argnums,
+        direct_call.out_tree,
+        direct_call.alias_items,
+        tuple(tensor_arg_indices),
+        fast_path.output_only_count,
+    )
+    direct_call.full_invoke = (
+        invoke if invoke is not None else _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+    )
+
+
 def _pallas_invoke_and_return_fast(
     jax_callable: object,
     args: tuple[object, ...],
@@ -778,26 +965,26 @@ def _pallas_invoke_and_return_fast(
         cast("torch.Tensor", args[i]).contiguous() for i in tensor_arg_indices
     ]
     if direct_call is not None:
-        # Guard on shape/dtype sig: mismatch (dynamic shape reusing cache entry)
-        # falls back to the JaxCallable slow path.
-        direct_sig: tuple[object, ...] = tuple(
-            (a.shape, a.dtype) for a in input_tensors
-        )
-        if direct_sig == direct_call.sig:
-            global _CALL_CUSTOM_KERNEL_DIRECT_HITS
+        # Once the sig matches once, grid-keyed cache + static_shapes makes
+        # subsequent sig checks constant-True; skip them on the locked path
+        # and call the pre-baked ``invoke`` closure directly.
+        global _CALL_CUSTOM_KERNEL_DIRECT_HITS, _DIRECT_CALL_SIG_CHECKS_SKIPPED
+        if direct_call.sig_locked:
             _CALL_CUSTOM_KERNEL_DIRECT_HITS += 1
-            results = direct_call.call_custom_kernel(  # type: ignore[operator]
-                direct_call.kernel_name,
-                direct_call.kernel_key,
-                inputs=input_tensors,
-                output_shapes=direct_call.output_shapes,
-                donate_argnums=direct_call.donate_argnums,
-            )
-            for in_idx, out_idx in direct_call.alias_items:
-                input_tensors[in_idx].copy_(results[out_idx])
-            results = direct_call.out_tree.unflatten(results)  # type: ignore[attr-defined]
+            _DIRECT_CALL_SIG_CHECKS_SKIPPED += 1
+            results = direct_call.invoke(input_tensors)  # type: ignore[operator]
         else:
-            results = jax_callable(*input_tensors)  # type: ignore[operator]
+            # First direct-dispatch call: verify sig, flip the lock on match.
+            # Mismatch (dynamic shape reusing cache) falls back to JaxCallable.
+            direct_sig: tuple[object, ...] = tuple(
+                (a.shape, a.dtype) for a in input_tensors
+            )
+            if direct_sig == direct_call.sig:
+                _CALL_CUSTOM_KERNEL_DIRECT_HITS += 1
+                direct_call.sig_locked = True
+                results = direct_call.invoke(input_tensors)  # type: ignore[operator]
+            else:
+                results = jax_callable(*input_tensors)  # type: ignore[operator]
     else:
         results = jax_callable(*input_tensors)  # type: ignore[operator]
 
@@ -808,6 +995,14 @@ def _pallas_invoke_and_return_fast(
 
     if results is None:
         return None
+    # Hot single-output (matmul) short-circuit: skip the generic loop.
+    if (
+        output_only_count == 1
+        and _orig_output_tensors is None
+        and isinstance(results, torch.Tensor)
+    ):
+        return results
+
     if not isinstance(results, (tuple, list)):
         results = (results,)
 
@@ -1259,17 +1454,8 @@ def default_pallas_launcher(
     are excluded from pallas_call inputs to save VMEM.  Their results are
     returned as torch tensors.
     """
-    from .settings import is_pallas_interpret
-
-    interpret = (
-        _pallas_interpret if _pallas_interpret is not None else is_pallas_interpret()
-    )
-    if interpret:
-        _ensure_cpu_tpu_info()
-
-    if _output_indices is None:
-        _output_indices = []
-
+    # ``interpret`` is computed in the slow path only: the cache-hit branch
+    # never uses it (interpret mode is implicit in the cached ``jax_callable``).
     cache = getattr(pallas_kernel, "_pallas_cache", None)
     if cache is not None and cache[0] == grid:
         global _LAUNCHER_FAST_PATH_HITS
@@ -1282,8 +1468,17 @@ def default_pallas_launcher(
             fast_path,
             direct_call,
         ) = cache
-        # Lazily lift the direct-call kernel off the JaxCallable subclass
-        # once the first call has populated it.
+        # Fastest path: once ``full_invoke`` is populated (lazy bake below),
+        # skip ``_pallas_invoke_and_return_fast`` entirely with one attr call.
+        if direct_call is not None:
+            full_invoke = direct_call.full_invoke
+            if (
+                full_invoke is not None
+                and full_invoke is not _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+            ):
+                return full_invoke(args)  # type: ignore[operator]
+
+        # Lazily lift the direct-call kernel off the JaxCallable subclass.
         if direct_call is None:
             direct_call = getattr(jax_callable, "_helion_direct_call", None)
             if direct_call is not None:
@@ -1304,11 +1499,32 @@ def default_pallas_launcher(
                 fast_path,
                 fast_path.padded_output_arg_indices,
             )
+        # Lazily bake ``full_invoke`` once sig has locked and path is safe.
+        if (
+            direct_call is not None
+            and direct_call.sig_locked
+            and _orig_output_tensors is None
+            and not (_ds_pad_dims and fast_path.ds_pad_required is not False)
+            and direct_call.full_invoke is None
+        ):
+            _maybe_bake_full_invoke(direct_call, fast_path, tensor_arg_indices)
+
         # Cache-hit elides ``_pallas_check_dtypes``: the first call already validated.
         return _pallas_invoke_and_return_fast(
             jax_callable, args, fast_path, _orig_output_tensors, direct_call
         )
     else:  # noqa: RET505
+        interpret = (
+            _pallas_interpret
+            if _pallas_interpret is not None
+            else _module_is_pallas_interpret()
+        )
+        if interpret:
+            _ensure_cpu_tpu_info()
+
+        if _output_indices is None:
+            _output_indices = []
+
         _orig_output_tensors = None
         if _ds_pad_dims:
             args, _orig_output_tensors = _pallas_apply_ds_padding(
@@ -1454,19 +1670,6 @@ def default_pallas_pipeline_launcher(
     (listed in ``_pipeline_arg_indices``) use HBM refs; all other tensors
     get proper BlockSpecs for automatic VMEM prefetch.
     """
-    from .settings import is_pallas_interpret
-
-    interpret = (
-        _pallas_interpret if _pallas_interpret is not None else is_pallas_interpret()
-    )
-    if interpret:
-        _ensure_cpu_tpu_info()
-
-    if _output_indices is None:
-        _output_indices = []
-    if _scratch_shapes is None:
-        _scratch_shapes = []
-
     cache = getattr(pallas_kernel, "_pallas_pipeline_cache", None)
     if cache is not None and cache[0] == grid:
         global _LAUNCHER_FAST_PATH_HITS
@@ -1479,6 +1682,14 @@ def default_pallas_pipeline_launcher(
             fast_path,
             direct_call,
         ) = cache
+        if direct_call is not None:
+            full_invoke = direct_call.full_invoke
+            if (
+                full_invoke is not None
+                and full_invoke is not _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+            ):
+                return full_invoke(args)  # type: ignore[operator]
+
         if direct_call is None:
             direct_call = getattr(jax_callable, "_helion_direct_call", None)
             if direct_call is not None:
@@ -1499,10 +1710,31 @@ def default_pallas_pipeline_launcher(
                 fast_path,
                 fast_path.padded_output_arg_indices,
             )
+        if (
+            direct_call is not None
+            and direct_call.sig_locked
+            and _orig_output_tensors is None
+            and not (_ds_pad_dims and fast_path.ds_pad_required is not False)
+            and direct_call.full_invoke is None
+        ):
+            _maybe_bake_full_invoke(direct_call, fast_path, tensor_arg_indices)
         return _pallas_invoke_and_return_fast(
             jax_callable, args, fast_path, _orig_output_tensors, direct_call
         )
     else:  # noqa: RET505
+        interpret = (
+            _pallas_interpret
+            if _pallas_interpret is not None
+            else _module_is_pallas_interpret()
+        )
+        if interpret:
+            _ensure_cpu_tpu_info()
+
+        if _output_indices is None:
+            _output_indices = []
+        if _scratch_shapes is None:
+            _scratch_shapes = []
+
         _orig_output_tensors = None
         if _ds_pad_dims:
             args, _orig_output_tensors = _pallas_apply_ds_padding(
@@ -1681,19 +1913,6 @@ def default_pallas_fori_launcher(
     The kernel uses ``jax.lax.fori_loop`` with ``pltpu.make_async_copy``
     internally for DMA control.
     """
-    from .settings import is_pallas_interpret
-
-    interpret = (
-        _pallas_interpret if _pallas_interpret is not None else is_pallas_interpret()
-    )
-    if interpret:
-        _ensure_cpu_tpu_info()
-
-    if _output_indices is None:
-        _output_indices = []
-    if _scratch_shapes is None:
-        _scratch_shapes = []
-
     cache = getattr(pallas_kernel, "_pallas_fori_cache", None)
     if cache is not None and cache[0] == grid:
         global _LAUNCHER_FAST_PATH_HITS
@@ -1706,6 +1925,14 @@ def default_pallas_fori_launcher(
             fast_path,
             direct_call,
         ) = cache
+        if direct_call is not None:
+            full_invoke = direct_call.full_invoke
+            if (
+                full_invoke is not None
+                and full_invoke is not _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+            ):
+                return full_invoke(args)  # type: ignore[operator]
+
         if direct_call is None:
             direct_call = getattr(jax_callable, "_helion_direct_call", None)
             if direct_call is not None:
@@ -1726,10 +1953,31 @@ def default_pallas_fori_launcher(
                 fast_path,
                 fast_path.padded_output_arg_indices,
             )
+        if (
+            direct_call is not None
+            and direct_call.sig_locked
+            and _orig_output_tensors is None
+            and not (_ds_pad_dims and fast_path.ds_pad_required is not False)
+            and direct_call.full_invoke is None
+        ):
+            _maybe_bake_full_invoke(direct_call, fast_path, tensor_arg_indices)
         return _pallas_invoke_and_return_fast(
             jax_callable, args, fast_path, _orig_output_tensors, direct_call
         )
     else:  # noqa: RET505
+        interpret = (
+            _pallas_interpret
+            if _pallas_interpret is not None
+            else _module_is_pallas_interpret()
+        )
+        if interpret:
+            _ensure_cpu_tpu_info()
+
+        if _output_indices is None:
+            _output_indices = []
+        if _scratch_shapes is None:
+            _scratch_shapes = []
+
         _orig_output_tensors = None
         if _ds_pad_dims:
             args, _orig_output_tensors = _pallas_apply_ds_padding(
