@@ -4501,6 +4501,55 @@ the residual full-path gap (full H/J ~0.73) is structurally inside
 torch_tpu's `call_custom_kernel` C++ wrapper (§6.4 (b)) which is not
 addressable from Helion's Python.
 
+**G7 ceiling-verification (DR#7, reopen 2026-05-25)**: the cycle-35 G7
+closure is based on **indirect evidence** (Helion ≈ Pallas ≈ JAX
+converge under unified methodology; 3 substeps landed no-gain). Before
+declaring G7 ceiling FINAL, gather **direct evidence** via Deep Replan
+#7 — 4 verification tracks:
+
+1. **Measured TFLOPS vs TPU v7 peak**: per shape, compute `2·M·K·N/us`
+   → measured TFLOPS. Compare to TPU v7 published bf16 peak (~918
+   TFLOPs/s per chip) and f32 peak. Per-shape MXU utilization %; any
+   shape < 90% peak suggests unfound headroom and re-opens G7
+   substep menu with concrete bound.
+2. **Roofline classification**: per-shape arithmetic intensity
+   (FLOPs/byte) vs peak FLOPS vs peak HBM bandwidth on TPU v7.
+   Compute-bound shapes hit the FLOPS ceiling we're attributing to;
+   memory-bound or latency-bound shapes have a different ceiling and
+   require different levers (DMA pipelining, prefetch, etc.).
+3. **XProfile / jax.profiler trace analysis**: `jax.profiler.start_trace`
+   produces `.xplane.pb` TPU traces with MXU/DMA/scheduler counters.
+   Parse via `jax.profiler.ProfileData` API (programmatic — `xprof`
+   binary and `tensorboard_plugin_profile` are NOT installed on the
+   pod; analysis is scripted, not GUI). Extract per-shape MXU
+   utilization %, DMA stall %, scheduling overhead. MXU > 90%
+   utilization confirms the kernel is at MXU peak; DMA stall > 10%
+   or scheduling overhead > 5% indicates a non-MXU bottleneck.
+4. **XLA HLO dump comparison**: `XLA_FLAGS=--xla_dump_to=…` (verified
+   working on pod — produces module files in dump dir) for each path
+   (Helion's `jit`, hand-Pallas's `jit`, JAX `jnp.matmul`'s `jit`).
+   Diff structurally to confirm functional similarity. Identical (or
+   trivially-different) HLO is strong evidence of shared lowering;
+   divergent HLO indicates each path takes different ops and may
+   have headroom we haven't found.
+
+**DR#7 verdict rules**:
+- All 4 tracks confirm "at MXU ceiling" (TFLOPS ≥ 90% peak; matched
+  HLO across paths; MXU > 90% utilized in profile; roofline
+  compute-bound) → G7 ✅ CEILING FINAL with verified direct
+  attribution. Loop genuinely stops here.
+- Any track shows headroom (utilization < 90%, divergent HLO, DMA
+  stall > 10%, memory-bound shape) → re-open G7 substep menu with
+  the specific diagnostic pointing at the gap; new substep proposals
+  flow from the data.
+- Mixed results (some shapes at ceiling, some with headroom) → close
+  the at-ceiling shapes per the cycle-35 ceiling clause; queue
+  substep(s) only for the headroom shapes.
+
+DR#7 is a 1-cycle Deep Replan; harness + plan changes only, no Helion
+source. Output: this section gets a verdict block with the 4-track
+data; G7 substep menu either ✅ finalizes or re-opens with new substeps.
+
 **History.** _(append one row per cycle)_
 
 | Date | Commit | Substep | Kernel H/P | Kernel H/J | Notes |
