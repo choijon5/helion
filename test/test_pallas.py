@@ -2550,6 +2550,102 @@ class TestPallas(TestCase):
             "Three repeat calls must each hit the direct-dispatch path.",
         )
 
+    def test_pallas_direct_call_sig_check_locks_on_static_shapes(self) -> None:
+        """Static-shape kernel locks the per-call sig check on first match.
+
+        G5-launcher-Y squeeze (2026-05-25 plan.md §5 G5-launcher-Y):
+        once the launcher's direct-dispatch path sees one successful
+        ``direct_sig == direct_call.sig`` match on a launcher cache
+        entry, the per-call tuple build + comparison is provably
+        constant-True (the launcher cache is grid-keyed and a
+        grid-stable cache hit on a static-shape kernel implies
+        shape-stable args).  The first match flips
+        ``_DirectCallKernel.sig_locked`` to ``True`` so subsequent calls
+        skip the per-call tuple build + comparison entirely and bump
+        ``helion.runtime._DIRECT_CALL_SIG_CHECKS_SKIPPED``.
+
+        The test asserts: calls 1 (slow path, populates cache) + 2
+        (first direct-dispatch hit, sig matches, lock flips) do NOT
+        bump the skip counter; calls 3..N each skip the sig check and
+        bump the counter exactly once per call.  Output equality is
+        preserved (the lock is safe under static_shapes=True).
+        """
+        from helion import runtime as helion_runtime
+
+        # Define inside the test so the launcher cache is fresh and
+        # not polluted by other tests that bind the same kernel.
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_sig_lock_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_sig_lock_pin.bind((x, y))
+        config = bound.config_spec.default_config()
+        compiled_fn = bound.compile_config(config)
+
+        helion_runtime._reset_direct_call_sig_checks_skipped()
+        self.assertEqual(helion_runtime._direct_call_sig_checks_skipped(), 0)
+
+        # Call 1: slow path (seeds the JaxCallable cache; no
+        # direct-dispatch yet, no sig check, no skip).
+        reference = compiled_fn(x, y).clone()
+        self.assertEqual(
+            helion_runtime._direct_call_sig_checks_skipped(),
+            0,
+            "First call must be the slow path; no sig check yet.",
+        )
+
+        # Call 2: first direct-dispatch call.  Runs the sig check,
+        # matches, flips ``sig_locked``.  Does NOT bump the skip
+        # counter (the lock only takes effect on subsequent calls).
+        result = compiled_fn(x, y)
+        self.assertTrue(
+            torch.equal(result, reference),
+            "Direct-dispatch first-match call output diverged "
+            "(max_abs_diff="
+            f"{(result.float() - reference.float()).abs().max().item()}).",
+        )
+        self.assertEqual(
+            helion_runtime._direct_call_sig_checks_skipped(),
+            0,
+            "First sig-match call must run the sig check, not skip it.",
+        )
+
+        # Calls 3..N: sig_locked is True; each call skips the per-call
+        # tuple build + comparison and bumps the skip counter.
+        n_repeats = 5
+        for _ in range(n_repeats):
+            result = compiled_fn(x, y)
+            self.assertTrue(
+                torch.equal(result, reference),
+                "Sig-locked direct-dispatch call output diverged "
+                "(max_abs_diff="
+                f"{(result.float() - reference.float()).abs().max().item()}).",
+            )
+        self.assertEqual(
+            helion_runtime._direct_call_sig_checks_skipped(),
+            n_repeats,
+            f"Sig-locked direct-dispatch calls must each skip the "
+            f"sig check; expected {n_repeats} skips, got "
+            f"{helion_runtime._direct_call_sig_checks_skipped()}.",
+        )
+
     def test_pallas_launcher_caches_output_tensor(self) -> None:
         """Static-shape kernel caches the per-call output meta placeholder.
 
