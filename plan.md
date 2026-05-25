@@ -3898,6 +3898,90 @@ and ``stop``.
 
 ---
 
+### G6 — Push Helion-side ceiling: kernel 10% over Pallas + C-extension launcher (reopen 2026-05-25)
+
+**Manager directive (2026-05-25)**: G5 closed AT HELION CEILING at full
+H/J ~0.73 with the launcher-Python ceiling exhausted. User wants to
+push the Helion-side ceiling higher in two complementary directions:
+
+1. **Kernel quality > Pallas**: aim for kernel H/P ≥ 1.10 (Helion 10%
+   faster than hand-written Pallas), capturing the headroom Pallas
+   currently has over JAX on most shapes (P/J 1.046–1.183 per cycle 26
+   §1).
+2. **Launcher overhead < CPython floor**: write a C extension for the
+   `_DirectCallKernel` hot path to eliminate the ~11us irreducible
+   CPython per-frame overhead.
+
+**Realistic ceiling under this gate** (per arithmetic):
+
+| Stage | Kernel H/P | Launcher us | Full H/J (vs JAX ~130us) |
+|---|---|---|---|
+| Current (G5 closure) | ~1.00 | ~46 | ~0.73 |
+| + G6-kernel-A (10% over Pallas) | 1.10 | ~46 | ~0.83 |
+| + G6-launcher-C (C extension) | 1.10 | ~35 | ~0.90 |
+
+Closes Helion-side at full H/J ~0.90. Beating JAX full-path
+(`full_path_H_over_J ≥ 1.00`) is structurally blocked by the §6.4
+torch_tpu C++ wrapper (~35us); remains out-of-scope per the
+"Helion-side only" constraint until DLPack-on-TPU lands or
+torch_tpu maintainers reduce the wrapper.
+
+**Entrance.** G5 closed at Helion ceiling (cycle 30 ✅).
+
+**Exit (all required).**
+1. Kernel H/P median ≥ 1.10 across geo-mean of 14 shapes (G6-kernel-A
+   target) under canonical paired-sample methodology.
+2. Launcher overhead vs JAX ≤ 36us median on bf16 1024³ headline
+   (G6-launcher-C target).
+3. Full H/J ≥ 0.85 median across 14 shapes (combined target).
+4. PALLAS_TEST_CMD clean.
+5. No G2/G3/G4/G5 closure regressed (kernel H/P stays ≥ 1.00 on every
+   shape).
+
+**Substeps**:
+
+- **G6-methodology-v2** _(1 cycle, prerequisite)_. Unified 4-way paired
+  sampling: time Helion-full + Helion-kernel + Pallas + JAX all in the
+  same per-iteration timing window. Fixes the inconsistency where
+  cycle-22-24's 2-way (Helion vs Pallas) closures gave H/P ≈ 1.00 but
+  cycle-26's mixed 2-way/3-way data shows Helion below Pallas under
+  more rigorous methodology. Without this, every G6-kernel substep's
+  H/P claim is ambiguous. Per-shape verification × 10 sweeps after the
+  refactor; report any G2/G3/G4 closures that need re-marking under the
+  unified metric.
+
+- **G6-kernel-A** _(N cycles, depends on data)_. Per-shape pin /
+  seed-heuristic work targeting the Pallas-headroom shapes — i.e.,
+  shapes where `P/J > Helion/J` under 4-way paired methodology. For
+  each shape with headroom ≥ 0.05 (Helion is at least 5% below Pallas
+  in kernel-only us), run a forced-config ablation across the
+  Pallas-best-config family; promote winners to
+  `compiler_seed_configs` via new heuristics. Acceptance: per-shape
+  kernel H/P median ≥ 1.05 (closing half of Pallas's headroom is a
+  reasonable target); gate exit at geo-mean kernel H/P ≥ 1.10 across
+  the 14 shapes.
+
+- **G6-launcher-C** _(1-2 cycles, contained)_. Write a small C
+  extension (or Cython module) for `_DirectCallKernel.full_invoke`'s
+  locked path. Eliminates the ~11us irreducible Python per-frame
+  overhead identified by G5-launcher-Z attribution. Acceptance:
+  launcher overhead vs JAX median ≤ 36us on the headline; full H/J ≥
+  0.85 on the headline.
+
+**G6 ceiling clause**: if a substep's measurements show no addressable
+Helion-side gain (kernel headroom proves unreachable via autotuner
+config search; or C extension lands but the wall-clock overhead doesn't
+drop because the bottleneck is elsewhere), document the structural
+reason and mark the substep ✅ AT HELION CEILING; do not stack more
+substeps on the same lever without Deep Replan.
+
+**History.** _(append one row per cycle)_
+
+| Date | Commit | Substep | Kernel H/P | Launcher us | Full H/J | Notes |
+|------|--------|---------|------------|-------------|----------|-------|
+
+---
+
 ## §6. Deferred work (open blockers)
 
 _(Each entry: what's deferred, why, explicit re-open criterion.)_
