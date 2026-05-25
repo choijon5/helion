@@ -16,6 +16,26 @@ import torch
 
 from .. import _compat as _compat  # ensure Triton compatibility patches run
 from .. import exc
+
+# G6-launcher-C: optional C extension for the ``_DirectCallKernel``
+# locked hot path.  When present, ``_build_direct_call_full_invoke``
+# returns a C-implemented callable (a ``DirectCallPureOutput`` or
+# ``DirectCallInplace`` instance) that folds the per-call
+# ``args.contiguous()`` walk, the ``call_custom_kernel`` invocation,
+# and the post-call ``out_tree.unflatten`` together with the three
+# locked-path counter bumps into a single ``PyObject_Call`` — eliding
+# the CPython frame setup + list-comp dispatch + kwargs dict
+# allocation overhead of the equivalent Python closure.  Falls back to
+# the Python closure when the extension is missing (no compiler, ABI
+# mismatch, etc.) so this is a non-breaking optional accelerator.  See
+# ``helion/_helion_c_launcher.c`` for the C source and
+# ``scripts/build_c_launcher.sh`` for the build step.
+try:
+    from .. import (
+        _helion_c_launcher as _C_LAUNCHER,  # pyrefly: ignore[missing-module-attribute]
+    )
+except ImportError:
+    _C_LAUNCHER = None  # type: ignore[assignment]
 from .._compiler.cute.strategies import tcgen05_default_epilogue_tile_expr
 from .._compiler.cute.strategies import tcgen05_explicit_d_store_tile_expr
 from .._compiler.cute.strategies import tcgen05_smem_layout_expr
@@ -592,14 +612,23 @@ def _jaxcallable_key_cache_hits() -> int:
     Test instrumentation: pin tests assert that a static-shape Pallas
     kernel reuses the cached invocation key on second-and-later calls
     by reading this counter before / after invocations.
+
+    G6-launcher-C: when the C extension fires the locked path, it bumps
+    its own C-side counter; we sum both so pin tests see the combined
+    Python + C count without caring which path served the call.
     """
-    return _JAXCALLABLE_KEY_CACHE_HITS
+    return _JAXCALLABLE_KEY_CACHE_HITS + _c_locked_counts()[1]
 
 
 def _reset_jaxcallable_key_cache_hits() -> None:
-    """Reset the cached-invocation-key counter (test instrumentation)."""
+    """Reset the cached-invocation-key counter (test instrumentation).
+
+    Also resets the C-side mirror counter so paired pin-test deltas
+    line up.
+    """
     global _JAXCALLABLE_KEY_CACHE_HITS
     _JAXCALLABLE_KEY_CACHE_HITS = 0
+    _c_locked_counts_reset()
 
 
 # Per-call ``tpu_torch_pallas.call_custom_kernel`` direct-dispatch hits.
@@ -621,14 +650,22 @@ def _call_custom_kernel_direct_hits() -> int:
     kernel routes through the direct-dispatch path (skipping the
     ``JaxCallable`` wrapper) on second-and-later calls by reading this
     counter before / after invocations.
+
+    G6-launcher-C: when the C extension fires the locked path, it bumps
+    its own C-side counter; sum both so pin tests see the combined
+    Python + C count.
     """
-    return _CALL_CUSTOM_KERNEL_DIRECT_HITS
+    return _CALL_CUSTOM_KERNEL_DIRECT_HITS + _c_locked_counts()[0]
 
 
 def _reset_call_custom_kernel_direct_hits() -> None:
-    """Reset the direct-dispatch counter (test instrumentation)."""
+    """Reset the direct-dispatch counter (test instrumentation).
+
+    Also resets the C-side mirror counter.
+    """
     global _CALL_CUSTOM_KERNEL_DIRECT_HITS
     _CALL_CUSTOM_KERNEL_DIRECT_HITS = 0
+    _c_locked_counts_reset()
 
 
 # Per-call host-side output ``torch.Tensor`` allocations performed by the
@@ -695,14 +732,54 @@ def _direct_call_sig_checks_skipped() -> int:
     kernel skips the per-call ``direct_sig`` tuple build + comparison
     on second-and-later direct-dispatch hits by reading this counter
     before / after invocations.
+
+    G6-launcher-C: when the C extension fires the locked path, it bumps
+    its own C-side counter; sum both so pin tests see the combined
+    Python + C count.
     """
-    return _DIRECT_CALL_SIG_CHECKS_SKIPPED
+    return _DIRECT_CALL_SIG_CHECKS_SKIPPED + _c_locked_counts()[2]
 
 
 def _reset_direct_call_sig_checks_skipped() -> None:
-    """Reset the sig-check-skip counter (test instrumentation)."""
+    """Reset the sig-check-skip counter (test instrumentation).
+
+    Also resets the C-side mirror counter.
+    """
     global _DIRECT_CALL_SIG_CHECKS_SKIPPED
     _DIRECT_CALL_SIG_CHECKS_SKIPPED = 0
+    _c_locked_counts_reset()
+
+
+def _c_locked_counts() -> tuple[int, int, int]:
+    """Return the locked-path counter triple maintained by the C extension.
+
+    Returns ``(0, 0, 0)`` when the extension is unavailable so the
+    Python-only path's accounting is preserved.  When the C extension
+    fired the locked path, returns the C-side triple
+    ``(call_custom_kernel_direct_hits, jaxcallable_key_cache_hits,
+    direct_call_sig_checks_skipped)`` so the public counter
+    accessors above can sum the Python + C totals.
+    """
+    if _C_LAUNCHER is None:
+        return (0, 0, 0)
+    return _C_LAUNCHER.get_counters()
+
+
+def _c_locked_counts_reset() -> None:
+    """Reset the C-side mirror counters (test instrumentation)."""
+    if _C_LAUNCHER is not None:
+        _C_LAUNCHER.reset_counters()
+
+
+def _c_extension_available() -> bool:
+    """Return True when the locked-path C extension is loaded.
+
+    Test instrumentation: pin tests assert the build-and-import
+    succeeded so the locked path actually exercises the C entry
+    point.  Returns False on environments without a compiler (the
+    Python locked path stays in place — no behaviour change).
+    """
+    return _C_LAUNCHER is not None
 
 
 # The G5-decorator ``_kernel_fast_path_hits`` counter is defined in
@@ -935,10 +1012,29 @@ def _build_direct_call_full_invoke(
       ``alias_items`` non-empty: in-place kernel (e.g. ``x[tile] +=
       ...``).  Copies the results back to the donated input tensors
       and returns ``None``.
+
+    G6-launcher-C: when ``helion._helion_c_launcher`` is importable
+    (built via ``scripts/build_c_launcher.sh``), the corresponding C
+    context replaces the Python closure for both variants.  The C
+    context exposes the same ``ctx(args)`` calling convention so the
+    launcher's ``direct_call.full_invoke(args)`` dispatch is
+    indifferent to which path is in use.  Falls back to the Python
+    closure (preserving the cycle-28 / G5-launcher-Z behaviour
+    exactly) on environments without the extension.
     """
     bump_counters = _bump_direct_locked_counters
 
     if output_only_count > 0 and not alias_items:
+        if _C_LAUNCHER is not None:
+            return _C_LAUNCHER.build_pure_output_context(
+                call_custom_kernel,
+                kernel_name,
+                kernel_key,
+                output_shapes,
+                donate_argnums,
+                out_tree,
+                tensor_arg_indices,
+            )
 
         def full_invoke_pure_output(args: tuple[object, ...]) -> object:
             bump_counters()
@@ -958,6 +1054,17 @@ def _build_direct_call_full_invoke(
         return full_invoke_pure_output
 
     if output_only_count == 0:
+        if _C_LAUNCHER is not None:
+            return _C_LAUNCHER.build_inplace_context(
+                call_custom_kernel,
+                kernel_name,
+                kernel_key,
+                output_shapes,
+                donate_argnums,
+                out_tree,
+                tensor_arg_indices,
+                alias_items,
+            )
 
         def full_invoke_inplace_only(args: tuple[object, ...]) -> object | None:
             bump_counters()

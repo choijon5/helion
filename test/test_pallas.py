@@ -2970,6 +2970,210 @@ class TestPallas(TestCase):
             f"{helion_runtime._jaxcallable_key_cache_hits() - keycache_hits_before}.",
         )
 
+    def test_pallas_direct_call_c_extension_loaded(self) -> None:
+        """The Pallas direct-call C extension is built and active.
+
+        G6-launcher-C (2026-05-25 plan.md §5 G6-launcher-C): the locked
+        direct-dispatch hot path is wrapped by a C extension
+        (``helion._helion_c_launcher``) so the per-call CPython frame
+        setup, list-comp dispatch, and kwargs dict allocation that the
+        equivalent Python closure pays disappear.  When the extension
+        is built and importable, ``_build_direct_call_full_invoke``
+        returns a C ``DirectCallPureOutput`` / ``DirectCallInplace``
+        context instead of a Python closure.
+
+        Pin: assert that (a) the extension imported successfully (built
+        via ``scripts/build_c_launcher.sh``); (b) after the launcher
+        finishes its locked-bake step, the kernel's ``full_invoke`` is
+        a C context (not a Python closure); (c) the kernel's locked
+        path actually fires the C-side counters on subsequent calls.
+
+        Failure modes this pin guards against:
+        - The extension silently failed to build (no compiler, ABI
+          mismatch) and the locked path quietly fell back to the slow
+          Python closure — losing the G6-launcher-C wall-clock benefit.
+        - The launcher wired the Python closure into ``full_invoke``
+          instead of the C context (a regression in the
+          ``if _C_LAUNCHER is not None`` branch in
+          ``_build_direct_call_full_invoke``).
+        """
+        from helion import runtime as helion_runtime
+
+        self.assertTrue(
+            helion_runtime._c_extension_available(),
+            "Pallas direct-call C extension must be built and importable. "
+            "Run ``scripts/build_c_launcher.sh`` (devserver) to build it. "
+            "If a C compiler is unavailable on this host, the Python "
+            "fallback path stays — but this pin is intentionally strict "
+            "for the perf-sensitive G6-launcher-C verification path.",
+        )
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_c_ext_loaded_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_c_ext_loaded_pin.bind((x, y))
+        config = bound.config_spec.default_config()
+        compiled_fn = bound.compile_config(config)
+
+        _CACHE_ATTRS = (
+            "_pallas_cache",
+            "_pallas_pipeline_cache",
+            "_pallas_fori_cache",
+        )
+
+        def _find_pallas_kernel() -> object:
+            module_globals = compiled_fn.__globals__
+            inner_name = f"_helion_{compiled_fn.__name__}"
+            inner = module_globals.get(inner_name)
+            assert inner is not None
+            return inner
+
+        def _read_cache(pallas_kernel: object) -> tuple:
+            for attr in _CACHE_ATTRS:
+                cache = getattr(pallas_kernel, attr, None)
+                if cache is not None:
+                    return cache  # type: ignore[return-value]
+            raise AssertionError(
+                f"None of {_CACHE_ATTRS} populated on the inner Helion kernel."
+            )
+
+        # Three calls to walk the launcher through slow-path / lazy-lift
+        # / bake.  After call 3 the bake step replaces ``full_invoke``
+        # with the C context (when the extension is available).
+        compiled_fn(x, y)
+        compiled_fn(x, y)
+        compiled_fn(x, y)
+
+        pallas_kernel = _find_pallas_kernel()
+        cache = _read_cache(pallas_kernel)
+        direct_call = cache[5]
+        self.assertIsNotNone(
+            direct_call,
+            "direct_call slot must be populated after lazy lift.",
+        )
+        self.assertTrue(
+            direct_call.sig_locked,
+            "sig_locked must be True after call 3.",
+        )
+        full_invoke = direct_call.full_invoke
+        self.assertIsNotNone(
+            full_invoke,
+            "full_invoke must be baked after call 3.",
+        )
+        self.assertIsNot(
+            full_invoke,
+            helion_runtime._DIRECT_CALL_FULL_INVOKE_UNAVAILABLE,
+            "full_invoke must be a real callable for a pure-output matmul "
+            "kernel; got the unavailability sentinel.",
+        )
+        # The C context is an instance of
+        # ``helion._helion_c_launcher.DirectCallPureOutput`` for the
+        # matmul pure-output kernel pattern.  A Python closure has type
+        # ``<class 'function'>``; the C context has the C type name
+        # ``DirectCallPureOutput``.
+        import helion._helion_c_launcher as c_launcher
+
+        self.assertIsInstance(
+            full_invoke,
+            c_launcher.DirectCallPureOutput,
+            "full_invoke must be a C-extension ``DirectCallPureOutput`` "
+            "context (matmul pure-output pattern). Found type "
+            f"{type(full_invoke).__name__} — this means the Python "
+            "fallback closure was installed instead of the C path, "
+            "negating the G6-launcher-C wall-clock benefit.",
+        )
+
+        # Pin (c): one more locked-path call must bump the C-side
+        # counters (read directly off the C extension to avoid
+        # double-counting with the Python summed accessors).
+        c_launcher.reset_counters()
+        compiled_fn(x, y)
+        c_counts = c_launcher.get_counters()
+        self.assertEqual(
+            c_counts,
+            (1, 1, 1),
+            f"One post-bake call must bump all three C-side counters "
+            f"exactly once; got {c_counts}. This means the launcher's "
+            f"locked path is NOT dispatching through the C extension.",
+        )
+
+    def test_pallas_direct_call_c_extension_correctness(self) -> None:
+        """C extension produces bitwise-identical output vs Python closure.
+
+        G6-launcher-C: the C extension must be a drop-in replacement
+        for the Python ``full_invoke`` closure — the locked path
+        produces the same ``call_custom_kernel`` invocation with the
+        same args and the same ``out_tree.unflatten`` of the result.
+        Failure means the C path subtly diverges (wrong kwargs,
+        misordered alias copy-back, etc.) and would silently corrupt
+        downstream computations.
+
+        Compares a long sequence of locked-path calls (C path) against
+        a single slow-path reference invocation captured by toggling
+        the kernel through the slow path once.
+        """
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_c_correctness_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_c_correctness_pin.bind((x, y))
+        config = bound.config_spec.default_config()
+        compiled_fn = bound.compile_config(config)
+
+        # Reference: first call runs the slow path and produces the
+        # ground-truth output.  All subsequent calls go through the C
+        # locked path (after the lazy-lift + bake handshake).
+        reference = compiled_fn(x, y).clone()
+
+        # 10 follow-on calls — covers both the bake-trigger Python
+        # locked-path call (call 2: sig-not-locked, calls invoke;
+        # call 3: bake-trigger, fast_path) and several C-locked calls
+        # (calls 4+).  All must be bitwise identical to the reference.
+        for i in range(10):
+            result = compiled_fn(x, y)
+            self.assertTrue(
+                torch.equal(result, reference),
+                f"Direct-call C extension diverged on locked-path call "
+                f"{i + 1} (max_abs_diff="
+                f"{(result.float() - reference.float()).abs().max().item()}).",
+            )
+
     def test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls(
         self,
     ) -> None:
