@@ -749,6 +749,34 @@ class _DirectCallKernel:
       implies shape-stable args, so the sig check is provably
       constant-True after the first match).  Counter
       ``_DIRECT_CALL_SIG_CHECKS_SKIPPED`` bumps on every skip.
+
+    G5-launcher-Z squeeze additions:
+    - ``full_invoke`` is a pre-built closure that captures *everything*
+      needed by the locked hot path — the ``tensor_arg_indices``
+      tuple used to walk ``args`` and call ``.contiguous()``, the
+      three test-instrumentation counter bumps (batched via
+      ``_bump_direct_locked_counters``), the constant
+      ``call_custom_kernel`` kwargs, and the post-call
+      ``out_tree.unflatten`` / alias copy-back.  Takes only ``args``
+      as a positional argument and returns the final user-facing
+      result tensor (or tuple, or ``None`` for in-place kernels)
+      directly, so the launcher's locked hot path becomes
+      ``return direct_call.full_invoke(args)`` — eliminating the
+      per-call ``_pallas_invoke_and_return_fast`` function call,
+      the ``fast_path`` attribute reads inside it, and the three
+      separate global-counter ``+= 1`` statements.
+
+      Populated lazily by ``_maybe_bake_full_invoke`` (called from
+      the launcher's cache-hit branch on the call after
+      ``sig_locked`` flips to True).  Two closure variants are
+      pre-baked depending on the kernel shape pattern
+      (``full_invoke_pure_output`` for matmul + every output-only
+      kernel, ``full_invoke_inplace_only`` for in-place kernels with
+      no output-only tensors).  Mixed in-place + output-only kernels
+      opt out — the field is set to the
+      ``_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE`` sentinel so the
+      launcher hot path checks against the sentinel and falls back
+      to ``_pallas_invoke_and_return_fast``.
     """
 
     call_custom_kernel: object
@@ -760,7 +788,30 @@ class _DirectCallKernel:
     alias_items: tuple[tuple[int, int], ...]
     sig: tuple[object, ...]
     invoke: object
+    # ``full_invoke`` defaults to ``None`` so existing construction sites
+    # that don't yet populate it (and any future ones added before the
+    # launcher's lazy-bake fires) stay forward-compatible.  See
+    # ``_maybe_bake_full_invoke`` for the populator.
+    full_invoke: object = None
     sig_locked: bool = False
+
+
+def _bump_direct_locked_counters() -> None:
+    """Bump the three counters fired on every locked direct-dispatch call.
+
+    Batches the three test-instrumentation increments
+    (``_CALL_CUSTOM_KERNEL_DIRECT_HITS``, ``_JAXCALLABLE_KEY_CACHE_HITS``,
+    ``_DIRECT_CALL_SIG_CHECKS_SKIPPED``) into a single function call so
+    the locked-path closure (``full_invoke``) avoids three separate
+    ``LOAD_GLOBAL`` / ``STORE_GLOBAL`` bytecode triples per call.
+    """
+    global \
+        _CALL_CUSTOM_KERNEL_DIRECT_HITS, \
+        _JAXCALLABLE_KEY_CACHE_HITS, \
+        _DIRECT_CALL_SIG_CHECKS_SKIPPED
+    _CALL_CUSTOM_KERNEL_DIRECT_HITS += 1
+    _JAXCALLABLE_KEY_CACHE_HITS += 1
+    _DIRECT_CALL_SIG_CHECKS_SKIPPED += 1
 
 
 def _build_direct_call_invoke(
@@ -815,6 +866,116 @@ def _build_direct_call_invoke(
         return out_tree.unflatten(results)  # type: ignore[attr-defined]
 
     return invoke_with_alias
+
+
+def _build_direct_call_full_invoke(
+    call_custom_kernel: object,
+    kernel_name: str,
+    kernel_key: str,
+    output_shapes: object,
+    donate_argnums: object,
+    out_tree: object,
+    alias_items: tuple[tuple[int, int], ...],
+    tensor_arg_indices: tuple[int, ...],
+    output_only_count: int,
+) -> object | None:
+    """Pre-bake the full locked-path closure (G5-launcher-Z squeeze).
+
+    The closure takes ``args`` (the full launcher-arg tuple) and returns
+    the final user-facing result — folding together what was previously
+    split across the launcher cache-hit branch,
+    ``_pallas_invoke_and_return_fast``, and ``invoke_*`` closures into a
+    single function call.  Specifically the closure captures:
+
+    * ``tensor_arg_indices`` so the per-call ``[args[i].contiguous() ...]``
+      list-comp uses a captured tuple instead of reading
+      ``fast_path.tensor_arg_indices_tuple`` per call.
+    * ``call_custom_kernel`` (pre-bound ``tpu_torch_pallas`` ref) plus
+      the four constant kwargs so the per-call ``call_custom_kernel(...)``
+      invocation needs no attribute reads.
+    * ``out_tree`` and ``alias_items`` so the post-call unflatten /
+      alias copy-back is bound at cache-build time.
+
+    Bumps the three test-instrumentation counters once per call via
+    ``_bump_direct_locked_counters`` so the pin tests
+    (``test_pallas_call_custom_kernel_direct_hits_on_repeat_invocations``,
+    ``test_pallas_jaxcallable_key_cache_hits_on_repeat_invocations``,
+    ``test_pallas_direct_call_sig_check_locks_on_static_shapes``)
+    keep firing exactly once per locked call.
+
+    Only used by the locked hot path
+    (``direct_call.sig_locked is True``).  The first
+    direct-dispatch call (sig check still running, lock about to flip)
+    goes through ``invoke`` so the ``_DIRECT_CALL_SIG_CHECKS_SKIPPED``
+    counter only bumps after the lock has flipped — matching the pin
+    test's expectation that calls 1 and 2 do NOT bump the skip counter.
+
+    Returns ``None`` when no closure variant is safe to bake for the
+    given combination of ``alias_items`` and ``output_only_count`` —
+    specifically the "mixed in-place + output-only" case
+    (``alias_items`` non-empty AND ``output_only_count > 0``), where the
+    post-call work in ``_pallas_invoke_and_return_fast`` filters the
+    flat ``results`` list down to just the output-only entries.  The
+    launcher's locked-path short-circuit then falls back to calling
+    ``_pallas_invoke_and_return_fast`` for those kernels.
+
+    Returns one of:
+    * ``full_invoke_pure_output`` — ``output_only_count > 0`` AND no
+      ``alias_items``: matmul / pure-output pattern.  Returns
+      ``out_tree.unflatten(results)`` directly.
+    * ``full_invoke_inplace_only`` — ``output_only_count == 0`` AND
+      ``alias_items`` non-empty: in-place kernel (e.g. ``x[tile] +=
+      ...``).  Copies the results back to the donated input tensors
+      and returns ``None``.
+    """
+    bump_counters = _bump_direct_locked_counters
+
+    if output_only_count > 0 and not alias_items:
+
+        def full_invoke_pure_output(args: tuple[object, ...]) -> object:
+            bump_counters()
+            input_tensors = [
+                args[i].contiguous()  # type: ignore[attr-defined]
+                for i in tensor_arg_indices
+            ]
+            results = call_custom_kernel(  # type: ignore[operator]
+                kernel_name,
+                kernel_key,
+                inputs=input_tensors,
+                output_shapes=output_shapes,
+                donate_argnums=donate_argnums,
+            )
+            return out_tree.unflatten(results)  # type: ignore[attr-defined]
+
+        return full_invoke_pure_output
+
+    if output_only_count == 0:
+
+        def full_invoke_inplace_only(args: tuple[object, ...]) -> object | None:
+            bump_counters()
+            input_tensors = [
+                args[i].contiguous()  # type: ignore[attr-defined]
+                for i in tensor_arg_indices
+            ]
+            results = call_custom_kernel(  # type: ignore[operator]
+                kernel_name,
+                kernel_key,
+                inputs=input_tensors,
+                output_shapes=output_shapes,
+                donate_argnums=donate_argnums,
+            )
+            for in_idx, out_idx in alias_items:
+                input_tensors[in_idx].copy_(results[out_idx])  # type: ignore[attr-defined]
+            return None
+
+        return full_invoke_inplace_only
+
+    # Mixed in-place + output-only kernel: the post-call work needs to
+    # filter ``results`` down to just the output-only entries (using
+    # ``fast_path.output_only_descriptors``); not safely pre-bakable
+    # without bringing the fast-path descriptors into the closure.
+    # Fall back to ``_pallas_invoke_and_return_fast``.
+    return None
 
 
 _HELION_STATIC_JAX_CALLABLE_CLASS: type | None = None
@@ -980,6 +1141,12 @@ def _make_helion_static_jax_callable_class() -> type:
                 out_tree,
                 alias_items,
             )
+            # ``full_invoke`` is populated lazily by the launcher's
+            # lift code (it needs ``tensor_arg_indices`` and the
+            # ``fast_path.output_only_count`` value, which only the
+            # launcher knows).  See ``_build_direct_call_full_invoke``
+            # and the launcher's lazy-lift branch.  Defaults to ``None``
+            # so we don't have to pass it explicitly here.
             self._helion_direct_call = _DirectCallKernel(
                 call_custom_kernel=tpu_torch_pallas.call_custom_kernel,
                 kernel_name=self.name,
@@ -1121,6 +1288,56 @@ def _pallas_apply_ds_padding_fast(
     if args_list is None:
         return args, None, False
     return tuple(args_list), orig_output_tensors, True
+
+
+_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE: object = object()
+
+
+def _maybe_bake_full_invoke(
+    direct_call: _DirectCallKernel,
+    fast_path: _LauncherFastPath,
+    tensor_arg_indices: list[int],
+) -> None:
+    """Populate ``direct_call.full_invoke`` once it's safe to short-circuit.
+
+    Called from the launcher hot path on the call after the sig check
+    locked (and only when there is no ds-padding to do this call).
+    The closure built here captures everything needed by the locked
+    path — ``tensor_arg_indices`` for the contiguous walk, the
+    ``call_custom_kernel`` constants, the post-call
+    ``out_tree.unflatten`` / alias copy-back — so subsequent calls
+    take exactly one attribute lookup (``direct_call.full_invoke``)
+    and one function call from launcher entry to result.
+
+    Only safe to bake when there is no per-call ds-padding (the
+    closure short-circuits the post-call output-handling loop in
+    ``_pallas_invoke_and_return_fast``, which is what runs the
+    ds-pad slicing).  The launcher only calls this helper after
+    confirming ``_orig_output_tensors is None`` on the current call
+    and ``fast_path.padded_output_arg_indices`` is empty (or the
+    ``_LauncherFastPath`` precomputation determined no padding is
+    needed for the static-shape signature).
+
+    Sets ``direct_call.full_invoke`` to the sentinel
+    ``_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE`` when the kernel pattern
+    is one that ``_build_direct_call_full_invoke`` refuses to
+    pre-bake (mixed in-place + output-only).  The launcher checks
+    against the sentinel so subsequent calls don't retry baking.
+    """
+    invoke = _build_direct_call_full_invoke(
+        direct_call.call_custom_kernel,
+        direct_call.kernel_name,
+        direct_call.kernel_key,
+        direct_call.output_shapes,
+        direct_call.donate_argnums,
+        direct_call.out_tree,
+        direct_call.alias_items,
+        tuple(tensor_arg_indices),
+        fast_path.output_only_count,
+    )
+    direct_call.full_invoke = (
+        invoke if invoke is not None else _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+    )
 
 
 def _pallas_invoke_and_return_fast(
@@ -1677,17 +1894,13 @@ def default_pallas_launcher(
     are excluded from pallas_call inputs to save VMEM.  Their results are
     returned as torch tensors.
     """
-    interpret = (
-        _pallas_interpret
-        if _pallas_interpret is not None
-        else _module_is_pallas_interpret()
-    )
-    if interpret:
-        _ensure_cpu_tpu_info()
-
-    if _output_indices is None:
-        _output_indices = []
-
+    # G5-launcher-Z squeeze: defer ``interpret`` computation to the slow
+    # path — the cache-hit branch never uses it, so the per-call
+    # ``_module_is_pallas_interpret()`` call (which walks a thread-local
+    # ``CompileEnvironment`` and falls back to ``os.environ.get``,
+    # ~2-3us per call) is wasted on every hot-path invocation.  Once
+    # the launcher cache exists the interpret mode is implicit in the
+    # cached ``jax_callable`` (the slow path baked it in).
     cache = getattr(pallas_kernel, "_pallas_cache", None)
     if cache is not None and cache[0] == grid:
         global _LAUNCHER_FAST_PATH_HITS
@@ -1700,6 +1913,26 @@ def default_pallas_launcher(
             fast_path,
             direct_call,
         ) = cache
+        # G5-launcher-Z fastest path: once ``full_invoke`` is populated
+        # (lazy lift below, on the second-or-later call), we know the
+        # locked path can be entered with a single attribute call.
+        # ``full_invoke`` only exists when:
+        # - the JaxCallable subclass populated ``_helion_direct_call``
+        #   (static_shapes=True path)
+        # - the launcher saw at least one successful sig match
+        #   (so ``sig_locked`` is True)
+        # - the kernel has no ds-padding to do
+        # so reaching ``full_invoke is not None`` provably means the
+        # entire post-call work reduces to its closure body and we can
+        # skip ``_pallas_invoke_and_return_fast`` entirely.
+        if direct_call is not None:
+            full_invoke = direct_call.full_invoke
+            if (
+                full_invoke is not None
+                and full_invoke is not _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+            ):
+                return full_invoke(args)  # type: ignore[operator]
+
         # Lazily lift the direct-call kernel off the JaxCallable subclass
         # once the first call has populated it.  Mutating the cache tuple
         # in place is OK: ``_pallas_cache`` is keyed by ``grid`` and we
@@ -1724,12 +1957,37 @@ def default_pallas_launcher(
                 fast_path,
                 fast_path.padded_output_arg_indices,
             )
+        # Lazily bake ``full_invoke`` once the sig has locked and the
+        # path is safe to short-circuit.  Requires: direct_call exists,
+        # sig is locked, no ds-padding work pending this call.  We need
+        # the launcher's view of ``tensor_arg_indices`` + ``fast_path``
+        # (the JaxCallable subclass doesn't know either).
+        if (
+            direct_call is not None
+            and direct_call.sig_locked
+            and _orig_output_tensors is None
+            and not (_ds_pad_dims and fast_path.ds_pad_required is not False)
+            and direct_call.full_invoke is None
+        ):
+            _maybe_bake_full_invoke(direct_call, fast_path, tensor_arg_indices)
+
         # ``_pallas_check_dtypes`` is elided on cache-hit: the first
         # call already validated and any dtype-incompatible call after
         # would fail loudly inside ``JaxCallable.__call__``.
         return _pallas_invoke_and_return_fast(
             jax_callable, args, fast_path, _orig_output_tensors, direct_call
         )
+
+    interpret = (
+        _pallas_interpret
+        if _pallas_interpret is not None
+        else _module_is_pallas_interpret()
+    )
+    if interpret:
+        _ensure_cpu_tpu_info()
+
+    if _output_indices is None:
+        _output_indices = []
 
     _orig_output_tensors = None
     if _ds_pad_dims:
@@ -1890,19 +2148,6 @@ def default_pallas_pipeline_launcher(
     is empty — the marker only fires for kernels that put a reduction in
     the outer grid.
     """
-    interpret = (
-        _pallas_interpret
-        if _pallas_interpret is not None
-        else _module_is_pallas_interpret()
-    )
-    if interpret:
-        _ensure_cpu_tpu_info()
-
-    if _output_indices is None:
-        _output_indices = []
-    if _scratch_shapes is None:
-        _scratch_shapes = []
-
     cache = getattr(pallas_kernel, "_pallas_pipeline_cache", None)
     if cache is not None and cache[0] == grid:
         global _LAUNCHER_FAST_PATH_HITS
@@ -1915,6 +2160,14 @@ def default_pallas_pipeline_launcher(
             fast_path,
             direct_call,
         ) = cache
+        if direct_call is not None:
+            full_invoke = direct_call.full_invoke
+            if (
+                full_invoke is not None
+                and full_invoke is not _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+            ):
+                return full_invoke(args)  # type: ignore[operator]
+
         if direct_call is None:
             direct_call = getattr(jax_callable, "_helion_direct_call", None)
             if direct_call is not None:
@@ -1935,9 +2188,30 @@ def default_pallas_pipeline_launcher(
                 fast_path,
                 fast_path.padded_output_arg_indices,
             )
+        if (
+            direct_call is not None
+            and direct_call.sig_locked
+            and _orig_output_tensors is None
+            and not (_ds_pad_dims and fast_path.ds_pad_required is not False)
+            and direct_call.full_invoke is None
+        ):
+            _maybe_bake_full_invoke(direct_call, fast_path, tensor_arg_indices)
         return _pallas_invoke_and_return_fast(
             jax_callable, args, fast_path, _orig_output_tensors, direct_call
         )
+
+    interpret = (
+        _pallas_interpret
+        if _pallas_interpret is not None
+        else _module_is_pallas_interpret()
+    )
+    if interpret:
+        _ensure_cpu_tpu_info()
+
+    if _output_indices is None:
+        _output_indices = []
+    if _scratch_shapes is None:
+        _scratch_shapes = []
 
     _orig_output_tensors = None
     if _ds_pad_dims:
@@ -2129,19 +2403,6 @@ def default_pallas_fori_launcher(
     independence.  See :func:`default_pallas_pipeline_launcher` for the
     matmul-specific notes about why this list is typically empty.
     """
-    interpret = (
-        _pallas_interpret
-        if _pallas_interpret is not None
-        else _module_is_pallas_interpret()
-    )
-    if interpret:
-        _ensure_cpu_tpu_info()
-
-    if _output_indices is None:
-        _output_indices = []
-    if _scratch_shapes is None:
-        _scratch_shapes = []
-
     cache = getattr(pallas_kernel, "_pallas_fori_cache", None)
     if cache is not None and cache[0] == grid:
         global _LAUNCHER_FAST_PATH_HITS
@@ -2154,6 +2415,14 @@ def default_pallas_fori_launcher(
             fast_path,
             direct_call,
         ) = cache
+        if direct_call is not None:
+            full_invoke = direct_call.full_invoke
+            if (
+                full_invoke is not None
+                and full_invoke is not _DIRECT_CALL_FULL_INVOKE_UNAVAILABLE
+            ):
+                return full_invoke(args)  # type: ignore[operator]
+
         if direct_call is None:
             direct_call = getattr(jax_callable, "_helion_direct_call", None)
             if direct_call is not None:
@@ -2174,9 +2443,30 @@ def default_pallas_fori_launcher(
                 fast_path,
                 fast_path.padded_output_arg_indices,
             )
+        if (
+            direct_call is not None
+            and direct_call.sig_locked
+            and _orig_output_tensors is None
+            and not (_ds_pad_dims and fast_path.ds_pad_required is not False)
+            and direct_call.full_invoke is None
+        ):
+            _maybe_bake_full_invoke(direct_call, fast_path, tensor_arg_indices)
         return _pallas_invoke_and_return_fast(
             jax_callable, args, fast_path, _orig_output_tensors, direct_call
         )
+
+    interpret = (
+        _pallas_interpret
+        if _pallas_interpret is not None
+        else _module_is_pallas_interpret()
+    )
+    if interpret:
+        _ensure_cpu_tpu_info()
+
+    if _output_indices is None:
+        _output_indices = []
+    if _scratch_shapes is None:
+        _scratch_shapes = []
 
     _orig_output_tensors = None
     if _ds_pad_dims:
