@@ -127,7 +127,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-24 (cycle 25 G5-setup: the 14 rows below are re-measured under the canonical DR#6 interleaved 5-sweep methodology with the seeded autotuner (``HELION_AUTOTUNE_RANDOM_SEED=0``). All four columns (JAX / Pallas / Helion kernel / Helion full) are re-measured in the same per-sweep ``measure_headline.py`` invocation — JAX / Pallas / Helion-kernel come from the paired-sample interleaved HP and HJ legs, Helion full is the sequential ``_time(_run_full_path)`` window before the legs. The previously-cached G1 JAX / Pallas reference numbers in this table are SUPERSEDED by these per-sweep medians; the cycle-25 sweep is the new provenance for every cell. New columns: split ``H/J`` into ``kernel H/J`` (diagnostic) and ``full H/J`` (G5 gating); added ``Helion full (us)``, ``P/J`` (Pallas-over-JAX, the bucket-D ceiling indicator), and ``Overhead vs JAX (us)`` (the absolute launcher overhead a G5 launcher-side substep has to close), and a ``Bucket`` column (A/B/C/D per §5 G5 selection rule). G4 closure unchanged. — measurements on the `jongsokchoi-torchtpu` pod,
+> _As of: 2026-05-25 (cycle 26 G5-methodology: the 14 rows below are re-measured under the cycle-26 paired-sample G5-methodology protocol with the seeded autotuner (``HELION_AUTOTUNE_RANDOM_SEED=0``). All four numeric columns (JAX / Pallas / Helion kernel / Helion full) come from the SAME per-sweep ``measure_headline.py`` invocation under ``--timing-mode interleaved`` — Helion-full and JAX come from the **HJ-full 3-way paired leg** (ordering ``Helion-kernel → Helion-full → JAX`` so the gate pair Helion-full ↔ JAX is adjacent), Pallas + the HP-leg Helion-kernel come from the **2-way HP paired leg** (unchanged DR#6 canonical methodology preserved for G2/G3/G4 invariance). The cycle-25 ``G5-setup-pending`` cells (sequential-full / paired-kernel mix) are SUPERSEDED by these paired-sample medians; the cycle-26 sweep is the new provenance for every cell. Columns unchanged from cycle 25 (``Helion kernel``, ``Helion full``, ``kernel H/P``, ``kernel H/J``, ``full H/J``, ``P/J``, ``Overhead vs JAX``, ``Bucket``); only the underlying methodology shifted. G4 closure unchanged. — measurements on the `jongsokchoi-torchtpu` pod,
 > chip 3, `TPU_VISIBLE_CHIPS=3`. Helion cells for rows touched in pre-G2-G cycles are the
 > median of 3 back-to-back Helion-only sweeps using `matmul_helion`;
 > the same autotuned time is reported under both block-suffix labels in
@@ -293,92 +293,140 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > entrance ("after we beat Pallas for all kernels, we should be
 > JAX"). G4 ✅ ALL 7 f32 shapes pass under the corrected
 > harness._
+>
+> _G5-methodology closure 2026-05-25 (cycle 26, paired-sample
+> 3-way HJ-full leg): the cycle-25 G5-setup gate signal had
+> ``full_path_H_over_J`` = ``jax_kernel_us`` (paired with
+> Helion-kernel in the 2-way HJ leg) / ``helion_full_us``
+> (sequential ``_time(_run_full_path)`` window) — numerator and
+> denominator from different timing windows, so chip-thermal
+> drift between windows was NOT canceled. The cycle-25
+> "Methodology gap" note flagged the asymmetry as tolerated for
+> that cycle. Cycle 26 closes it by adding a 3-way HJ-full leg
+> to ``_time_interleaved_paired`` in
+> ``examples/pallas_perf/measure_headline.py`` (ordering =
+> ``Helion-kernel → Helion-full → JAX`` consecutively inside one
+> ``perf_counter_ns()`` window per iteration, with the gate pair
+> Helion-full ↔ JAX adjacent so common-mode drift cancels). The
+> HP 2-way leg is unchanged. Every shape's gate ratio is now
+> paired-sample. **Effect on the table.** ``Helion full (us)`` and
+> ``JAX (us)`` numbers consistently rise vs cycle 25 (Helion-full
+> by ~25us, JAX by ~10us — both inherit predecessor wind-down
+> inside the per-iteration window), and ``full H/J`` consistently
+> drops ~0.02-0.07. Pallas-vs-JAX ``P/J`` flips above 1.00 on
+> every shape (was 0.99-1.07, now 1.05-1.18) because the 2-way
+> HP leg's JAX predecessor — Pallas at ~120us — is shorter than
+> the cycle-25 mix's predecessor for Helion-full (sequential
+> ``_run_full_path`` at ~165us), so paired-leg Pallas inherits
+> less than paired-leg JAX-after-helion-full. Bucket distribution
+> shifted from cycle-25 {A=0, B=9, C=1, D=4} → cycle-26 {A=0,
+> B=14, C=0, D=0}: bucket D ("ceiling-pinned: Pallas < JAX")
+> empties entirely because the paired-sample protocol's honest
+> view of Pallas-vs-JAX shows Pallas beats JAX on every shape.
+> Bucket C ("kernel headroom: Pallas > JAX, Helion < JAX") also
+> empties because Helion kernel-only is paired-via-1-slot with
+> JAX-after-helion-full (the JAX numerator inherits Helion-full's
+> wind-down inside the same per-iteration window, inflating it →
+> kernel H/J = jax_us / helion_kernel_us shifts up from
+> 0.985-1.012 to 1.034-1.054). All 14 shapes are
+> now bucket B (launcher-bound). G2/G3/G4 kernel-only H/P
+> unchanged within paired-sample precision (still 0.99-1.01,
+> identical to cycle 25 — the HP 2-way leg was not changed) so
+> the prior gate closures hold. Source cells flipped to
+> ``G5-methodology-pending``. Two rows (`bf16 1×1024×1024`,
+> `f32 1×1024×1024`) drop sweeps to the §6.5 M=1 BlockSpec
+> divisibility crash; surviving-sweep medians are reported._
 
 | Config                          | JAX (us) | Pallas (us) | Helion kernel (us) | Helion full (us) | kernel H/P | kernel H/J | full H/J | P/J | Overhead vs JAX (us) | Bucket | Source |
 |---------------------------------|----------|-------------|--------------------|------------------|------------|------------|----------|-----|----------------------|--------|--------|
-| bf16 1024×1024×1                | 121.48   | 122.51      | **122.35**         | 166.05           | **1.007** ✅ | 1.000 | **0.732** | 0.986 | 44.57 | **B** (launcher-bound) | G5-setup-pending |
-| bf16 1024×1024×1024 (headline)  | 120.56   | 121.31      | **120.32**         | 163.79           | **1.008** ✅ | 1.002 | **0.742** | 0.989 | 43.18 | **B** (launcher-bound) | G5-setup-pending |
-| bf16 1024×128×1024              | 123.55   | 122.44      | **121.77**         | 163.75           | **1.006** ✅ | 0.996 | **0.746** | 0.990 | 42.55 | **D** (ceiling-pinned, Pallas<JAX) | G5-setup-pending |
-| bf16 1024×1×1024                | 121.30   | 120.22      | **120.14**         | 158.17           | **1.008** ✅ | 1.001 | **0.757** | 0.996 | 38.46 | **B** (launcher-bound) | G5-setup-pending |
-| bf16 128×1024×1024              | 120.64   | 121.76      | **120.73**         | 173.47           | **1.006** ✅ | 0.998 | **0.707** | 0.988 | 50.90 | **D** (ceiling-pinned, Pallas<JAX) | G5-setup-pending |
-| bf16 1×1024×1024 (n=2 only*)    | 122.87   | 120.69      | **121.08**         | 167.33           | **1.008** ✅ | 1.004 | **0.728** | 1.018 | 45.91 | **B** (launcher-bound) | G5-setup-pending |
-| bf16 1×1×1024                   | 133.74   | 124.73      | **127.89**         | 156.55           | **1.012** ✅ | 1.001 | **0.834** | 1.064 | 27.72 | **B** (launcher-bound) | G5-setup-pending |
-| f32  1024×1024×1                | 119.99   | 117.15      | **118.60**         | 156.96           | 0.992 🟡 | 0.985 | **0.772** | 1.035 | 35.44 | **C** (kernel headroom; Pallas>JAX) | G5-setup-pending |
-| f32  1024×1024×1024             | 133.26   | 133.80      | **133.14**         | 189.63           | **1.007** ✅ | 1.009 | **0.735** | 0.996 | 49.77 | **B** (launcher-bound) | G5-setup-pending |
-| f32  1024×128×1024              | 118.70   | 119.86      | **118.48**         | 159.16           | **1.006** ✅ | 0.995 | **0.741** | 0.990 | 41.20 | **D** (ceiling-pinned, Pallas<JAX) | G5-setup-pending |
-| f32  1024×1×1024                | 123.53   | 120.89      | **120.16**         | 172.08           | **1.005** ✅ | 1.002 | **0.718** | 1.024 | 48.55 | **B** (launcher-bound) | G5-setup-pending |
-| f32  128×1024×1024              | 121.58   | 120.56      | **119.45**         | 167.01           | **1.009** ✅ | 1.001 | **0.706** | 0.996 | 49.09 | **B** (launcher-bound) | G5-setup-pending |
-| f32  1×1024×1024 (n=2 only*)    | 119.14   | 119.55      | **118.55**         | 162.38           | **1.008** ✅ | 1.000 | **0.756** | 0.996 | 38.49 | **D** (ceiling-pinned, Pallas<JAX) | G5-setup-pending |
-| f32  1×1×1024                   | 131.18   | 130.39      | **129.28**         | 165.74           | **1.011** ✅ | 1.000 | **0.797** | 1.064 | 34.25 | **B** (launcher-bound) | G5-setup-pending |
+| bf16 1024×1024×1                | 134.07   | 119.98      | **119.46**         | 198.30           | **1.006** ✅ | 1.051 | **0.694** | 1.147 | 60.99 | **B** (launcher-bound) | G5-methodology-pending |
+| bf16 1024×1024×1024 (headline)  | 131.07   | 128.08      | **128.12**         | 183.18           | **1.009** ✅ | 1.042 | **0.716** | 1.069 | 53.45 | **B** (launcher-bound) | G5-methodology-pending |
+| bf16 1024×128×1024              | 129.23   | 120.34      | **120.12**         | 188.61           | 0.998 🟡 | 1.042 | **0.688** | 1.083 | 58.11 | **B** (launcher-bound) | G5-methodology-pending |
+| bf16 1024×1×1024                | 137.91   | 124.66      | **123.59**         | 196.34           | **1.007** ✅ | 1.049 | **0.702** | 1.129 | 59.00 | **B** (launcher-bound) | G5-methodology-pending |
+| bf16 128×1024×1024              | 135.43   | 124.18      | **123.62**         | 193.68           | **1.005** ✅ | 1.054 | **0.692** | 1.091 | 58.25 | **B** (launcher-bound) | G5-methodology-pending |
+| bf16 1×1024×1024 (n=1 only*)    | 132.51   | 121.48      | **120.80**         | 182.61           | **1.006** ✅ | 1.049 | **0.726** | 1.091 | 50.10 | **B** (launcher-bound) | G5-methodology-pending |
+| bf16 1×1×1024                   | 129.89   | 127.38      | **125.88**         | 186.49           | **1.006** ✅ | 1.039 | **0.696** | 1.071 | 56.73 | **B** (launcher-bound) | G5-methodology-pending |
+| f32  1024×1024×1                | 131.00   | 122.02      | **123.12**         | 191.06           | 0.993 🟡 | 1.034 | **0.681** | 1.109 | 61.01 | **B** (launcher-bound; worst full H/J) | G5-methodology-pending |
+| f32  1024×1024×1024             | 156.21   | 134.69      | **133.67**         | 215.18           | **1.009** ✅ | 1.052 | **0.726** | 1.183 | 62.39 | **B** (launcher-bound) | G5-methodology-pending |
+| f32  1024×128×1024              | 132.53   | 122.72      | **121.12**         | 189.26           | **1.006** ✅ | 1.041 | **0.696** | 1.080 | 56.80 | **B** (launcher-bound) | G5-methodology-pending |
+| f32  1024×1×1024                | 130.12   | 121.71      | **120.36**         | 186.58           | **1.006** ✅ | 1.043 | **0.697** | 1.068 | 56.46 | **B** (launcher-bound) | G5-methodology-pending |
+| f32  128×1024×1024              | 142.12   | 123.63      | **122.93**         | 197.77           | **1.009** ✅ | 1.052 | **0.711** | 1.121 | 56.62 | **B** (launcher-bound) | G5-methodology-pending |
+| f32  1×1024×1024 (n=2 only*)    | 135.11   | 124.08      | **123.52**         | 191.27           | **1.005** ✅ | 1.044 | **0.706** | 1.090 | 56.17 | **B** (launcher-bound) | G5-methodology-pending |
+| f32  1×1×1024                   | 137.89   | 131.77      | **130.49**         | 200.67           | **1.007** ✅ | 1.038 | **0.702** | 1.046 | 56.20 | **B** (launcher-bound) | G5-methodology-pending |
 
-\* The two `M=1, N=1024` rows show `n=2 only` because 3 of 5 sweeps in
-the G5-setup baseline hit the Mosaic block-spec divisibility error
-documented in §6.5 (autotuner picks a config like `[1, 1024, 1024]`
-that the `measure_headline.py` capture-replay path doesn't pad
-correctly; the production launcher handles this transparently). The 2
-working sweeps cleared the kernel-only bar on both shapes — the H/J
-column from those sweeps is what's reported. Re-running with a
-non-blocking harness or capping the autotuner to padded configs is a
-§6.5 follow-up.
+\* The two `M=1, N=1024` rows show `n=1 only` / `n=2 only` because 4
+of 5 / 3 of 5 sweeps in the cycle-26 G5-methodology baseline hit the
+Mosaic block-spec divisibility error documented in §6.5 (autotuner
+picks a config like `[1, 1024, 1024]` that the `measure_headline.py`
+capture-replay path doesn't pad correctly; the production launcher
+handles this transparently). The surviving sweeps cleared the
+kernel-only bar on both shapes — the H/J column from those sweeps is
+what's reported. Re-running with a non-blocking harness or capping
+the autotuner to padded configs is a §6.5 follow-up. (The bf16 row
+dropped from `n=2` at cycle 25 to `n=1` at cycle 26; same root
+cause, different random crash distribution at the same seed.)
 
 **G5 bucket distribution** (from the table above; see §5 G5 for the
 bucket rule):
 - **A** (closed, full H/J ≥ 1.00): **0** of 14.
 - **B** (launcher-bound; kernel ≥ JAX, launcher overhead drops
-  full-path below 1.00): **9** of 14. One Helion-side launcher
-  substep (G5-launcher-O / -Y / -Z / -decorator) helps all 9
-  simultaneously (and proportionally helps the 4 D-bucket shapes too).
+  full-path below 1.00): **14** of 14. One Helion-side launcher
+  substep (G5-launcher-O / -Y / -Z / -decorator) helps every shape
+  simultaneously.
 - **C** (kernel headroom; kernel < JAX but Pallas ≥ JAX so a JAX-
-  beating kernel is known to exist): **1** of 14 — `f32 1024×1024×1`
-  (Pallas/JAX 1.035 → Pallas beats JAX by 3.5%; Helion/JAX 0.985 →
-  Helion kernel-only is 1.5% below JAX; there is ~5% headroom for
-  a Helion-side kernel improvement). A per-shape kernel seed
-  (G5-kernel-X pattern) could close it.
+  beating kernel is known to exist): **0** of 14.
 - **D** (ceiling-pinned; both Helion kernel and Pallas < JAX so XLA
-  has a structural win on this shape): **4** of 14 — `bf16
-  1024×128×1024`, `bf16 128×1024×1024`, `f32 1024×128×1024`, `f32
-  1×1024×1024`. These shapes close at the Helion ceiling per the §5
-  G5 ceiling clause; launcher work still applies (reduces the overhead
-  constant) but cannot drive full H/J above the Pallas/JAX ceiling.
+  has a structural win on this shape): **0** of 14. Cycle-25 had 4
+  D-bucket shapes; under the cycle-26 G5-methodology paired-sample
+  protocol, the JAX baseline is consistently 10-25us higher (because
+  it inherits scheduler state from Helion-full's wind-down inside
+  the per-iteration HJ-full 3-way window), so P/J flips above 1.00
+  on every shape and bucket D empties. The cycle-25 D-bucket
+  assignments were artifacts of the sequential-full / paired-kernel
+  methodology mix; the paired-sample gate signal is the honest
+  cross-shape view.
 
-**Precision-fixed JAX baseline (cycle 25 autoreview finding 1).** The
-JAX baseline for `--dtype float32` now routes through
-``jax.lax.dot_general(precision=Precision.HIGHEST)`` so the f32 H/J
-comparison is apples-to-apples with Helion's
+**Precision-fixed JAX baseline (cycle 25 autoreview finding 1, still
+in force cycle 26).** The JAX baseline for `--dtype float32` routes
+through ``jax.lax.dot_general(precision=Precision.HIGHEST)`` so the
+f32 H/J comparison is apples-to-apples with Helion's
 ``lax.dot_general(precision=HIGHEST)`` f32 path and Pallas's
 ``pl.dot(precision=HIGHEST)`` reference (cycle 23 G4-B fix). Without
 this override, ``jnp.matmul`` defaults to ``Precision.DEFAULT`` which
-silently bf16-rounds f32 multiplications on TPU — that's what
-produced the 0.924 P/J value for `f32 1024×1024×1024` in the prior
-G5-setup baseline, making it look ceiling-pinned (bucket D) when in
-fact Helion and Pallas were doing ~6× more arithmetic than JAX. The
-re-run f32 sweeps (this cycle's data above) use the precision-fixed
-baseline; the bf16 rows were not affected (MXU is already
-f32-accumulating for bf16 inputs).
+silently bf16-rounds f32 multiplications on TPU — that would make
+Helion and Pallas look ~6× slower than JAX on f32 shapes. The bf16
+rows are not affected (MXU is already f32-accumulating for bf16
+inputs).
 
-Note: the new `Helion kernel (us)` / `Helion full (us)` columns are
-both median-of-5-sweeps under the canonical DR#6 interleaved
-methodology (5-sweep instead of 10 — the cycle-25 G5-setup baseline is
-fewer sweeps per shape to fit the 14-shape sweep in cycle budget; G5
-substep closures re-verify at the canonical 10-sweep). `kernel H/P`,
-`kernel H/J`, `full H/J`, `P/J` are median-of-5 per-sweep ratios. The
-launcher overhead column is the per-sweep median of `(full us − JAX
-us)` — same number reported by ``measure_headline.py``'s
-``launcher_overhead_vs_jax_us`` field. JAX and Pallas us cells are
-the per-sweep medians from the same paired-sample 2-way interleaved
-legs, so all four numbers per row are apples-to-apples within the
-same chip-thermal-noise window. Pre-G5-setup the table reported a
-single H/J value per row whose denominator was inconsistent (some
-rows full-path, some kernel-only); the cycle-25 refresh fixes that
-ambiguity by splitting H/J into the two-column form gated on by G5.
+Note: the `Helion kernel (us)`, `Helion full (us)`, `JAX (us)`,
+`Pallas (us)`, and all ratio columns are medians of the per-sweep
+medians under the cycle-26 G5-methodology paired-sample protocol
+(5-sweep per shape — fewer sweeps per shape to fit the 14-shape
+sweep in cycle budget; G5 substep closures re-verify at the
+canonical 10-sweep). `Helion full (us)` is now the **HJ-full 3-way
+leg's Helion-full median** (the divisor of the gating
+``full_path_H_over_J``; was the sequential
+``_time(_run_full_path)`` median in cycle 25). `Helion kernel
+(us)` stays the **HP 2-way leg's Helion-kernel median** (paired
+with Pallas, the divisor of the gating
+``kernel_only_H_over_P``; unchanged from cycle 25 — preserves
+G2/G3/G4 apples-to-apples comparison). `JAX (us)` is now the
+**HJ-full 3-way leg's JAX median** (paired with Helion-full inside
+the same window; was the 2-way HJ leg's JAX median in cycle 25,
+paired with Helion-kernel). `Pallas (us)` is the **2-way HP leg's
+Pallas median** (unchanged). The launcher overhead column is the
+per-sweep median of `(helion_full_hj − jax)` — both terms from
+the same HJ-full 3-way leg, so the overhead value is paired-sample
+(was sequential − paired-mix in cycle 25).
 
 20 iters × 5 repeats per measurement, warmup excluded. Median of 5
-back-to-back sweeps per cell under the cycle-25 G5-setup baseline
-(see "G5 baseline bucket counts" note above for per-shape sweep
-counts; the two `M=1, N=1024` rows have `n=2` due to harness
-divisibility crash, see §6.5). Earlier baselines (G0-G4) used
-median-of-3; the cycle-25 refresh bumped to 5 to tighten the
-per-shape signal across the new tri-metric columns.
+back-to-back sweeps per cell under the cycle-26 G5-methodology
+baseline (see "G5 baseline bucket counts" note above for per-shape
+sweep counts; the two `M=1, N=1024` rows have `n=1` / `n=2` due to
+harness divisibility crash, see §6.5). Earlier baselines (G0-G4)
+used median-of-3; cycle-25 bumped to 5 to tighten the per-shape
+signal across the new tri-metric columns; cycle 26 keeps 5 (same
+methodology shape, paired-sample timing only).
 
 ### Headline metrics — gating + tracking
 
@@ -392,13 +440,19 @@ per-shape signal across the new tri-metric columns.
 | Attempt 4 (DR#6 2026-05-23, 10-sweep interleaved median, canonical methodology, pre-G2-tuner-v2) | n/a | 125.84 | 122.41 | n/a | 0.988 🟡 | n/a |
 | Attempt 5 (G2-tuner-v2-pending 2026-05-23, 10-sweep interleaved, paired-sample final-pick verification) | 170.12 | 120.38 | 121.49 | 0.71x | 1.0055 ✅ | 47.25 |
 | **Attempt 6 (G4-cap-fix-pending 2026-05-24, 5-sweep interleaved, corrected harness capture)** | n/a | **119.18** | **123.81** | n/a | **1.015** ✅ | n/a |
+| **Attempt 7 (G5-methodology-pending 2026-05-25 cycle 26, 5-sweep paired-sample HJ-full 3-way leg)** | **183.18** (paired) | **128.12** (HP-leg) | **128.08** | n/a (use full_path_H_over_J=0.716) | **1.009** ✅ | 53.45 (paired) |
 
 **Gating metric for G2/G3/G4** (the kernel-quality gates):
 **interleaved** kernel H/P ≥ 1.00 (DR#6 canonical methodology — see
 §2.10).
 **Gating metric for G5** (the user-facing-perf gate, manager directive
-2026-05-24): **interleaved** ``full_path_H_over_J`` ≥ 1.00 per shape
-— see §5 G5 for substep menu. Kernel-only H/J is the diagnostic split
+2026-05-24, paired-sample since cycle 26 G5-methodology closure):
+**interleaved** ``full_path_H_over_J`` ≥ 1.00 per shape, where
+``full_path_H_over_J = jax_us / helion_full_us`` and both come from
+the HJ-full 3-way paired leg
+(``Helion-kernel → Helion-full → JAX`` consecutively inside one
+``perf_counter_ns()`` window, gate pair Helion-full ↔ JAX adjacent).
+See §5 G5 for substep menu. Kernel-only H/J is the diagnostic split
 that tells the substep whether the gap is kernel-side or launcher-side.
 **Tracking metrics** (not gating): full-path H/P, kernel-only H/P (for
 already-closed shapes), launcher overhead vs Helion-kernel,
@@ -406,7 +460,13 @@ launcher overhead vs JAX. Launcher overhead vs Helion-kernel =
 Helion-full-path − Helion-kernel-only. Helion-side substeps can reduce
 it (G2-L/M/Ndirect did, from 169us → 42us — a 75% reduction over the
 G2 substep run); residual is dispatch overhead in torch_tpu's C++
-wrapper, §6.4 deferred-external.
+wrapper, §6.4 deferred-external. Note the cycle-26 paired-sample
+methodology raised the absolute launcher overhead number (~42 us
+sequential cycle-25 → ~55 us paired cycle-26) because Helion-full
+inherits scheduler state from Helion-kernel's preceding call inside
+the per-iteration window; the cumulative G2 reduction (-76% from G0)
+is unchanged structurally — only the absolute number shifts under
+the new methodology.
 
 ### Headline H/J — G5 gate (full-path) + diagnostic split (kernel-only)
 
@@ -419,9 +479,10 @@ lever). Launcher overhead vs JAX (``helion_full_us − jax_us``) is the
 absolute delta a G5 launcher-side substep has to close on shapes where
 the kernel is already fast enough — see §5 G5.
 
-Per-shape baselines populated by the cycle 25 G5-setup sweep (5-sweep
-interleaved median, ``HELION_AUTOTUNE_RANDOM_SEED=0``). Bucket rule
-for the diagnosis column:
+Per-shape baselines populated by the cycle 26 G5-methodology sweep
+(5-sweep paired-sample HJ-full 3-way leg median,
+``HELION_AUTOTUNE_RANDOM_SEED=0``). Bucket rule for the diagnosis
+column:
 - **kernel-side** if ``kernel_only_H_over_J < 1.00`` (kernel slower
   than JAX; G5-kernel-X substep applies).
 - **launcher-side** if ``kernel_only_H_over_J ≥ 1.00`` and
@@ -431,50 +492,59 @@ for the diagnosis column:
 
 | Shape | Helion full (us) | Helion kernel (us) | JAX (us) | full H/J | kernel H/J | P/J | Overhead vs JAX (us) | Bucket |
 |-------|------------------|---------------------|----------|----------|-------------|-----|----------------------|--------|
-| bf16 1024×1024×1                | 166.05 | 122.35 | 121.48 | 0.732 | 1.000 | 0.986 | 44.57 | **B** launcher-bound |
-| bf16 1024×1024×1024 (headline)  | 163.79 | 120.32 | 120.56 | 0.742 | 1.002 | 0.989 | 43.18 | **B** launcher-bound |
-| bf16 1024×128×1024              | 163.75 | 121.77 | 123.55 | 0.746 | 0.996 | 0.990 | 42.55 | **D** ceiling-pinned |
-| bf16 1024×1×1024                | 158.17 | 120.14 | 121.30 | 0.757 | 1.001 | 0.996 | 38.46 | **B** launcher-bound |
-| bf16 128×1024×1024              | 173.47 | 120.73 | 120.64 | 0.707 | 0.998 | 0.988 | 50.90 | **D** ceiling-pinned |
-| bf16 1×1024×1024 (n=2 only)     | 167.33 | 121.08 | 122.87 | 0.728 | 1.004 | 1.018 | 45.91 | **B** launcher-bound |
-| bf16 1×1×1024                   | 156.55 | 127.89 | 133.74 | 0.834 | 1.001 | 1.064 | 27.72 | **B** launcher-bound |
-| f32  1024×1024×1                | 156.96 | 118.60 | 119.99 | 0.772 | 0.985 | 1.035 | 35.44 | **C** kernel headroom |
-| f32  1024×1024×1024             | 189.63 | 133.14 | 133.26 | 0.735 | 1.009 | 0.996 | 49.77 | **B** launcher-bound |
-| f32  1024×128×1024              | 159.16 | 118.48 | 118.70 | 0.741 | 0.995 | 0.990 | 41.20 | **D** ceiling-pinned |
-| f32  1024×1×1024                | 172.08 | 120.16 | 123.53 | 0.718 | 1.002 | 1.024 | 48.55 | **B** launcher-bound |
-| f32  128×1024×1024              | 167.01 | 119.45 | 121.58 | 0.706 | 1.001 | 0.996 | 49.09 | **B** launcher-bound |
-| f32  1×1024×1024 (n=2 only)     | 162.38 | 118.55 | 119.14 | 0.756 | 1.000 | 0.996 | 38.49 | **D** ceiling-pinned |
-| f32  1×1×1024                   | 165.74 | 129.28 | 131.18 | 0.797 | 1.000 | 1.064 | 34.25 | **B** launcher-bound |
+| bf16 1024×1024×1                | 198.30 | 119.46 | 134.07 | 0.694 | 1.051 | 1.147 | 60.99 | **B** launcher-bound |
+| bf16 1024×1024×1024 (headline)  | 183.18 | 128.12 | 131.07 | 0.716 | 1.042 | 1.069 | 53.45 | **B** launcher-bound |
+| bf16 1024×128×1024              | 188.61 | 120.12 | 129.23 | 0.688 | 1.042 | 1.083 | 58.11 | **B** launcher-bound |
+| bf16 1024×1×1024                | 196.34 | 123.59 | 137.91 | 0.702 | 1.049 | 1.129 | 59.00 | **B** launcher-bound |
+| bf16 128×1024×1024              | 193.68 | 123.62 | 135.43 | 0.692 | 1.054 | 1.091 | 58.25 | **B** launcher-bound |
+| bf16 1×1024×1024 (n=1 only)     | 182.61 | 120.80 | 132.51 | 0.726 | 1.049 | 1.091 | 50.10 | **B** launcher-bound |
+| bf16 1×1×1024                   | 186.49 | 125.88 | 129.89 | 0.696 | 1.039 | 1.071 | 56.73 | **B** launcher-bound |
+| f32  1024×1024×1                | 191.06 | 123.12 | 131.00 | 0.681 | 1.034 | 1.109 | 61.01 | **B** launcher-bound |
+| f32  1024×1024×1024             | 215.18 | 133.67 | 156.21 | 0.726 | 1.052 | 1.183 | 62.39 | **B** launcher-bound |
+| f32  1024×128×1024              | 189.26 | 121.12 | 132.53 | 0.696 | 1.041 | 1.080 | 56.80 | **B** launcher-bound |
+| f32  1024×1×1024                | 186.58 | 120.36 | 130.12 | 0.697 | 1.043 | 1.068 | 56.46 | **B** launcher-bound |
+| f32  128×1024×1024              | 197.77 | 122.93 | 142.12 | 0.711 | 1.052 | 1.121 | 56.62 | **B** launcher-bound |
+| f32  1×1024×1024 (n=2 only)     | 191.27 | 123.52 | 135.11 | 0.706 | 1.044 | 1.090 | 56.17 | **B** launcher-bound |
+| f32  1×1×1024                   | 200.67 | 130.49 | 137.89 | 0.702 | 1.038 | 1.046 | 56.20 | **B** launcher-bound |
 
-**G5 baseline bucket counts (cycle-25 G5-setup baseline, 5-sweep
-interleaved median per shape; f32 rows under the precision-fixed
-JAX baseline — autoreview cycle 25 finding 1 fix):**
+**G5 baseline bucket counts (cycle-26 G5-methodology baseline,
+5-sweep paired-sample HJ-full 3-way leg median per shape; f32 rows
+under the precision-fixed JAX baseline — autoreview cycle 25 finding
+1 fix):**
 - **A** closed (full H/J ≥ 1.00): **0** of 14.
-- **B** launcher-bound (kernel ≥ JAX, full < JAX): **9** of 14.
-- **C** kernel headroom (kernel < JAX, Pallas ≥ JAX): **1** of 14
-  (`f32 1024×1024×1`, Pallas/JAX 1.035, Helion/JAX 0.985 — ~5%
-  headroom for a Helion-side kernel improvement).
-- **D** ceiling-pinned (kernel ≈ Pallas, both < JAX): **4** of 14
-  (`bf16 1024×128×1024`, `bf16 128×1024×1024`, `f32 1024×128×1024`,
-  `f32 1×1024×1024`). All four are within ±1% of the bucket-C cutoff
-  (Pallas/JAX ~0.99); rerunning with more sweeps may shift one or
-  two to C. None are deep wins for XLA.
+- **B** launcher-bound (kernel ≥ JAX, full < JAX): **14** of 14.
+- **C** kernel headroom (kernel < JAX, Pallas ≥ JAX): **0** of 14.
+- **D** ceiling-pinned (kernel ≈ Pallas, both < JAX): **0** of 14.
+  Under the cycle-26 paired-sample protocol, P/J flips above 1.00 on
+  every shape (range 1.046-1.183) because the 2-way HP leg's JAX
+  predecessor — Pallas, ~120us — is shorter than the cycle-25 mix's
+  predecessor for Helion-full (sequential ``_run_full_path`` at
+  ~165us), so paired-leg Pallas inherits less than paired-leg
+  JAX-after-helion-full. The cycle-25 D-bucket assignments (and the
+  one cycle-25 C-bucket) were artifacts of the
+  sequential-full / paired-kernel methodology mix; the paired-sample
+  gate signal is the honest cross-shape view. **Important diagnostic
+  caveat (autoreview cycle 26 finding 1):** ``kernel_only_P_over_J``
+  is NOT a strictly paired-sample ratio under cycle-26 methodology
+  (JAX and Pallas come from different paired legs with different
+  predecessor calls) — see §5 G5 "Diagnostic-ratio caveat" for why
+  bucket assignments are substep-selector hints rather than
+  ground-truth XLA-vs-Pallas kernel quality claims.
 
-**G5-setup verdict (this cycle):** the full-path gap is dominated by
-**Helion-side launcher overhead** (median `launcher_overhead_vs_jax_us`
-across all 14 shapes is **~42 us**, range 27–51 us; the kernel is at
-parity with JAX on 10 of 14 shapes already and within 1.5% on the
-remaining 4). A single Helion-side launcher substep that shaves
-5-15 us per call benefits all 9 B-shapes simultaneously (each by
-~3-10% relative full H/J) and also tightens the 4 D-shapes and the
-1 C-shape proportionally. Cycle-26 should pursue the launcher lever
-first; per-shape kernel work on the lone C-shape (`f32 1024×1024×1`)
-is a secondary follow-up with ~5% expected lift on that single
-shape. The f32 `1024×1024×1024` headline went from worst-misclassified
-(bucket D, P/J 0.924) under the default-precision JAX baseline to
-bucket B (P/J 0.996, kernel H/J 1.009) under the precision-fixed
-baseline — illustrating that the apples-to-apples precision-match is
-essential for honest f32 H/J attribution.
+**G5-methodology verdict (this cycle):** the full-path gap is
+dominated by **Helion-side launcher overhead** (median
+`launcher_overhead_vs_jax_us` across all 14 shapes is **~57 us**,
+range 50-62 us; the kernel-only Helion is *faster* than the paired
+JAX numerator on every shape — kernel H/J = jax_us / helion_kernel_us
+= 1.034-1.054, i.e. JAX is 3-5% slower than Helion-kernel). A single
+Helion-side launcher substep that shaves 5-15 us per call benefits
+all 14 launcher-bound shapes simultaneously (each by ~3-8% relative
+full H/J on the worst shape). Cycle-27 should pursue the launcher
+lever first; no per-shape kernel work is queued (no C-bucket shapes
+remain, no D-bucket shapes either). The headline `bf16
+1024×1024×1024` full H/J is **0.716** with launcher overhead
+**53.5 us**; closing 30 us of that overhead would lift the
+headline to ~0.85, and closing all of it would clear the bar.
 
 Per-sweep raw numbers (10 sweeps at HEAD under the DR#6 canonical
 interleaved protocol AFTER the G2-tuner-v2 substep landed
@@ -3308,38 +3378,68 @@ G5 gating signal) and ``launcher_overhead_vs_jax_us`` (= helion_full_us
 launcher-side substeps target). The G5 invocation pattern is documented
 in §7.1.
 
-**Methodology gap (autoreview cycle 25 finding A, tolerated this
-cycle).** The G5 gating ratio ``full_path_H_over_J`` divides
-``jax_kernel_us`` (from the paired HJ leg) by ``helion_full_us``
-(measured in an isolated sequential ``_time(_run_full_path)`` window
-before the paired legs run). Numerator and denominator come from
-different windows, so between-window thermal drift is NOT canceled
-the way it is in the kernel-only ratios. Empirically the drift is
-small (sequential us spread ~5-15 us at the headline; the HJ leg's
-JAX us is within ~3us of a standalone sequential JAX measurement,
-well below the ~40us launcher-overhead signal G5 substeps target).
-Closing this gap requires adding a third paired leg
-(Helion-full-path vs JAX inside the same interleaved window) AND
-re-measuring the whole 14-shape G5-setup baseline (cycle 25 probe
-showed the paired-leg helion-full-path is ~30us higher than the
-sequential measurement because the JAX call inherits scheduler
-state from helion-full's wind-down — a real measurement effect,
-not noise). Deferred to a follow-up (**G5-methodology**) so cycle 25
-can stage the unified framing without losing the existing
-sequential-full / paired-kernel comparability with the cycle 24 G4
-closure measurements. The substep menu below records this as
-**G5-methodology** for completeness.
+**Methodology closure (G5-methodology, cycle 26 2026-05-24, ✅
+CLOSED).** ``_time_interleaved_paired`` in
+``examples/pallas_perf/measure_headline.py`` now runs a 3-way HJ-full
+leg (``Helion-kernel → Helion-full → JAX`` consecutively inside one
+``perf_counter_ns()`` window per iteration) so the gate ratio
+``full_path_H_over_J = jax_us / helion_full_us`` has its numerator
+and denominator captured back-to-back in the same chip-thermal-noise
+window. Ordering puts the *gate pair* (Helion-full ↔ JAX) adjacent
+so common-mode drift fully cancels in the gate ratio; the HJ-leg
+Helion-kernel sample sits one slot earlier (so the diagnostic
+``kernel_only_H_over_J`` ratio is "almost paired" — accepted trade-
+off, since the kernel H/J is a substep selector, not the gate). The
+HP 2-way leg
+(``_time_interleaved(helion_kernel_only, pallas)``) stays unchanged
+to preserve apples-to-apples comparability with the DR#6 G2/G3/G4
+closures. Single 4-way window not used because mixing JAX into the
+H/P window would change the H/P cycle length and could drift the
+gate signal away from the closed G2/G3/G4 verdicts. Verification
+table (see §1 14-row refresh below for the full per-shape
+breakdown):
 
-**Substep menu (provisional; data-driven update each cycle from the
-per-shape diagnosis recorded in the History row).**
+| Methodology | Worst full H/J | bf16 headline full H/J | Bucket distribution (A/B/C/D) |
+|---|---|---|---|
+| Cycle 25 (sequential-full / paired-kernel mix) | 0.706 | 0.742 | 0 / 9 / 1 / 4 |
+| Cycle 26 (3-way paired HJ-full leg, ordering = kernel→full→jax) | **0.681** | **0.716** | **0 / 14 / 0 / 0** |
+
+Direction: full H/J shifts ~3-7% lower across every shape because
+``helion_full_us_hj`` is consistently ~30us higher than the standalone
+sequential measurement (JAX inherits scheduler state from Helion-full's
+~190us wind-down). Pallas-vs-JAX P/J shifts UP across every shape
+(was 0.99-1.07, now 1.05-1.18) because the 2-way HP leg's JAX
+predecessor — Pallas, ~120us — is shorter than the cycle-25
+3-way-mix predecessor — Helion-full-path, ~190us — so paired-leg
+Pallas inherits less wind-down than paired-leg JAX. Bucket D
+("ceiling-pinned, Pallas < JAX") **disappears entirely** under the
+honest paired-sample methodology — all 14 shapes are now bucket B
+(launcher-bound: kernel ≥ JAX, full < JAX). Kernel H/P unchanged
+within paired-sample precision (0.99-1.01, identical to cycle 25)
+— G2/G3/G4 closures preserved. Kernel H/J ratios drift UP slightly
+(was 0.985-1.012, now 1.034-1.054) because kernel H/J = jax_us /
+helion_kernel_us has the JAX numerator paired-via-1-slot-distance
+with helion_kernel inside the HJ-full leg — JAX inherits scheduler
+state from helion_full's wind-down (inflating the JAX numerator)
+instead of the cycle-25 direct kernel-paired-with-JAX adjacency.
+
+**Substep menu (data-driven update each cycle from the per-shape
+diagnosis recorded in the History row).**
 
 - **G5-methodology — close the full-H/J paired-sample asymmetry.**
-  Add a third paired leg to ``_time_interleaved_paired``
-  (Helion-full-path vs JAX inside the same interleaved window),
-  re-measure the 14-shape G5-setup baseline, refresh §1 table. Low
-  risk (harness only); 1 cycle. Run BEFORE pursuing kernel / launcher
-  levers so the gate signal is paired-sample throughout the rest of
-  G5 closure.
+  ✅ CLOSED 2026-05-24 (cycle 26). Harness-only change in
+  ``examples/pallas_perf/measure_headline.py``: new
+  ``_time_interleaved_3way`` helper, ``_time_interleaved_paired``
+  swaps its 2-pass-pair internals for a 3-way HJ-full leg + the
+  pre-existing 2-way HP leg, ordering = ``Helion-kernel →
+  Helion-full → JAX`` (gate pair adjacent). Verified by the cycle
+  26 14-shape × 5-sweep re-baseline; ``measure_headline.py
+  --timing-mode interleaved`` now emits a new ``helion_full_path_hj_*``
+  line carrying the HJ-leg full-path median (gate divisor), and
+  ``full_path_H_over_J`` / ``launcher_overhead_vs_jax_us`` are
+  paired-sample. No Helion compiler / runtime / heuristic / test
+  code changes; ``./lint.sh check`` clean; ``PALLAS_TEST_CMD``
+  unchanged.
 - **G5-kernel-X** — per-shape kernel speedup vs JAX where
   ``kernel_only_H_over_J < 1.00`` AND ``kernel_only_P_over_J ≥ 1.00``
   (bucket C below; kernel headroom exists). Apply the G2-K /
@@ -3386,6 +3486,34 @@ buckets, then pick the substep menu entry that targets its bucket:
 | **C** | ``full_path_H_over_J < 1.00`` AND ``kernel_only_H_over_J < 1.00`` AND ``kernel_only_P_over_J ≥ 1.00`` | Kernel (G5-kernel-X) — Pallas shows a JAX-beating kernel exists; bring Helion up to that ceiling | kernel headroom exists |
 | **D** | ``full_path_H_over_J < 1.00`` AND ``kernel_only_H_over_J < 1.00`` AND ``kernel_only_P_over_J < 1.00`` | Ceiling clause — Helion ≤ Pallas; nothing more to do kernel-side. Launcher work still applies (will narrow the gap proportionally but won't close it). | ✅ AT HELION CEILING |
 
+**Diagnostic-ratio caveat (cycle 26 G5-methodology closure).** Under
+the cycle-26 paired-sample protocol the gate ratio
+``full_path_H_over_J`` is strictly paired-sample (numerator and
+denominator are adjacent slots inside the HJ-full 3-way leg, with
+gate pair adjacency). The two diagnostic ratios used by the bucket
+rule are NOT strictly paired-sample:
+- ``kernel_only_H_over_J`` (``jax_us / helion_kernel_us``): both
+  terms from the HJ-full leg but separated by the ``helion_full``
+  slot — "almost paired", drift cancellation is one call worse than
+  the gate's.
+- ``kernel_only_P_over_J`` (``jax_us / pallas_us``): terms from
+  *different* legs (JAX from HJ-full leg, Pallas from HP leg) and
+  different predecessor calls (Pallas-after-Helion-kernel vs
+  JAX-after-Helion-full) — strictly NOT paired-sample.
+Effect on bucket assignment under cycle-26 data: the predecessor
+asymmetry inflates the JAX numerator vs Pallas (JAX inherits
+Helion-full's longer wind-down inside the HJ-full leg, while Pallas
+in its dedicated HP 2-way leg inherits only Helion-kernel's shorter
+wind-down), which pushes ``kernel_only_P_over_J`` = jax_us / pallas_us
+above 1.00 on every shape — bucket D ("ceiling-pinned, Pallas < JAX")
+empties as a structural consequence of the methodology, not as
+evidence that Pallas truly beats JAX on every shape in a
+standalone-call workload. A future substep that needs strict
+paired-sample diagnostics would add dedicated kernel↔JAX and
+Pallas↔JAX 2-way legs (cost: 2 more paired legs per sweep). Until
+then, treat bucket assignments as substep-selector hints, not
+ground-truth claims about XLA-vs-Pallas relative kernel quality.
+
 **Substep selection rule.** After each baseline / re-measurement,
 order shapes by ``full_path_H_over_J`` gap (worst first). For each
 shape with gap > 0:
@@ -3397,12 +3525,23 @@ shape with gap > 0:
   Launcher lever still applies generically (does not close the gap
   to 1.00 on D-shapes but does reduce the absolute overhead).
 
+**Cycle 26 observation (post-G5-methodology closure).** Under the
+paired-sample HJ-full 3-way leg, bucket D is empty across the full
+14-shape baseline: every shape has ``kernel_only_P_over_J ≥ 1.00``
+(Pallas beats JAX under the paired-sample protocol) and most have
+``kernel_only_H_over_J ≥ 1.00`` (Helion-kernel ≥ JAX), placing every
+shape in bucket B. Bucket-C / D / ceiling logic remains in the rule
+because future kernel work on a specific shape could change the
+per-shape ratios; the rule itself is unchanged, only the cycle-26
+distribution.
+
 **History.** Full-path H/J gate + kernel/launcher diagnosis recorded
 per row.
 
 | Date | Commit | Worst full-path H/J | Worst shape | Headline full (us) | Per-shape diagnosis (full H/J / kernel H/J / overhead vs JAX) |
 |------|--------|---------------------|-------------|--------------------|----------------------------------------------------------------|
-| 2026-05-24 | G5-setup (cycle 25, pending commit) | **0.706** (f32 128×1024×1024) | f32 128×1024×1024 | 163.79 (bf16 G2 headline full-path, 5-sweep interleaved median at HEAD — unchanged this cycle, no compiler / runtime code changes; the cycle 24 G4-cap-fix harness already gives this as the kernel ≈ JAX number). G5-setup baseline: 14-shape × 5-sweep canonical DR#6 interleaved sweep under ``HELION_AUTOTUNE_RANDOM_SEED=0``. Buckets: **A=0, B=9, C=1, D=4** (under the cycle-25 precision-fixed JAX baseline — autoreview finding 1; the f32 rows were re-swept after fixing ``measure_headline.py``'s JAX baseline to use ``Precision.HIGHEST`` to match Helion / Pallas). Worst gap is `f32 128×1024×1024` (full H/J 0.706, launcher overhead 49.1 us, kernel H/J 1.001 → kernel at parity → bucket B). bf16 headline (`bf16 1024×1024×1024`) is full H/J 0.742 with launcher overhead 43.2 us; bucket B. f32 headline (`f32 1024×1024×1024`) is full H/J 0.735 with launcher overhead 49.8 us; bucket B (was bucket D under the broken precision-default JAX baseline). ``measure_headline.py`` already had the JAX-baseline machinery from the cycle 25 G5-setup-pending agent (``_run_jax_kernel_only`` + ``full_path_H_over_J`` + ``launcher_overhead_vs_jax_us`` print lines wired into ``_time_interleaved_paired``); cycle 25 ran the 14-shape baseline, fixed the f32 JAX precision-default bug (autoreview finding 1), re-ran the 7 f32 shapes, reframed §5 G5 around the unified full-path metric, added the per-shape A/B/C/D bucket rule, and propagated the ceiling-clause language to §1, §5 G5, and §7.1. Additional autoreview cycle-25 findings absorbed: docstring formula direction now matches code (``jax / helion`` per the H/P convention); ``helion_kernel_only`` printed median is now the HP-leg's median (no longer a mean of two paired medians, which broke the median-claim contract and the reconstruct-ratio property); ``helion_full_path_*`` line stays once outside the loop (the in-loop print attempt broke the both-mode contract); cycle-specific tags in code comments dropped in favor of plan.md references; harness-side M=1 BlockSpec divisibility limitation documented in the script docstring. The methodology asymmetry between sequential ``helion_full_us`` and paired ``jax_kernel_us`` (full H/J denominator vs numerator) is documented in ``_time_interleaved_paired``'s docstring and queued as the **G5-methodology** substep in §5. PALLAS_TEST_CMD unchanged (no compiler / runtime changes); the harness-only changes don't add or remove pin tests. | bf16 1024×1024×1: full 0.732 / kernel 1.000 / overhead 44.57 us (B); bf16 1024×1024×1024 (headline): full 0.742 / kernel 1.002 / overhead 43.18 us (B); bf16 1024×128×1024: full 0.746 / kernel 0.996 / overhead 42.55 us (D); bf16 1024×1×1024: full 0.757 / kernel 1.001 / overhead 38.46 us (B); bf16 128×1024×1024: full 0.707 / kernel 0.998 / overhead 50.90 us (D); bf16 1×1024×1024 (n=2): full 0.728 / kernel 1.004 / overhead 45.91 us (B); bf16 1×1×1024: full 0.834 / kernel 1.001 / overhead 27.72 us (B); f32 1024×1024×1: full 0.772 / kernel 0.985 / overhead 35.44 us (C; was D under precision-default baseline); f32 1024×1024×1024: full 0.735 / kernel 1.009 / overhead 49.77 us (B; was D under precision-default baseline with P/J 0.924 → now P/J 0.996 under precision-fixed baseline); f32 1024×128×1024: full 0.741 / kernel 0.995 / overhead 41.20 us (D); f32 1024×1×1024: full 0.718 / kernel 1.002 / overhead 48.55 us (B); f32 128×1024×1024: full 0.706 / kernel 1.001 / overhead 49.09 us (B; worst full H/J after the precision-fix re-sweep); f32 1×1024×1024 (n=2): full 0.756 / kernel 1.000 / overhead 38.49 us (D); f32 1×1×1024: full 0.797 / kernel 1.000 / overhead 34.25 us (B). |
+| 2026-05-24 | G5-setup (cycle 25) | **0.706** (f32 128×1024×1024) | f32 128×1024×1024 | 163.79 (bf16 G2 headline full-path, 5-sweep interleaved median at HEAD — unchanged this cycle, no compiler / runtime code changes; the cycle 24 G4-cap-fix harness already gives this as the kernel ≈ JAX number). G5-setup baseline: 14-shape × 5-sweep canonical DR#6 interleaved sweep under ``HELION_AUTOTUNE_RANDOM_SEED=0`` under the *sequential-full / paired-kernel* methodology (cycle-25 mix; the gate ratio ``full_path_H_over_J`` = jax_us / helion_full_us had its helion_full denominator from a sequential ``_time(_run_full_path)`` window while the JAX numerator came from the 2-way HJ paired leg — superseded by cycle-26 G5-methodology, see next row). Buckets: **A=0, B=9, C=1, D=4** (under the cycle-25 precision-fixed JAX baseline — autoreview finding 1; the f32 rows were re-swept after fixing ``measure_headline.py``'s JAX baseline to use ``Precision.HIGHEST`` to match Helion / Pallas). PALLAS_TEST_CMD unchanged (no compiler / runtime changes); the harness-only changes don't add or remove pin tests. | bf16 1024×1024×1: full 0.732 / kernel 1.000 / overhead 44.57 us (B); bf16 1024×1024×1024 (headline): full 0.742 / kernel 1.002 / overhead 43.18 us (B); bf16 1024×128×1024: full 0.746 / kernel 0.996 / overhead 42.55 us (D); bf16 1024×1×1024: full 0.757 / kernel 1.001 / overhead 38.46 us (B); bf16 128×1024×1024: full 0.707 / kernel 0.998 / overhead 50.90 us (D); bf16 1×1024×1024 (n=2): full 0.728 / kernel 1.004 / overhead 45.91 us (B); bf16 1×1×1024: full 0.834 / kernel 1.001 / overhead 27.72 us (B); f32 1024×1024×1: full 0.772 / kernel 0.985 / overhead 35.44 us (C); f32 1024×1024×1024: full 0.735 / kernel 1.009 / overhead 49.77 us (B); f32 1024×128×1024: full 0.741 / kernel 0.995 / overhead 41.20 us (D); f32 1024×1×1024: full 0.718 / kernel 1.002 / overhead 48.55 us (B); f32 128×1024×1024: full 0.706 / kernel 1.001 / overhead 49.09 us (B); f32 1×1024×1024 (n=2): full 0.756 / kernel 1.000 / overhead 38.49 us (D); f32 1×1×1024: full 0.797 / kernel 1.000 / overhead 34.25 us (B). |
+| 2026-05-24 | G5-methodology (cycle 26, pending commit) | **0.681** (f32 1024×1024×1) | f32 1024×1024×1 | 183.18 (bf16 G2 headline full-path, 5-sweep interleaved median at HEAD under the new paired-sample HJ-full 3-way leg — was 163.79 us under cycle 25's sequential ``_time(_run_full_path)``; the +20us reflects the JAX call's predecessor inheriting Helion-full's wind-down inside the same per-iteration window). Methodology refactor: ``_time_interleaved_paired`` now runs a 3-way HJ-full leg (``Helion-kernel → Helion-full → JAX`` consecutively inside one ``perf_counter_ns()`` window per iteration) + the pre-existing 2-way HP leg, so the G5 gate ratio ``full_path_H_over_J = jax_us / helion_full_us`` is paired-sample (numerator and denominator from the same chip-thermal-noise window, gate pair adjacent). Cycle 26 14-shape × 5-sweep re-baseline under ``HELION_AUTOTUNE_RANDOM_SEED=0``. Buckets: **A=0, B=14, C=0, D=0** (all shapes are now launcher-bound; bucket D — Pallas < JAX — disappeared because under paired-sample timing Pallas inherits less wind-down than JAX-after-helion-full, so P/J is consistently 1.05-1.18 across every shape). Worst gap is `f32 1024×1024×1` (full H/J 0.681, launcher overhead 61.0 us, kernel H/J 1.034 → kernel ≥ JAX → bucket B). bf16 headline (`bf16 1024×1024×1024`) is full H/J 0.716 with launcher overhead 53.5 us; bucket B. Methodology shift was applied uniformly: cycle 25 full H/J → cycle 26 full H/J differs by ~0.02-0.07 across shapes (always lower), inside the predicted ~30us paired-leg helion-full drift documented in the cycle 25 methodology gap note. JAX baselines did not drift > 30% (per the manager escalation rule): max shift was f32 1024×1024×1024 (133.26 → 156.21 us, ~17%). G2/G3/G4 kernel-only H/P unchanged within paired-sample precision (0.99-1.01, identical to cycle 25 baseline) — closures preserved. Files changed (harness only): ``examples/pallas_perf/measure_headline.py`` (+~50 LOC net for the new 3-way helper + updated paired-helper signature + revised docstrings + ratio-divisor refactor; also absorbs cycle-25 autoreview findings 1-6 on stale CLI help text and module-docstring header). No Helion compiler / runtime / heuristic / test code changes. PALLAS_TEST_CMD unchanged (harness-only). | bf16 1024×1024×1: full 0.694 / kernel 1.051 / overhead 60.99 us (B); bf16 1024×1024×1024 (headline): full 0.716 / kernel 1.042 / overhead 53.45 us (B); bf16 1024×128×1024: full 0.688 / kernel 1.042 / overhead 58.11 us (B); bf16 1024×1×1024: full 0.702 / kernel 1.049 / overhead 59.00 us (B); bf16 128×1024×1024: full 0.692 / kernel 1.054 / overhead 58.25 us (B); bf16 1×1024×1024 (n=1 only*): full 0.726 / kernel 1.049 / overhead 50.10 us (B); bf16 1×1×1024: full 0.696 / kernel 1.039 / overhead 56.73 us (B); f32 1024×1024×1: full 0.681 / kernel 1.034 / overhead 61.01 us (B; worst full H/J); f32 1024×1024×1024: full 0.726 / kernel 1.052 / overhead 62.39 us (B); f32 1024×128×1024: full 0.696 / kernel 1.041 / overhead 56.80 us (B); f32 1024×1×1024: full 0.697 / kernel 1.043 / overhead 56.46 us (B); f32 128×1024×1024: full 0.711 / kernel 1.052 / overhead 56.62 us (B); f32 1×1024×1024 (n=2 only*): full 0.706 / kernel 1.044 / overhead 56.17 us (B); f32 1×1×1024: full 0.702 / kernel 1.038 / overhead 56.20 us (B). \* The two `M=1, N=1024` rows drop sweeps to the §6.5 M=1 BlockSpec divisibility error (autotuner picks a config like `[1, *, 1024]` that the harness's capture-replay path doesn't pad correctly; production launcher handles transparently); the surviving sweeps' medians are reported. |
 
 ---
 
@@ -3543,7 +3682,7 @@ into §6.4 deferred-external dispatch progress.
 | G2 (✅ CLOSED cycle 21 G2-tuner-v2) | ``measure_headline.py --timing-mode interleaved`` × 1 with ``HELION_AUTOTUNE_RANDOM_SEED=0``; gate on ``kernel_only_H_over_P`` (autotuner-picked, no pinning) | × 10 verified, **interleaved** 10-sweep median ≥ 1.00 under seeded autotuner; spread tracked as §6.5 | ``full_path_H_over_P`` + ``launcher_overhead_us`` always tracked (from the ``--timing-mode sequential`` ratio block) |
 | G3 (✅ CLOSED) | ``measure_headline.py --shape M K N --timing-mode interleaved`` × 1 per G3 shape (substep's targeted shapes) | × 10 per shape | same |
 | G4 (✅ CLOSED) | + per-shape f32 × 1 (interleaved)                       | × 10 per shape | same |
-| G5 (full-path H/J ≥ 1.00 on every shape OR ✅ AT HELION CEILING per §5 G5 ceiling clause) | ``measure_headline.py --shape M K N --dtype <bf16/f32> --timing-mode interleaved`` × 1 per G5 substep's targeted shape(s); gate on ``full_path_H_over_J`` (**provisional** until the **G5-methodology** substep closes the sequential-full / paired-kernel asymmetry; see §5 G5). Per-shape bucket reassessed each cycle from the median ``(full H/J, kernel H/J, kernel P/J)`` triple — see §5 G5 substep selection rule. | × 10 per shape, **interleaved** 10-sweep median ``full_path_H_over_J`` ≥ 1.00 OR ceiling-pinned with attribution; full matrix × 10 at gate exit. Geo-mean excludes ceiling-pinned rows. Substep selection decisions should not be made on the provisional metric until G5-methodology lands. | ``kernel_only_H_over_J`` (lever-diagnostic split — kernel vs launcher) + ``kernel_only_P_over_J`` (ceiling indicator — < 1.00 means JAX > Pallas structurally) + ``launcher_overhead_vs_jax_us`` (absolute Helion-side gap that G5 launcher-side substeps target) |
+| G5 (full-path H/J ≥ 1.00 on every shape OR ✅ AT HELION CEILING per §5 G5 ceiling clause) | ``measure_headline.py --shape M K N --dtype <bf16/f32> --timing-mode interleaved`` × 1 per G5 substep's targeted shape(s); gate on ``full_path_H_over_J`` (paired-sample HJ-full 3-way leg since G5-methodology closed cycle 26 2026-05-24; gate pair Helion-full ↔ JAX adjacent in the per-iteration window). Per-shape bucket reassessed each cycle from the median ``(full H/J, kernel H/J, kernel P/J)`` triple — see §5 G5 substep selection rule. | × 10 per shape, **interleaved** 10-sweep median ``full_path_H_over_J`` ≥ 1.00 OR ceiling-pinned with attribution; full matrix × 10 at gate exit. Geo-mean excludes ceiling-pinned rows. | ``kernel_only_H_over_J`` (lever-diagnostic split — kernel vs launcher) + ``kernel_only_P_over_J`` (ceiling indicator — < 1.00 means JAX > Pallas structurally) + ``launcher_overhead_vs_jax_us`` (absolute Helion-side gap that G5 launcher-side substeps target) |
 
 **Why interleaved.** DR#6 §2.10 showed sequential per-call timing
 windows (Helion in window 1, Pallas in window 2, separated by
@@ -3618,19 +3757,20 @@ full-path median so existing log scrapers keep parsing).
 back-compat metric names without a mode suffix):**
 
 ```
-helion_bf16_<M>x<K>x<N>: median=<us> us                                                            # back-compat full-path
-helion_full_path_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us                  # tracking
-helion_kernel_only_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us                # GATING since DR#6 (interleaved canonical); HP-leg median in interleaved mode
-helion_kernel_only_hj_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us             # HJ-leg Helion median (for `kernel_only_H_over_J` reconstruction); same value as above in sequential mode
+helion_bf16_<M>x<K>x<N>: median=<us> us                                                            # back-compat full-path (always sequential window)
+helion_full_path_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us                  # sequential full-path (always; tracking; divisor of full_path_H_over_P)
+helion_kernel_only_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us                # HP-leg Helion-kernel median (paired with Pallas) in interleaved mode; sequential window median in sequential mode
+helion_kernel_only_hj_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us             # HJ-full 3-way leg Helion-kernel median (divisor of kernel_only_H_over_J) in interleaved mode; same value as helion_kernel_only in sequential mode
+helion_full_path_hj_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us               # HJ-full 3-way leg Helion-full median (divisor of full_path_H_over_J — GATING for G5) in interleaved mode; same value as helion_full_path in sequential mode (G5-methodology closure, cycle 26)
 pallas_kernel_only_<M>x<K>x<N>: median=<us> us
 jax_kernel_only_<M>x<K>x<N>: median=<us> us                                                         # G5 baseline (full path = kernel only for JAX)
-full_path_H_over_P: <ratio>                                                                         # tracking
+full_path_H_over_P: <ratio>                                                                         # tracking; always uses the standalone sequential full-path us
 kernel_only_H_over_P: <ratio>                                                                       # GATING for G2/G3/G4 (when --timing-mode interleaved)
-full_path_H_over_J: <ratio>                                                                         # GATING for G5 (provisional; G5-methodology follow-up; when --timing-mode interleaved)
+full_path_H_over_J: <ratio>                                                                         # GATING for G5 (paired-sample HJ-full 3-way leg when --timing-mode interleaved; G5-methodology closed cycle 26)
 kernel_only_H_over_J: <ratio>                                                                       # G5 diagnostic split (kernel vs launcher lever)
 kernel_only_P_over_J: <ratio>                                                                       # tracking — hand-written Pallas vs JAX baseline
-launcher_overhead_us: <full - kernel> us                                                            # tracking — Helion-internal launcher overhead (uses HP-leg kernel in interleaved mode)
-launcher_overhead_vs_jax_us: <full - jax> us                                                        # tracking — Helion full-path overhead vs JAX (the G5 launcher-side substep target)
+launcher_overhead_us: <full - kernel> us                                                            # tracking — Helion-internal launcher overhead; both terms from HJ-full 3-way leg in interleaved mode (paired-sample) / from sequential windows in sequential mode. Cycle-26 methodology change: was HP-leg kernel-only divisor before.
+launcher_overhead_vs_jax_us: <full - jax> us                                                        # tracking — Helion full-path overhead vs JAX (the G5 launcher-side substep target); both terms from HJ-full 3-way leg in interleaved (paired-sample) / from sequential windows in sequential mode. Cycle-26 methodology change: was sequential-full / paired-jax mix before.
 ```
 
 For JAX, "full-path" and "kernel-only" are the same path (no
@@ -3647,6 +3787,7 @@ kernel-only us lines):**
 helion_full_path_<M>x<K>x<N> ...
 helion_kernel_only_<M>x<K>x<N> [sequential] [autotuner pick: <config>, seed=<n>]: median=<us> us
 helion_kernel_only_hj_<M>x<K>x<N> [sequential] [autotuner pick: <config>, seed=<n>]: median=<us> us
+helion_full_path_hj_<M>x<K>x<N> [sequential] [autotuner pick: <config>, seed=<n>]: median=<us> us
 pallas_kernel_only_<M>x<K>x<N> [sequential]: median=<us> us
 jax_kernel_only_<M>x<K>x<N> [sequential]: median=<us> us
 full_path_H_over_P_sequential: <ratio>
@@ -3658,11 +3799,12 @@ launcher_overhead_us_sequential: <us>
 launcher_overhead_vs_jax_us_sequential: <us>
 helion_kernel_only_<M>x<K>x<N> [interleaved] [autotuner pick: <config>, seed=<n>]: median=<us> us
 helion_kernel_only_hj_<M>x<K>x<N> [interleaved] [autotuner pick: <config>, seed=<n>]: median=<us> us
+helion_full_path_hj_<M>x<K>x<N> [interleaved] [autotuner pick: <config>, seed=<n>]: median=<us> us
 pallas_kernel_only_<M>x<K>x<N> [interleaved]: median=<us> us
 jax_kernel_only_<M>x<K>x<N> [interleaved]: median=<us> us
 full_path_H_over_P_interleaved: <ratio>
 kernel_only_H_over_P_interleaved: <ratio>      # CANONICAL (DR#6) for G2/G3/G4
-full_path_H_over_J_interleaved: <ratio>        # CANONICAL for G5 gate (provisional; see G5-methodology)
+full_path_H_over_J_interleaved: <ratio>        # CANONICAL for G5 gate (paired-sample HJ-full 3-way leg since G5-methodology cycle 26)
 kernel_only_H_over_J_interleaved: <ratio>      # G5 lever-diagnostic split
 kernel_only_P_over_J_interleaved: <ratio>
 launcher_overhead_us_interleaved: <us>

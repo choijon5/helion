@@ -44,26 +44,41 @@ python measure_headline.py                    # default bf16 1024x1024x1024
 python measure_headline.py --shape 1024 128 1024
 python measure_headline.py --dtype float32 --shape 1024 1024 1024   # G4 f32 path
 python measure_headline.py --seed 7           # override default seed (0)
-python measure_headline.py --timing-mode interleaved                 # DR#6 canonical
+python measure_headline.py --timing-mode interleaved                 # DR#6 HP + G5-methodology HJ-full
 ```
 
 Output (parseable lines, one per metric):
 
 ```
-helion_bf16_<M>x<K>x<N>: median=<us> us                                                  # back-compat full-path
-helion_full_path_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us
-helion_kernel_only_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us       # HP-leg median in interleaved mode
-helion_kernel_only_hj_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us    # HJ-leg Helion median (divisor of kernel_only_H_over_J)
+helion_bf16_<M>x<K>x<N>: median=<us> us                                                  # back-compat full-path (always sequential window)
+helion_full_path_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us         # sequential full-path (always; tracking; divisor of full_path_H_over_P)
+helion_kernel_only_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us       # HP-leg Helion-kernel median (paired with Pallas) in interleaved mode; sequential window median in sequential mode
+helion_kernel_only_hj_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us    # HJ-full 3-way leg Helion-kernel median (divisor of kernel_only_H_over_J) in interleaved mode; same value as helion_kernel_only in sequential mode
+helion_full_path_hj_<M>x<K>x<N> [autotuner pick: <config>, seed=<n>]: median=<us> us      # HJ-full 3-way leg Helion-full median (divisor of full_path_H_over_J — GATING for G5) in interleaved mode; same value as helion_full_path in sequential mode
 pallas_kernel_only_<M>x<K>x<N>: median=<us> us
 jax_kernel_only_<M>x<K>x<N>: median=<us> us
-full_path_H_over_P: <ratio>
-kernel_only_H_over_P: <ratio>             # GATING for G2/G3/G4
-full_path_H_over_J: <ratio>               # GATING for G5 (provisional; G5-methodology follow-up — see plan.md §5)
+full_path_H_over_P: <ratio>               # tracking; always uses the standalone sequential full-path us
+kernel_only_H_over_P: <ratio>             # GATING for G2/G3/G4 (DR#6 canonical when --timing-mode interleaved)
+full_path_H_over_J: <ratio>               # GATING for G5 (paired-sample HJ-full 3-way leg when --timing-mode interleaved; G5-methodology closed cycle 26)
 kernel_only_H_over_J: <ratio>             # diagnostic for G5 substep selection (kernel vs launcher lever)
 kernel_only_P_over_J: <ratio>             # tracking — hand-written Pallas vs JAX baseline
-launcher_overhead_us: <full - kernel> us  # Helion-internal launcher overhead vs HP-leg kernel-only
-launcher_overhead_vs_jax_us: <full - jax> us  # Helion full-path overhead vs JAX (G5 substep target)
+launcher_overhead_us: <us>                # Helion-internal launcher overhead = helion_full − helion_kernel; both terms from the HJ-full 3-way leg in interleaved mode (paired-sample) / from sequential windows in sequential mode. Cycle-26 methodology change: was HP-leg kernel-only divisor before.
+launcher_overhead_vs_jax_us: <us>         # Helion full-path overhead vs JAX = helion_full − jax; both from HJ-full 3-way leg in interleaved (paired-sample) / from sequential windows in sequential mode. G5 substep target. Cycle-26 methodology change: was sequential-full / paired-jax mix before.
 ```
+
+**Reconstruction note for log scrapers (interleaved mode, cycle 26+).**
+Each printed ratio uses these specific *_us lines as numerator /
+denominator:
+  - ``kernel_only_H_over_P``  = ``pallas_kernel_only`` / ``helion_kernel_only``     (HP 2-way leg)
+  - ``kernel_only_H_over_J``  = ``jax_kernel_only`` / ``helion_kernel_only_hj``     (HJ-full 3-way leg)
+  - ``full_path_H_over_J``    = ``jax_kernel_only`` / ``helion_full_path_hj``       (HJ-full 3-way leg — GATING for G5)
+  - ``full_path_H_over_P``    = ``pallas_kernel_only`` / ``helion_full_path``       (mixes HP-leg pallas with sequential helion-full; tracking only)
+  - ``launcher_overhead_us``  = ``helion_full_path_hj`` − ``helion_kernel_only_hj`` (both from HJ-full leg)
+  - ``launcher_overhead_vs_jax_us`` = ``helion_full_path_hj`` − ``jax_kernel_only`` (both from HJ-full leg)
+Naive ``helion_full_path`` − ``helion_kernel_only`` recovers the
+*sequential* launcher overhead (cycle 25 semantics), NOT the printed
+``launcher_overhead_us``. Use the ``*_hj_*`` lines for the cycle-26
+paired-sample reconstruction.
 
 The kernel-only path is built by patching
 ``helion.runtime._pallas_build_callable`` to stash the JAX ``jit_fn``
@@ -75,17 +90,14 @@ in ``jax.jit`` to match the JaxCallable construction site, and we time
 it directly with JAX inputs — identical to the way the hand-written
 ``pallas_matmul`` reference is called.
 
-Interleaved timing: the canonical DR#6 methodology pairs every Helion
-call with a reference call inside the same ``time.perf_counter_ns()``
-window so chip-thermal drift cancels in the ratio. To stay
-apples-to-apples with the G2/G3/G4 closure data (DR#6 2-way), the
-paired variant (``_time_interleaved_paired``) runs **two** 2-way
-interleaved legs back-to-back: Helion-vs-Pallas (for H/P) and
-Helion-vs-JAX (for H/J). A single 3-way Helion → Pallas → JAX cycle
-would systematically depress H/P by ~1-2% on some shapes (longer
-per-iteration window picks up scheduler state from JAX wind-down) and
-break the apples-to-apples comparison with the cycle 21-24 H/P
-closures. Cost is ~2× per sweep — still within the per-shape budget.
+Interleaved timing: see ``_time_interleaved_paired``'s docstring for
+the canonical methodology rationale. Brief summary: a 3-way HJ-full
+leg (``Helion-kernel → Helion-full → JAX``) makes the G5 gate ratio
+``full_path_H_over_J`` paired-sample with the Helion-full ↔ JAX
+adjacency; a separate 2-way HP leg (``Helion-kernel → Pallas``)
+preserves the DR#6 canonical methodology that the G2/G3/G4 closure
+verdicts landed under. Cost is ~2× per sweep (two paired legs
+back-to-back), still within the per-shape sweep budget.
 
 Timing convention matches the production harness everywhere: 20 iters
 x 5 repeats, warmup excluded, ``synchronize_device`` (or
@@ -360,63 +372,155 @@ def _time_interleaved(
     return helion_us, pallas_us
 
 
+def _time_interleaved_3way(
+    fn_a: Callable[[], object],
+    fn_b: Callable[[], object],
+    fn_c: Callable[[], object],
+    n_iter: int = 20,
+    n_repeats: int = 5,
+) -> tuple[float, float, float]:
+    """Paired-sample 3-way timing of three callables. Returns ``(a_us, b_us, c_us)``.
+
+    Times ``fn_a() → fn_b() → fn_c()`` consecutively inside one
+    ``time.perf_counter_ns()`` window per iteration (one counter call
+    between each fn invocation), so every per-call sample for a, b, c
+    is collected within a single chip-thermal-noise window. Per-side
+    median is the median across ``n_iter * n_repeats`` per-call
+    samples on that side.
+
+    Only **adjacent** pairs (a↔b, b↔c) have their common-mode drift
+    fully cancelled in their ratio; non-adjacent pairs (a↔c) have
+    fn_b's per-call jitter in between. Pick the ordering so the gate
+    ratio's numerator and denominator are adjacent — see
+    ``_time_interleaved_paired`` for the full G5-methodology rationale
+    on why we use a 3-way HJ-full leg (gate-pair-adjacent) plus a
+    separate 2-way HP leg (DR#6 G2/G3/G4 invariant) rather than one
+    4-way window.
+
+    Warmup: 5 3-way warmup iterations (each runs all three callables
+    once).
+    """
+    for _ in range(5):
+        fn_a()
+        fn_b()
+        fn_c()
+
+    a_samples_ns: list[int] = []
+    b_samples_ns: list[int] = []
+    c_samples_ns: list[int] = []
+    total = n_iter * n_repeats
+    for _ in range(total):
+        t0 = time.perf_counter_ns()
+        fn_a()
+        t1 = time.perf_counter_ns()
+        fn_b()
+        t2 = time.perf_counter_ns()
+        fn_c()
+        t3 = time.perf_counter_ns()
+        a_samples_ns.append(t1 - t0)
+        b_samples_ns.append(t2 - t1)
+        c_samples_ns.append(t3 - t2)
+
+    a_us = float(np.median(np.array(a_samples_ns))) / 1000.0
+    b_us = float(np.median(np.array(b_samples_ns))) / 1000.0
+    c_us = float(np.median(np.array(c_samples_ns))) / 1000.0
+    return a_us, b_us, c_us
+
+
 def _time_interleaved_paired(
-    fn_helion: Callable[[], object],
+    fn_helion_full: Callable[[], object],
+    fn_helion_kernel: Callable[[], object],
     fn_pallas: Callable[[], object],
     fn_jax: Callable[[], object],
     n_iter: int = 20,
     n_repeats: int = 5,
-) -> tuple[float, float, float, float]:
-    """Paired-sample timing of Helion vs Pallas (H/P) and Helion vs JAX (H/J).
+) -> tuple[float, float, float, float, float]:
+    """Paired-sample timing for the G5 tri-metric output schema.
 
-    Returns ``(helion_p_us, pallas_us, helion_j_us, jax_us)`` — two
-    independent Helion medians, one paired against Pallas (for H/P
-    tracking) and one paired against JAX (for the H/J diagnostic that
-    feeds G5 substep selection). Each pair runs in its own
-    ``time.perf_counter_ns()`` window pattern (Helion → reference →
-    Helion → reference → ...), so the H/P ratio matches the canonical
-    DR#6 2-way methodology that G2/G3/G4 closed under, and the H/J
-    ratio uses the same 2-way pattern apples-to-apples.
+    Returns ``(helion_full_us, helion_kernel_p_us, pallas_us,
+    helion_kernel_j_us, jax_us)`` measured under two paired legs.
 
-    Rationale for two-pass-pair rather than one 3-way window: a 3-way
-    interleaved cycle (Helion → Pallas → JAX) systematically depresses
-    the H/P ratio by ~1-2% on some shapes because the per-iteration
-    cycle is longer (Helion's window picks up scheduler state from
-    JAX's wind-down). The G2/G3/G4 closure relies on the DR#6 2-way
-    methodology; preserving that for H/P keeps the gate comparison
-    consistent across cycles. Cost is ~2× longer per sweep
-    (two interleaved windows back-to-back vs one), still well within
-    the per-shape sweep budget.
+    Leg order (HP first, then HJ-full) preserves the DR#6 cycle-15-25
+    pre-leg chip-thermal state for the HP leg's pair — running HP
+    first means the HP leg starts after the same warmup pattern that
+    cycles 21-25 closed G2/G3/G4 under, so the
+    ``kernel_only_H_over_P`` invariant is preserved structurally (not
+    just empirically). The HJ-full leg follows; its own gate pair
+    (Helion-full ↔ JAX) is paired-sample within the same per-iteration
+    window so chip-thermal drift between the two legs doesn't leak
+    into the G5 gate ratio.
 
-    Methodology gap (see plan.md §5 G5 "G5-methodology" follow-up):
-    the ``full_path_H_over_J`` ratio that G5 gates on uses
-    ``helion_full_us`` measured by ``_time(_run_full_path)`` in an
-    isolated sequential window OUTSIDE this paired helper, then
-    divides by ``jax_us`` from the HJ leg below. The two numbers come
-    from different windows so between-window thermal drift is NOT
-    canceled in the gate ratio (it IS canceled in the kernel H/J
-    ratio because both numerator and denominator come from the HJ
-    leg). The drift is empirically small (sequential us spread ~5-15
-    us at the headline; the HJ leg's JAX us is within ~3us of a
-    standalone sequential JAX measurement, well below the ~40us
-    launcher-overhead signal G5 substeps target) — but it's a real
-    methodology asymmetry that should be closed by adding a third
-    paired leg (Helion-full-path vs JAX). A probe of the third leg
-    showed ``helion_full_us`` rises from ~161 → ~192 us in the paired
-    window because the JAX call inherits scheduler state from
-    helion-full's wind-down, so the paired-leg full H/J ratio is
-    more pessimistic than the sequential / paired-kernel mix. Closing
-    this requires re-measuring the whole 14-shape G5-setup baseline.
+    1. **HP 2-way leg** (DR#6 canonical, unchanged):
+       ``fn_helion_kernel → fn_pallas`` inside the same per-iteration
+       ``perf_counter_ns()`` window. Produces ``helion_kernel_p_us``,
+       ``pallas_us``.
+    2. **HJ-full 3-way leg** (G5-methodology closure): the helper
+       times ``fn_helion_kernel → fn_helion_full → fn_jax`` inside
+       the same per-iteration window, ordered so the *gate pair*
+       (Helion-full, JAX) is **adjacent** — paired-sample timing
+       only cancels common-mode drift between calls that are adjacent
+       in the timing window, and the G5 gate signal is
+       ``full_path_H_over_J`` (= ``jax_us / helion_full_us``) so the
+       helion-full → jax slot order matters most. The HJ-leg
+       Helion-kernel us (taken one slot earlier in the same window)
+       is used as the ``kernel_only_H_over_J`` divisor; its
+       drift-cancellation with the JAX sample is one call worse than
+       the gate's (helion-full sits between them), but the kernel
+       H/J ratio is a diagnostic split — not the gate — so the
+       trade-off prioritises the gate pair correctly. Produces
+       ``helion_full_us``, ``helion_kernel_j_us``, ``jax_us``.
 
-    Warmup: 5 paired warmup iterations per leg (10 total).
+    The two legs run back-to-back; cost is one extra timing pass per
+    shape vs the legacy 2-pass-pair, well within the per-shape sweep
+    budget.
+
+    Rationale for two legs rather than one 4-way window: the G2/G3/G4
+    closure verdict landed under the canonical DR#6 2-way
+    Helion-vs-Pallas paired methodology. Mixing a JAX call into the
+    H/P window changes the per-iteration cycle length and could drift
+    the H/P ratio away from the closed values by an amount the gate
+    signal can't separate from a real regression. The 3-way HJ-full
+    leg is new (closes the G5-methodology asymmetry); the 2-way HP leg
+    is unchanged in shape AND in pre-leg state (preserves
+    apples-to-apples comparability with G2/G3/G4 closures).
+
+    Diagnostic-ratio caveat: ``kernel_only_H_over_J`` divides
+    ``jax_kernel_us`` (HJ-full leg, post-helion-full slot) by
+    ``helion_kernel_us`` (HJ-full leg, pre-helion-full slot) — the
+    two terms are paired-sample with one ``helion_full`` call between
+    them, so the ratio is "almost paired" (drift cancellation is one
+    call worse than the G5 gate's strict adjacency).
+    ``kernel_only_P_over_J`` divides ``jax_kernel_us`` (HJ-full leg)
+    by ``pallas_kernel_us`` (HP leg) — the two terms come from
+    different legs and different predecessor calls (Pallas-after-
+    Helion-kernel vs JAX-after-Helion-full), so the ratio is NOT
+    paired-sample. Both diagnostics drive G5 bucket selection (see
+    plan.md §5 G5 bucket rule) so the selection inherits that
+    asymmetry; cycle-26 documents the effect explicitly in the
+    methodology closure write-up.
+
+    Warmup: 5 warmup iterations per leg (10 total).
     """
-    helion_p_us, pallas_us = _time_interleaved(
-        fn_helion, fn_pallas, n_iter=n_iter, n_repeats=n_repeats
+    helion_kernel_p_us, pallas_us = _time_interleaved(
+        fn_helion_kernel, fn_pallas, n_iter=n_iter, n_repeats=n_repeats
     )
-    helion_j_us, jax_us = _time_interleaved(
-        fn_helion, fn_jax, n_iter=n_iter, n_repeats=n_repeats
+    # Order: helion_kernel → helion_full → jax. Putting helion_full and
+    # jax adjacent makes the gate ratio ``full_path_H_over_J = jax_us /
+    # helion_full_us`` a true paired-sample number (no other callable
+    # between them inside the per-iteration window). helion_kernel sits
+    # one slot earlier so the kernel-H/J diagnostic is "almost paired"
+    # — accepted trade-off, since the kernel H/J ratio is a substep
+    # selector, not the gate.
+    helion_kernel_j_us, helion_full_us, jax_us = _time_interleaved_3way(
+        fn_helion_kernel, fn_helion_full, fn_jax, n_iter=n_iter, n_repeats=n_repeats
     )
-    return helion_p_us, pallas_us, helion_j_us, jax_us
+    return (
+        helion_full_us,
+        helion_kernel_p_us,
+        pallas_us,
+        helion_kernel_j_us,
+        jax_us,
+    )
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -469,15 +573,24 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         choices=("sequential", "interleaved", "both"),
         default="sequential",
         help=(
-            "Kernel-only timing methodology. ``sequential`` (default, "
-            "back-compat with cycles 15-19) measures Helion and Pallas "
-            "in separate timing windows. ``interleaved`` pairs each "
-            "Helion call with a Pallas call inside the same per-call "
-            "``time.perf_counter_ns()`` window, so chip-thermal drift "
-            "cancels in the H/P ratio. ``both`` runs each mode in "
-            "sequence and prints both result blocks (DR#6 methodology "
-            "comparison probe). Full-path Helion timing is unaffected "
-            "by this flag (it always uses the sequential form)."
+            "Timing methodology for the kernel-only and G5 full-path-vs-JAX "
+            "ratios. ``sequential`` (default, back-compat with cycles "
+            "15-19) measures Helion / Pallas / JAX / Helion-full in "
+            "separate timing windows. ``interleaved`` pairs every Helion "
+            "call with its reference call(s) inside the same per-call "
+            "``time.perf_counter_ns()`` window so chip-thermal drift "
+            "cancels in the ratios: the HP leg is a 2-way "
+            "Helion-vs-Pallas pair (canonical DR#6 since 2026-05-23), "
+            "the HJ-full leg is a 3-way ``Helion-kernel → Helion-full → "
+            "JAX`` cycle so the G5 gate signal ``full_path_H_over_J`` "
+            "and ``launcher_overhead_vs_jax_us`` are paired-sample "
+            "(G5-methodology closure cycle 26). ``both`` runs each "
+            "mode in sequence and prints both result blocks (methodology "
+            "comparison probe). The back-compat ``helion_full_path_*`` "
+            "line + ``full_path_H_over_P`` ratio always use the "
+            "standalone sequential ``_time(_run_full_path)`` window "
+            "regardless of this flag (preserves the cycle 15-25 log "
+            "scraper contract for full-path-vs-Pallas tracking)."
         ),
     )
     return parser.parse_args(argv)
@@ -645,44 +758,57 @@ def main(argv: list[str] | None = None) -> None:
             helion_kernel_us = _time(_run_helion_kernel_only)
             pallas_kernel_us = _time(_run_pallas_kernel_only)
             jax_kernel_us = _time(_run_jax_kernel_only)
-            # Sequential mode reports a single Helion us (one timing window),
-            # which both ratios divide. Set both Helion legs to the same value
+            # Sequential mode reports a single Helion-kernel us (one timing
+            # window), which both kernel-only ratios (kernel H/P and kernel
+            # H/J) divide. Set both Helion-kernel legs to the same value
             # so the downstream printing logic doesn't need to special-case
-            # the mode. ``helion_full_us`` keeps the sequentially-measured
-            # value from outside the loop; ``jax_full_us`` is the same as
-            # ``jax_kernel_us`` (JAX has no separate launcher — full path
-            # IS kernel-only for JAX).
+            # the mode. ``helion_full_us_for_j`` defaults to the sequential
+            # ``helion_full_us`` measured outside the loop; ``jax_full_us``
+            # is the same as ``jax_kernel_us`` (JAX has no separate launcher
+            # — full path IS kernel-only for JAX).
             helion_kernel_us_for_p = helion_kernel_us
             helion_kernel_us_for_j = helion_kernel_us
+            helion_full_us_for_j = helion_full_us
             jax_full_us = jax_kernel_us
             mode_tag = "[sequential] " if tag_lines else ""
-        else:  # interleaved (canonical 2-way × 2 paired legs: HP and HJ)
+        else:  # interleaved (G5-methodology: 3-way HJ-full leg + 2-way HP leg)
             (
+                helion_full_us_for_j,
                 helion_kernel_us_for_p,
                 pallas_kernel_us,
                 helion_kernel_us_for_j,
                 jax_kernel_us,
             ) = _time_interleaved_paired(
+                _run_full_path,
                 _run_helion_kernel_only,
                 _run_pallas_kernel_only,
                 _run_jax_kernel_only,
             )
-            # Report Helion as the HP-leg median (the leg that pairs with
-            # Pallas and matches the canonical DR#6 2-way invariant that
-            # G2/G3/G4 closed under). The HJ leg's Helion us is typically
-            # within ~0.5us of the HP leg's value on the same shape; the
-            # reconstructible-ratio property requires reporting ONE leg's
-            # us as the printed median (so ``pallas_us / helion_us``
-            # equals the printed H/P), not a mean of two medians which
-            # would break the median claim and the reconstruction. The
-            # per-ratio Helion us in the divisions below still uses the
-            # per-leg values to keep H/P apples-to-apples with the HP
-            # leg and H/J apples-to-apples with the HJ leg.
+            # Report Helion-kernel as the HP-leg median (the leg that pairs
+            # with Pallas and matches the canonical DR#6 2-way invariant
+            # that G2/G3/G4 closed under). The HJ-full leg's Helion-kernel
+            # us is typically within ~0.5us of the HP leg's value on the same
+            # shape; the reconstructible-ratio property requires reporting
+            # ONE leg's us as the printed median (so ``pallas_us /
+            # helion_us`` equals the printed H/P), not a mean of two
+            # medians which would break the median claim and the
+            # reconstruction. The per-ratio Helion us in the divisions
+            # below uses the per-leg values to keep H/P apples-to-apples
+            # with the HP leg and H/J apples-to-apples with the HJ-full
+            # leg.
             #
-            # ``helion_full_us`` stays at the sequential value measured
-            # before the loop (see ``_time_interleaved_paired`` docstring's
-            # methodology-gap note); for JAX, "full path" and "kernel only"
-            # are the same path so ``jax_full_us`` equals ``jax_kernel_us``.
+            # ``helion_full_us_for_j`` is the HJ-full 3-way leg's Helion
+            # full-path median (G5-methodology gate signal divisor) and
+            # also the ``launcher_overhead_us`` / ``launcher_overhead_vs_jax_us``
+            # numerator (cycle 26 methodology change — both terms in the
+            # overhead deltas now come from the paired HJ-full leg). The
+            # standalone sequential ``helion_full_us`` (measured outside
+            # the loop) stays as the back-compat ``helion_full_path_*``
+            # output and the ``full_path_H_over_P`` divisor only; the
+            # G5-gating ``full_path_H_over_J`` uses ``helion_full_us_for_j``
+            # so it's paired-sample with ``jax_kernel_us``. For JAX, "full
+            # path" and "kernel only" are the same path so ``jax_full_us``
+            # equals ``jax_kernel_us``.
             helion_kernel_us = helion_kernel_us_for_p
             jax_full_us = jax_kernel_us
             mode_tag = "[interleaved] " if tag_lines else ""
@@ -699,10 +825,15 @@ def main(argv: list[str] | None = None) -> None:
         # scrapers can reconstruct ``kernel_only_H_over_P`` exactly as
         # ``pallas_kernel_only / helion_kernel_only``. For H/J
         # reconstruction we also emit ``helion_kernel_only_hj_*`` carrying
-        # the HJ-leg's Helion median (the divisor used in the printed
-        # ``kernel_only_H_over_J`` ratio); ``jax_kernel_only /
-        # helion_kernel_only_hj`` recovers the printed H/J. In sequential
+        # the HJ-full 3-way leg's Helion-kernel median (the divisor used
+        # in the printed ``kernel_only_H_over_J`` ratio); ``jax_kernel_only
+        # / helion_kernel_only_hj`` recovers the printed H/J. In sequential
         # mode both lines carry the same single-window value.
+        # ``helion_full_path_hj_*`` carries the HJ-full 3-way leg's Helion
+        # full-path median (the divisor for the gating ``full_path_H_over_J``
+        # ratio); the standalone ``helion_full_path_*`` line above is the
+        # sequential measurement and stays for back-compat / tracking. In
+        # sequential mode both full-path lines carry the same value.
         print(
             f"helion_kernel_only_{m}x{k}x{n}{line_tag} "
             f"[autotuner pick: {best_config}, seed={seed}]: "
@@ -714,44 +845,54 @@ def main(argv: list[str] | None = None) -> None:
             f"median={helion_kernel_us_for_j:.2f} us"
         )
         print(
+            f"helion_full_path_hj_{m}x{k}x{n}{line_tag} "
+            f"[autotuner pick: {best_config}, seed={seed}]: "
+            f"median={helion_full_us_for_j:.2f} us"
+        )
+        print(
             f"pallas_kernel_only_{m}x{k}x{n}{line_tag}: "
             f"median={pallas_kernel_us:.2f} us"
         )
         print(f"jax_kernel_only_{m}x{k}x{n}{line_tag}: median={jax_kernel_us:.2f} us")
 
         # ----- Derived ratios.
-        # H/P uses the Helion us paired with Pallas (DR#6 canonical); H/J
-        # uses the Helion us paired with JAX. In sequential mode both
-        # Helion legs share the same value, so the ratio math is
-        # identical to the legacy 2-way path.
+        # H/P uses the Helion-kernel us paired with Pallas (DR#6 canonical);
+        # kernel H/J uses the Helion-kernel us paired with JAX (HJ-full 3-way
+        # leg); full H/J uses the Helion-full us paired with JAX (HJ-full
+        # 3-way leg — G5-methodology closure). In sequential mode all four
+        # Helion legs share the same per-window value, so the ratio math is
+        # identical to the legacy 2-way path. The back-compat
+        # ``full_path_H_over_P`` ratio keeps using the sequential
+        # ``helion_full_us`` so existing log scrapers stay valid; it's a
+        # tracking number only.
         #
-        # Full-path ratios use the single Helion full-path us measured once
-        # outside the kernel-only loop (the same value drives both
-        # ``full_path_H_over_P`` and ``full_path_H_over_J``). For JAX,
-        # "full path" and "kernel only" are identical (no torch_tpu /
-        # Helion launcher in the path), so ``jax_kernel_us`` doubles as the
-        # JAX full-path baseline. ``launcher_overhead_vs_jax_us`` is the
-        # raw delta between Helion full-path and JAX — the absolute gap a
-        # G5 launcher-side substep has to close on shapes where the
-        # kernel is already fast enough. The methodology asymmetry
-        # between sequential ``helion_full_us`` and paired
-        # ``jax_kernel_us`` is documented in ``_time_interleaved_paired``'s
-        # docstring (see plan.md §5 G5 "G5-methodology" follow-up).
+        # For JAX, "full path" and "kernel only" are identical (no torch_tpu
+        # / Helion launcher in the path), so ``jax_kernel_us`` doubles as
+        # the JAX full-path baseline. ``launcher_overhead_vs_jax_us`` is
+        # the raw delta between Helion full-path (the paired-leg version,
+        # so it's directly comparable to ``jax_kernel_us``) and JAX — the
+        # absolute gap a G5 launcher-side substep has to close on shapes
+        # where the kernel is already fast enough.
         full_h_over_p = pallas_kernel_us / helion_full_us
         kernel_h_over_p = pallas_kernel_us / helion_kernel_us_for_p
-        full_h_over_j = jax_full_us / helion_full_us
+        full_h_over_j = jax_full_us / helion_full_us_for_j
         kernel_h_over_j = jax_kernel_us / helion_kernel_us_for_j
         kernel_p_over_j = jax_kernel_us / pallas_kernel_us
         # ``launcher_overhead_us`` is the Helion-internal launcher overhead:
         # full-path Helion minus kernel-only Helion. In interleaved mode
-        # ``helion_kernel_us`` is the HP-leg's median (see the
-        # interleaved branch above), so this is "sequential full-path
-        # minus HP-leg kernel-only median". The HJ leg's kernel-only
-        # median is typically within ~0.5us; using the HP leg keeps
-        # this metric directly comparable to the H/P ratio's
-        # denominator.
-        launcher_overhead_us = helion_full_us - helion_kernel_us
-        launcher_overhead_vs_jax_us = helion_full_us - jax_full_us
+        # both terms come from the HJ-full 3-way leg so they're
+        # paired-sample (full-path and kernel-only timed back-to-back
+        # inside the same per-iteration window). In sequential mode both
+        # are single-window medians (full-path from outside the loop,
+        # kernel-only from the per-mode block) so this is the sequential-
+        # window delta. ``launcher_overhead_vs_jax_us`` is the analogous
+        # subtraction against JAX: the paired-leg full-path us minus JAX
+        # (interleaved) or the sequential full-path us minus JAX
+        # (sequential), matching the ``full_path_H_over_J`` ratio's
+        # pairing (gate signal denominator is paired-sample with JAX in
+        # interleaved mode).
+        launcher_overhead_us = helion_full_us_for_j - helion_kernel_us_for_j
+        launcher_overhead_vs_jax_us = helion_full_us_for_j - jax_full_us
 
         print(f"full_path_H_over_P{ratio_tag}: {full_h_over_p:.3f}")
         print(f"kernel_only_H_over_P{ratio_tag}: {kernel_h_over_p:.3f}")
