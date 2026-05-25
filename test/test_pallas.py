@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from typing import Callable
 import unittest
 
@@ -2224,6 +2225,593 @@ class TestPallas(TestCase):
             "candidate as best when chip-drift is large enough to "
             "flip the absolute median, demonstrating why paired-sample "
             "timing is needed in the final-pick verification path.",
+        )
+
+    def test_pallas_autotuner_final_pick_reranks_by_device_us(self) -> None:
+        """Final-pick verification ranks by device-us when the backend supplies the helper.
+
+        Plan.md §5 G7-autotune-device: the autotuner historically
+        ranked the final-pick top-K cohort by single-call wall-clock us
+        via ``paired_interleaved_bench``.  On small / medium Pallas
+        matmuls single-call wall-clock is ~96-98% PJRT + ``pallas_call``
+        dispatch overhead (~125 us / call across all paths) so two
+        configs whose chip work differs by 3-10 us register as the same
+        125 us at the user-call level — the autotuner picks the
+        dispatch-cheap-but-device-expensive config on skinny shapes.
+        The cycle-36 device_us baseline surfaced 5 skinny rows where
+        Helion was 1.6-3.2x slower than JAX on-device for that reason.
+
+        Re-ranking the final-pick cohort by per-call **on-device** us
+        (collected via a ``jax.profiler.start_trace`` 200-call window)
+        gives a kernel-quality signal not drowned by dispatch.  The
+        Pallas backend's :meth:`Backend.get_paired_device_us_bench`
+        override returns the device-us bench closure;
+        :meth:`PopulationBasedSearch._run_final_pick_verification_paired`
+        diverts to ``_run_final_pick_verification_device_us`` when the
+        backend supplies the closure AND
+        ``HELION_AUTOTUNE_RANK_BY=device_us`` is set (default).
+
+        Scenario in this pin:
+
+        * Candidate ``[1024, 1024, 1024]`` is the on-device-fast pick
+          (10 us / call) but its single-call wall-clock is 125 us (most
+          of which is dispatch overhead).
+        * Candidate ``[128, 1024, 1024]`` is the dispatch-cheap pick
+          (124 us single-call wall-clock — 1 us faster than the fast
+          candidate) but takes 30 us on-device (3x slower than the
+          fast candidate).
+        * Under the legacy wall-clock ranking the slow-on-device
+          candidate wins (lower single-call us → lower paired delta).
+        * Under the device-us re-rank the fast-on-device candidate
+          wins (lower device us → lower paired device-us delta).
+
+        Asserts:
+        * ``_AUTOTUNE_DEVICE_US_RANKINGS`` counter bumps once per
+          final-pick phase that re-ranks by device-us.
+        * The autotuner picks the on-device-fast candidate even
+          when the dispatch-cheap candidate has a lower single-call
+          wall-clock.
+
+        Regression hazards pinned:
+        * If a refactor removes the device-us re-rank wiring, the
+          counter stays at 0 and the autotuner picks the wrong
+          candidate.
+        * If the device-us re-rank is gated incorrectly (e.g. only
+          on bf16 1024³) the counter doesn't bump on this 256³ pin.
+        """
+        from unittest.mock import patch
+
+        from helion import runtime as helion_runtime
+        from helion.autotuner.base_search import PopulationBasedSearch
+        from helion.autotuner.base_search import PopulationMember
+        from helion.runtime.config import Config
+
+        fast_cfg = Config(block_sizes=[1024, 1024, 1024])
+        slow_cfg = Config(block_sizes=[128, 1024, 1024])
+
+        # Scripted device-us per candidate.  Fast wins by 20 us
+        # on-device; slow wins by 1 us at the user-call wall-clock
+        # level (dispatch noise).  The device-us re-rank must use the
+        # device-us numbers, not the wall-clock numbers.
+        device_us_per_fn: dict[int, float] = {}
+
+        def fake_device_us_bench(
+            fns: list[Callable[..., object]],
+            reference_fn: Callable[..., object],
+            *,
+            desc: str | None = None,
+        ) -> list[tuple[float, float]]:
+            ref_inner = getattr(reference_fn, "func", reference_fn)
+            ref_us = device_us_per_fn[id(ref_inner)]
+            results: list[tuple[float, float]] = []
+            for fn in fns:
+                inner = getattr(fn, "func", fn)
+                cand_us = device_us_per_fn[id(inner)]
+                results.append((cand_us, cand_us - ref_us))
+            return results
+
+        class _NoopLog:
+            def __call__(self, *_: object, **__: object) -> None:
+                return None
+
+            def debug(self, *_: object, **__: object) -> None:
+                return None
+
+            def warning(self, *_: object, **__: object) -> None:
+                return None
+
+        class _FakeBenchmarkProvider:
+            mutated_arg_indices: tuple[int, ...] = ()
+
+        class _FakeSettings:
+            autotune_benchmark_fn: Callable[..., list[float]] | None = None
+            autotune_progress_bar: bool = False
+            static_shapes: bool = True
+
+        class _FakeBackend:
+            @staticmethod
+            def get_paired_device_us_bench(
+                *, passes: int
+            ) -> Callable[..., list[tuple[float, float]]]:
+                del passes  # accepted for parity with the real backend hook
+                return fake_device_us_bench
+
+        class _FakeConfigSpec:
+            backend = _FakeBackend()
+
+        class _FakeKernel:
+            class env:
+                process_group_name: str | None = None
+
+        def fast_fn() -> None:
+            return None
+
+        def slow_fn() -> None:
+            return None
+
+        # 10 us on-device for fast, 30 us on-device for slow (3x
+        # gap).  At the wall-clock level the gap would invert because
+        # of dispatch noise (covered by other pin tests); device_us
+        # surfaces the kernel-actual cost.
+        device_us_per_fn[id(fast_fn)] = 10.0
+        device_us_per_fn[id(slow_fn)] = 30.0
+
+        fast_member = PopulationMember(
+            fn=fast_fn,
+            perfs=[0.125],  # 125 us single-call wall-clock
+            flat_values=[id(fast_cfg)],
+            config=fast_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+        slow_member = PopulationMember(
+            fn=slow_fn,
+            perfs=[0.124],  # 124 us single-call wall-clock — appears 1 us faster
+            flat_values=[id(slow_cfg)],
+            config=slow_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+
+        search = PopulationBasedSearch.__new__(PopulationBasedSearch)
+        search.population = [slow_member, fast_member]
+        search.best_perf_so_far = min(m.perf for m in search.population)
+        search.log = _NoopLog()
+        search.args = ()
+        search.kernel = _FakeKernel()
+        search.benchmark_provider = _FakeBenchmarkProvider()
+        search.settings = _FakeSettings()
+        search.config_spec = _FakeConfigSpec()
+        search._compiler_seed_members = []
+
+        helion_runtime._reset_autotune_device_us_rankings()
+        self.assertEqual(helion_runtime._autotune_device_us_rankings(), 0)
+
+        # The scaffold's incoming "best" is the dispatch-cheap (slow on
+        # device) candidate.  The device-us re-rank must surface the
+        # truly on-device-fast candidate even though wall-clock said
+        # otherwise.
+        with patch.dict(os.environ, {"HELION_AUTOTUNE_RANK_BY": "device_us"}):
+            final = search.run_final_pick_verification(slow_member, passes=3, top_k=5)
+
+        self.assertEqual(
+            list(final.config["block_sizes"]),
+            [1024, 1024, 1024],
+            f"Device-us re-rank must pick the on-device-fast candidate "
+            f"({list(fast_cfg['block_sizes'])}), got {list(final.config['block_sizes'])}.",
+        )
+        self.assertEqual(
+            helion_runtime._autotune_device_us_rankings(),
+            1,
+            "Device-us re-rank counter must bump once per final-pick "
+            "phase that uses the device-us bench helper.",
+        )
+
+    def test_pallas_autotuner_final_pick_device_us_prefers_compiler_seed_in_noise_band(
+        self,
+    ) -> None:
+        """Device-us re-rank promotes compiler-seed candidates within the bias band.
+
+        Plan.md §5 G7-autotune-device guard: when a compiler-seeded
+        candidate (e.g. ``PallasMatmulNoTilingSeedHeuristic``'s
+        ``[1024, 1024, 1024]`` no-tiling-via-dot_general seed) has a
+        paired device-us delta within
+        ``_DEVICE_US_DELTA_SEED_BIAS_BAND_MS`` of the proposed
+        non-seed winner, the re-rank prefers the seed — because
+        compiler seeds carry structural info (e.g. unlocks
+        G7-prefetch's ``cross_program_prefetch`` lift via
+        ``lax.dot_general``) that the autotuner can't infer from raw
+        paired-delta alone.
+
+        Scenario in this pin:
+
+        * Search winner ``[512, 512, 512]`` is the cohort's incoming
+          ``best``.
+        * Non-seed candidate ``[1024, 1024, 512]`` has paired delta
+          -0.02 us (the actual paired-delta minimum).
+        * Compiler seed ``[1024, 1024, 1024]`` has paired delta
+          -0.01 us (within the ~1.0 us bias band of the non-seed
+          winner).
+        * Without the tie-break, the re-rank picks ``[1024, 1024,
+          512]`` (lower delta wins).
+        * With the tie-break, the re-rank promotes ``[1024, 1024,
+          1024]`` (compiler seed within the bias band of the proposed
+          winner — structural info beats marginal paired-delta noise).
+
+        Regression hazard pinned: if a refactor drops the
+        compiler-seed tie-break, the non-seed candidate wins and
+        G7-prefetch's headline closure regresses below 1.000 on
+        autotune runs where the search picks a near-miss tiled
+        config inside the seed's bias band.
+        """
+        from unittest.mock import patch
+
+        from helion.autotuner.base_search import PopulationBasedSearch
+        from helion.autotuner.base_search import PopulationMember
+        from helion.runtime.config import Config
+
+        non_seed_cfg = Config(block_sizes=[1024, 1024, 512])
+        seed_cfg = Config(block_sizes=[1024, 1024, 1024])
+        search_winner_cfg = Config(block_sizes=[512, 512, 512])
+
+        # Scripted device-us per fn.  Setup so all 3 are within the
+        # noise band of each other: search_winner 6.30 us, non_seed
+        # 6.28 us (-0.02 us delta), seed 6.29 us (-0.01 us delta).
+        # The absolute paired-delta minimum is the non-seed; the
+        # compiler-seed tie-break must promote the seed instead
+        # because its delta is also within noise of the proposed
+        # winner.
+        device_us_per_fn: dict[int, float] = {}
+
+        def fake_device_us_bench(
+            fns: list[Callable[..., object]],
+            reference_fn: Callable[..., object],
+            *,
+            desc: str | None = None,
+        ) -> list[tuple[float, float]]:
+            ref_inner = getattr(reference_fn, "func", reference_fn)
+            ref_us = device_us_per_fn[id(ref_inner)]
+            results: list[tuple[float, float]] = []
+            for fn in fns:
+                inner = getattr(fn, "func", fn)
+                cand_us = device_us_per_fn[id(inner)]
+                results.append((cand_us, cand_us - ref_us))
+            return results
+
+        class _NoopLog:
+            def __call__(self, *_: object, **__: object) -> None:
+                return None
+
+            def debug(self, *_: object, **__: object) -> None:
+                return None
+
+            def warning(self, *_: object, **__: object) -> None:
+                return None
+
+        class _FakeBenchmarkProvider:
+            mutated_arg_indices: tuple[int, ...] = ()
+
+        class _FakeSettings:
+            autotune_benchmark_fn: Callable[..., list[float]] | None = None
+            autotune_progress_bar: bool = False
+            static_shapes: bool = True
+
+        class _FakeBackend:
+            @staticmethod
+            def get_paired_device_us_bench(
+                *, passes: int
+            ) -> Callable[..., list[tuple[float, float]]]:
+                del passes  # accepted for parity with the real backend hook
+                return fake_device_us_bench
+
+        class _FakeConfigSpec:
+            backend = _FakeBackend()
+
+        class _FakeKernel:
+            class env:
+                process_group_name: str | None = None
+
+        def winner_fn() -> None:
+            return None
+
+        def non_seed_fn() -> None:
+            return None
+
+        def seed_fn() -> None:
+            return None
+
+        device_us_per_fn[id(winner_fn)] = 8.50
+        device_us_per_fn[id(non_seed_fn)] = 8.48
+        device_us_per_fn[id(seed_fn)] = 8.49
+
+        winner_member = PopulationMember(
+            fn=winner_fn,
+            perfs=[0.124],
+            flat_values=[id(search_winner_cfg)],
+            config=search_winner_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+        non_seed_member = PopulationMember(
+            fn=non_seed_fn,
+            perfs=[0.125],
+            flat_values=[id(non_seed_cfg)],
+            config=non_seed_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+        seed_member = PopulationMember(
+            fn=seed_fn,
+            perfs=[0.126],
+            flat_values=[id(seed_cfg)],
+            config=seed_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+
+        search = PopulationBasedSearch.__new__(PopulationBasedSearch)
+        search.population = [winner_member, non_seed_member, seed_member]
+        search.best_perf_so_far = min(m.perf for m in search.population)
+        search.log = _NoopLog()
+        search.args = ()
+        search.kernel = _FakeKernel()
+        search.benchmark_provider = _FakeBenchmarkProvider()
+        search.settings = _FakeSettings()
+        search.config_spec = _FakeConfigSpec()
+        # Seed_member is the compiler-seed; non_seed_member is a
+        # cohort member from the search itself, NOT a compiler seed.
+        search._compiler_seed_members = [seed_member]
+
+        with patch.dict(os.environ, {"HELION_AUTOTUNE_RANK_BY": "device_us"}):
+            final = search.run_final_pick_verification(
+                winner_member, passes=3, top_k=10
+            )
+
+        self.assertEqual(
+            list(final.config["block_sizes"]),
+            [1024, 1024, 1024],
+            f"Device-us re-rank tie-break must promote the compiler "
+            f"seed ({list(seed_cfg['block_sizes'])}) when it's within "
+            f"the noise band of the proposed winner — picked "
+            f"{list(final.config['block_sizes'])} instead.",
+        )
+
+    def test_pallas_autotuner_final_pick_falls_back_to_wall_us_when_opted_out(
+        self,
+    ) -> None:
+        """Final-pick verification respects ``HELION_AUTOTUNE_RANK_BY=wall_us``.
+
+        Plan.md §5 G7-autotune-device gives users an opt-out via the
+        env var: ``HELION_AUTOTUNE_RANK_BY=wall_us`` reverts the
+        final-pick re-rank to the legacy single-call wall-clock
+        paired-sample bench.  The pin asserts:
+
+        * ``_AUTOTUNE_DEVICE_US_RANKINGS`` counter stays at 0 — the
+          device-us re-rank does NOT fire.
+        * The autotuner's pick comes from the wall-clock paired-sample
+          path (verified by patching ``paired_interleaved_bench`` to
+          observe the call).
+
+        Regression hazard pinned: if a refactor accidentally always
+        takes the device-us path regardless of the env var, the
+        counter bumps and the patch never fires — both signals would
+        fail.
+        """
+        from unittest.mock import patch
+
+        from helion import runtime as helion_runtime
+        from helion.autotuner.base_search import PopulationBasedSearch
+        from helion.autotuner.base_search import PopulationMember
+        from helion.autotuner.benchmarking import make_pallas_paired_device_us_bench
+        from helion.runtime.config import Config
+
+        # When the env var is set to wall_us, the Pallas backend's
+        # factory must return None so the autotuner takes the
+        # wall-clock paired path.
+        with patch.dict(os.environ, {"HELION_AUTOTUNE_RANK_BY": "wall_us"}):
+            self.assertIsNone(
+                make_pallas_paired_device_us_bench(passes=3),
+                "When HELION_AUTOTUNE_RANK_BY=wall_us, the Pallas "
+                "device-us bench factory must return None so the "
+                "autotuner takes the legacy wall-clock paired path.",
+            )
+
+        fast_cfg = Config(block_sizes=[1024, 1024, 1024])
+        slow_cfg = Config(block_sizes=[128, 1024, 1024])
+
+        def fake_paired(
+            fns: list[Callable[..., object]],
+            reference_fn: Callable[..., object],
+            *,
+            repeat: int,
+            desc: str | None = None,
+        ) -> list[tuple[float, float]]:
+            # Fast at 124 us, slow at 130 us — fast wins under
+            # wall-clock (this isn't the regression pin; it just
+            # demonstrates the fallback path delivers a verdict).
+            results: list[tuple[float, float]] = []
+            for fn in fns:
+                inner = getattr(fn, "func", fn)
+                if inner is fast_fn:
+                    results.append((0.124, 0.0))
+                else:
+                    results.append((0.130, 0.006))
+            return results
+
+        class _NoopLog:
+            def __call__(self, *_: object, **__: object) -> None:
+                return None
+
+            def debug(self, *_: object, **__: object) -> None:
+                return None
+
+            def warning(self, *_: object, **__: object) -> None:
+                return None
+
+        class _FakeBenchmarkProvider:
+            mutated_arg_indices: tuple[int, ...] = ()
+
+        class _FakeSettings:
+            autotune_benchmark_fn: Callable[..., list[float]] | None = None
+            autotune_progress_bar: bool = False
+            static_shapes: bool = True
+
+        class _FakeBackend:
+            @staticmethod
+            def get_paired_device_us_bench(
+                *, passes: int
+            ) -> Callable[..., list[tuple[float, float]]] | None:
+                # Backend respects the env var via
+                # make_pallas_paired_device_us_bench (which returns
+                # None when opted out).  Simulate that here.
+                return make_pallas_paired_device_us_bench(passes=passes)
+
+        class _FakeConfigSpec:
+            backend = _FakeBackend()
+
+        class _FakeKernel:
+            class env:
+                process_group_name: str | None = None
+
+        def fast_fn() -> None:
+            return None
+
+        def slow_fn() -> None:
+            return None
+
+        fast_member = PopulationMember(
+            fn=fast_fn,
+            perfs=[0.124],
+            flat_values=[id(fast_cfg)],
+            config=fast_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+        slow_member = PopulationMember(
+            fn=slow_fn,
+            perfs=[0.130],
+            flat_values=[id(slow_cfg)],
+            config=slow_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+        search = PopulationBasedSearch.__new__(PopulationBasedSearch)
+        search.population = [fast_member, slow_member]
+        search.best_perf_so_far = min(m.perf for m in search.population)
+        search.log = _NoopLog()
+        search.args = ()
+        search.kernel = _FakeKernel()
+        search.benchmark_provider = _FakeBenchmarkProvider()
+        search.settings = _FakeSettings()
+        search.config_spec = _FakeConfigSpec()
+        search._compiler_seed_members = []
+
+        helion_runtime._reset_autotune_device_us_rankings()
+
+        with (
+            patch.dict(os.environ, {"HELION_AUTOTUNE_RANK_BY": "wall_us"}),
+            patch(
+                "helion.autotuner.base_search.paired_interleaved_bench",
+                side_effect=fake_paired,
+            ) as mocked_paired,
+        ):
+            final = search.run_final_pick_verification(fast_member, passes=3, top_k=5)
+
+        self.assertEqual(
+            helion_runtime._autotune_device_us_rankings(),
+            0,
+            "Device-us re-rank counter must stay at 0 when "
+            "HELION_AUTOTUNE_RANK_BY=wall_us — the autotuner must "
+            "take the wall-clock paired path instead.",
+        )
+        self.assertGreater(
+            mocked_paired.call_count,
+            0,
+            "Wall-clock paired bench must fire when the user opts out "
+            "of the device-us re-rank.",
+        )
+        # The wall-clock fallback is the legitimate path here; the
+        # winning pick under that path is the fast candidate (124us
+        # < 130us in the scripted data).
+        self.assertEqual(
+            list(final.config["block_sizes"]),
+            [1024, 1024, 1024],
+            f"Wall-clock paired path must still deliver a verdict; "
+            f"got {list(final.config['block_sizes'])}.",
+        )
+
+    def test_pallas_paired_device_us_bench_helper_returns_paired_deltas(
+        self,
+    ) -> None:
+        """``paired_device_us_bench`` produces ``(median_us, delta_us)`` per candidate.
+
+        Plan.md §5 G7-autotune-device requires the timing helper itself
+        to report **both** an absolute device-us per candidate (so the
+        autotuner has a secondary tie-break key) AND a paired delta vs
+        the reference (so common-mode noise inside the device-us
+        helper cancels).  This pin asserts the helper:
+
+        * Calls the supplied ``device_us_fn`` once per candidate AND
+          once per candidate-paired reference call.
+        * Returns ``(candidate_device_us, candidate_us - reference_us)``
+          per candidate.
+
+        Uses a synthetic ``device_us_fn`` so this pin runs without
+        needing a TPU or ``jax.profiler``.
+
+        Regression hazard pinned: if a refactor reverts the helper to
+        a per-call absolute reading (skipping the paired ref call),
+        the second helper invocation goes missing AND the returned
+        deltas become 0; both signals would fail.
+        """
+        from helion.autotuner.benchmarking import paired_device_us_bench
+
+        # Scripted device-us per fn (microseconds).  The reference is
+        # 5 us; fast candidate is 3 us (-2 us paired delta); slow
+        # candidate is 12 us (+7 us paired delta).
+        device_us_per_fn: dict[int, float] = {}
+        calls: list[Callable[[], object]] = []
+
+        def device_us_fn(fn: Callable[[], object]) -> float:
+            calls.append(fn)
+            return device_us_per_fn[id(fn)]
+
+        def fast_fn() -> None:
+            return None
+
+        def slow_fn() -> None:
+            return None
+
+        def reference_fn() -> None:
+            return None
+
+        device_us_per_fn[id(fast_fn)] = 3.0
+        device_us_per_fn[id(slow_fn)] = 12.0
+        device_us_per_fn[id(reference_fn)] = 5.0
+
+        results = paired_device_us_bench(
+            [fast_fn, slow_fn],
+            reference_fn,
+            device_us_fn=device_us_fn,
+        )
+
+        self.assertEqual(
+            len(results), 2, f"Expected 2 paired results; got {len(results)}."
+        )
+        fast_us, fast_delta = results[0]
+        slow_us, slow_delta = results[1]
+        self.assertAlmostEqual(fast_us, 3.0, places=6)
+        self.assertAlmostEqual(fast_delta, -2.0, places=6)
+        self.assertAlmostEqual(slow_us, 12.0, places=6)
+        self.assertAlmostEqual(slow_delta, 7.0, places=6)
+
+        # 2 candidates × 2 device_us_fn calls per candidate (candidate
+        # + reference) = 4 calls total.
+        self.assertEqual(
+            len(calls),
+            4,
+            f"Expected device_us_fn to be called 4 times (2 candidates "
+            f"× 2 paired calls per candidate); got {len(calls)}.",
         )
 
     def test_pallas_launcher_fast_path_hits_on_repeat_invocations(self) -> None:

@@ -309,6 +309,44 @@ class Backend(abc.ABC):
         """
         return None
 
+    def get_paired_device_us_bench(
+        self,
+        *,
+        passes: int,
+    ) -> Callable[..., list[tuple[float, float]]] | None:
+        """Return a paired device-us bench helper for autotune final-pick.
+
+        Backends that can report per-call on-device us cheaply (e.g.
+        Pallas / TPU via ``jax.profiler.start_trace``) override this to
+        return a callable with the signature::
+
+            fn(candidates: list[Callable[[], object]],
+               reference: Callable[[], object],
+               *,
+               desc: str | None) -> list[tuple[float, float]]
+
+        where each tuple is ``(candidate_device_us, paired_delta_us)``.
+        :meth:`helion.autotuner.base_search.PopulationBasedSearch.
+        _run_final_pick_verification_paired` calls this on Pallas /
+        static-shape kernels to re-rank the top-K candidate cohort by
+        device-us instead of wall-clock us — single-call wall-clock
+        on small / medium Pallas matmuls is ~96-98% dispatch overhead
+        and masks 3-10 us on-chip differences between candidate
+        configs (plan.md §5 G7-autotune-device).
+
+        Args:
+            passes: Number of paired-sample passes the autotuner wants
+                the bench to run per candidate (mirrors
+                ``HELION_AUTOTUNE_FINAL_PICK_PASSES``).  Forwarded so
+                backends can plumb the user-configured pass count into
+                their per-candidate trace harness; backends that
+                hard-code a different pass count are free to ignore.
+
+        The default returns ``None`` — backends without a device-us
+        signal keep the legacy wall-clock paired-sample ranking.
+        """
+        return None
+
     def supports_precompile(self) -> bool:
         """Whether this backend supports subprocess precompilation.
 
@@ -1593,6 +1631,46 @@ class PallasBackend(Backend):
         from ..autotuner.benchmarking import interleaved_bench_generic
 
         return interleaved_bench_generic
+
+    def get_paired_device_us_bench(
+        self,
+        *,
+        passes: int,
+    ) -> Callable[..., list[tuple[float, float]]] | None:
+        """Paired device-us bench helper for autotune final-pick re-rank.
+
+        Wraps the Pallas-side ``jax.profiler.start_trace`` device-us
+        helper into the
+        :func:`helion.autotuner.benchmarking.paired_device_us_bench`
+        signature so :meth:`PopulationBasedSearch.
+        _run_final_pick_verification_paired` can re-rank the final-pick
+        cohort by per-call on-device us instead of single-call wall-clock
+        us.  Single-call wall-clock on small / medium Pallas matmuls is
+        ~96-98% PJRT + ``pallas_call`` dispatch overhead, so candidate
+        configs that differ by 3-10 us on the chip register as the same
+        ~125 us at the user-call level and the autotuner ships a
+        dispatch-cheap-but-device-expensive pick on skinny shapes
+        (plan.md §5 G7-autotune-device).
+
+        Args:
+            passes: Number of paired-sample passes the autotuner wants
+                the bench to run per candidate.  Forwarded to
+                ``make_pallas_paired_device_us_bench`` so the user-
+                configured ``HELION_AUTOTUNE_FINAL_PICK_PASSES``
+                affects the device-us re-rank.
+
+        Opt-out: set ``HELION_AUTOTUNE_RANK_BY=wall_us`` to keep the
+        legacy wall-clock paired-sample ranking; default is ``device_us``.
+
+        Returns ``None`` when the env var opts out, when ``jax`` is
+        unavailable, or when the kernel doesn't run under the
+        ``static_shapes=True`` regime where dispatch ovh dominates the
+        wall-clock signal (dynamic-shape kernels re-trace per call so
+        ``device_us`` doesn't usefully separate candidates either).
+        """
+        from ..autotuner.benchmarking import make_pallas_paired_device_us_bench
+
+        return make_pallas_paired_device_us_bench(passes=passes)
 
     def supports_precompile(self) -> bool:
         return False

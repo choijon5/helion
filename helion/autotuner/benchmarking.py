@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 import math
+import os
 import statistics
+import tempfile
 import time
 from typing import Any
 from typing import Callable
@@ -355,6 +358,292 @@ def paired_interleaved_bench(
         paired_delta_median = statistics.median(paired_deltas)
         results.append((candidate_median, paired_delta_median))
     return results
+
+
+def paired_device_us_bench(
+    fns: list[Callable[..., object]],
+    reference_fn: Callable[..., object],
+    *,
+    device_us_fn: Callable[[Callable[[], object]], float],
+    passes: int = 1,
+    desc: str | None = None,
+) -> list[tuple[float, float]]:
+    """Device-us paired-sample timing for autotuner final-pick re-rank.
+
+    For every candidate ``fns[j]`` the helper invokes the
+    ``device_us_fn`` ``passes`` times on the candidate and ``passes``
+    times on ``reference_fn``, then returns ``(median_candidate_us,
+    median_paired_delta_us)`` where each pass's paired delta is
+    ``candidate_us - reference_us``.  Negative median delta means the
+    candidate is faster on-device than the reference; positive means
+    slower.  Common-mode noise inside ``device_us_fn`` (e.g.
+    chip-thermal / DVFS variation that drifts across the autotune
+    session) is suppressed in the per-pass paired delta because both
+    calls run inside the same ``device_us_fn`` invocation window; the
+    cross-pass median further suppresses any per-pass scheduler /
+    cache-state variance that single-pass timing leaves on the table.
+
+    Why this exists (plan.md §5 G7-autotune-device).  The autotuner's
+    final-pick verification path historically ranked the top-K
+    candidate cohort by single-call wall-clock us, which on small /
+    medium Pallas matmuls is ~96-98% PJRT + ``pallas_call`` dispatch
+    overhead.  Two configs whose chip work differs by 3-9 us
+    register as the same ~125 us at the user-call level, and the
+    autotuner ships the dispatch-cheap-but-device-expensive pick.
+    Ranking by ``device_us`` collected via ``jax.profiler`` (the
+    ``device_us_fn`` parameter on Pallas / TPU) gives a kernel-quality
+    signal that isn't drowned by dispatch noise; the multi-pass
+    median then suppresses single-window cross-call drift so the
+    decision survives on close pairs (e.g. G7-prefetch's no-tiling
+    seed vs neighboring tiled configs).
+
+    Args:
+      fns: List of candidate callables to time (``passes`` traces per
+        call).
+      reference_fn: Stable reference callable (typically the cohort's
+        incoming best) timed alongside each candidate so the paired
+        deltas are one-to-one per pass.
+      device_us_fn: Backend-supplied helper that takes a zero-arg
+        callable and returns its per-call on-device us under a
+        many-call profiler trace (e.g. the Pallas backend wraps
+        ``jax.profiler.start_trace`` over ``n_calls`` calls and
+        averages the dominant device event).  Per-event sub-us stable
+        at ~200 calls per trace; cross-trace drift on close pairs
+        ~0.05-0.1 us, which the per-pass median below suppresses.
+      passes: Number of paired-sample passes per candidate (default 1
+        for the unit-test scaffold; production callers should
+        explicitly request ``passes >= 2`` to tighten the
+        cross-window noise floor — see
+        ``_PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_PASSES`` for the
+        production default applied by the Pallas backend's
+        ``make_pallas_paired_device_us_bench`` factory).  Taking the
+        median across passes suppresses single-pass scheduler /
+        cache-state variance; signal tightens by roughly
+        ``sqrt(passes)`` for ``passes`` * per-trace overhead.
+      desc: Optional description for the progress bar.
+
+    Returns:
+      A list of ``(median_device_us, paired_delta_device_us)`` tuples,
+      one per candidate in ``fns``.  ``paired_delta_device_us`` is
+      positive when the candidate is slower on-device than the
+      reference, negative when faster.
+    """
+    iterator = iter_with_progress(
+        range(len(fns)),
+        total=len(fns),
+        description=desc,
+        enabled=desc is not None,
+    )
+    n_passes = max(1, passes)
+    results: list[tuple[float, float]] = []
+    for j in iterator:
+        candidate_samples: list[float] = []
+        delta_samples: list[float] = []
+        for _pass in range(n_passes):
+            candidate_us = device_us_fn(fns[j])
+            reference_us = device_us_fn(reference_fn)
+            candidate_samples.append(candidate_us)
+            # Avoid ``inf - inf == nan`` poisoning the median when a
+            # pass's trace data is unusable.  Keep a per-pass delta
+            # only when both endpoints are finite; otherwise carry
+            # ``inf`` so the per-axis filter below still yields the
+            # "candidate failed this pass" signal.
+            if math.isfinite(candidate_us) and math.isfinite(reference_us):
+                delta_samples.append(candidate_us - reference_us)
+            else:
+                delta_samples.append(math.inf)
+        finite_candidate_samples = [s for s in candidate_samples if math.isfinite(s)]
+        finite_delta_samples = [s for s in delta_samples if math.isfinite(s)]
+        if not finite_candidate_samples or not finite_delta_samples:
+            # Every pass produced an unusable trace; mark the
+            # candidate as failed so the caller deranks it.
+            results.append((math.inf, math.inf))
+            continue
+        results.append(
+            (
+                statistics.median(finite_candidate_samples),
+                statistics.median(finite_delta_samples),
+            )
+        )
+    return results
+
+
+# Default per-trace call count for the device-us autotune re-rank.  200
+# calls matches the cycle-36 device_us harness in
+# ``examples/pallas_perf/measure_headline.py``: empirically the per-event
+# avg over 200 calls is sub-us stable so the avg == the median and the
+# helper returns a single float per fn.  Lower n_calls (e.g. 50) drops
+# the per-candidate wall cost from ~1-2 s to ~0.3-0.5 s but widens the
+# noise band to ~0.5-1 us, which can flip ranks on close pairs;
+# 200 is the sweet spot.
+_PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_N_CALLS = 200
+_PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_N_WARMUP = 5
+# Multi-pass median per candidate suppresses cross-window scheduler /
+# cache-state variance that single-pass traces leave on the table.  At
+# 3 passes, the per-candidate cost is ~3-6 sec (3 trace windows ~1-2
+# sec each, plus 3 paired reference traces), so per top-K cohort of
+# 10 the device-us re-rank adds ~60-120 sec to autotune wall-time.
+# Single-pass (passes=1) is faster but the rank can flip on close
+# pairs whose paired delta is within the ~0.05-0.1us cross-window
+# noise — for the headline shape the no-tiling-vs-tiled pair is
+# routinely inside that band, so multi-pass is required to hold the
+# G7-prefetch closure.
+_PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_PASSES = 3
+
+
+def _autotune_rank_by_device_us() -> bool:
+    """Return True iff ``HELION_AUTOTUNE_RANK_BY`` selects device-us.
+
+    Default is ``device_us`` (on); set ``HELION_AUTOTUNE_RANK_BY=wall_us``
+    to fall back to the legacy single-call wall-clock paired-sample
+    ranking.  Any unknown value also falls back to wall-clock (defensive
+    against typos / future renames).
+    """
+    value = os.environ.get("HELION_AUTOTUNE_RANK_BY", "device_us").strip().lower()
+    return value == "device_us"
+
+
+def _pallas_device_us_for_fn(
+    fn: Callable[[], object],
+    *,
+    n_calls: int,
+    n_warmup: int,
+) -> float:
+    """Per-call on-device us under a ``jax.profiler`` trace.
+
+    Wraps ``n_calls`` invocations of ``fn`` in a single
+    ``jax.profiler.start_trace`` / ``stop_trace`` window, parses the
+    resulting ``.xplane.pb`` via ``jax.profiler.ProfileData.from_file``,
+    finds the dominant compute event on the ``/device:TPU:0`` plane
+    (largest total ``duration_ns`` across events whose count == ``n_calls``
+    — the count filter excludes the DVFS ``P state`` counter line whose
+    ~17 sampled events over the trace window would otherwise dominate
+    the aggregation by ~45x), and returns ``total_ns / n_calls / 1000``.
+
+    Mirrors ``examples/pallas_perf/measure_headline.py``'s
+    ``_time_device_us`` (see plan.md §1 device-us block + §5 G7-prefetch
+    cycle 36 history row) but lives here so the autotuner can call it
+    without depending on the examples package.
+
+    Returns ``+inf`` when ``jax`` is unavailable, when the trace
+    produces no ``.xplane.pb`` (``jax.profiler`` silently dropped the
+    trace), when the trace has no ``/device:TPU:0`` plane, or when
+    no event on the plane has cardinality == ``n_calls`` (the
+    per-call kernel emits a different number of events than
+    expected).  All four cases are "the trace data is unusable, not
+    the kernel is broken", so the caller's paired-delta median uses
+    ``inf`` as the "candidate failed" sentinel.  Exceptions raised by
+    the kernel itself (``fn``) propagate so a real kernel bug
+    surfaces instead of being silently re-ranked.
+    """
+    try:
+        import jax  # pyrefly: ignore[missing-module-attribute]
+    except ImportError:
+        return math.inf
+
+    # Warmup OUTSIDE the trace window so first-call compile / cache
+    # population doesn't pollute the dominant-event aggregation.
+    # Exceptions from ``fn`` propagate (a kernel that doesn't even
+    # warm up successfully isn't a benchmark target — caller should
+    # see the real error).
+    for _ in range(n_warmup):
+        fn()
+
+    with tempfile.TemporaryDirectory(prefix="helion_autotune_device_us_") as td:
+        jax.profiler.start_trace(td)
+        last_out: object = None
+        try:
+            for _ in range(n_calls):
+                last_out = fn()
+        finally:
+            # Belt-and-suspenders: the per-call ``fn`` already runs a
+            # device-sync (Pallas TPU launcher path), but a final
+            # ``block_until_ready`` on the last output guarantees
+            # ``stop_trace`` sees every device-side event before
+            # finalising the .xplane.pb.
+            if last_out is not None:
+                with contextlib.suppress(TypeError, AttributeError):
+                    jax.block_until_ready(last_out)
+            jax.profiler.stop_trace()
+
+        pb_path: str | None = None
+        for root, _dirs, files in os.walk(td):
+            for f in files:
+                if f.endswith(".xplane.pb"):
+                    pb_path = os.path.join(root, f)
+                    break
+            if pb_path is not None:
+                break
+        if pb_path is None:
+            return math.inf
+
+        pd = jax.profiler.ProfileData.from_file(pb_path)
+        best_total_ns = 0
+        for plane in pd.planes:
+            if plane.name != "/device:TPU:0":
+                continue
+            for line in plane.lines:
+                per_event_totals: dict[str, int] = {}
+                per_event_counts: dict[str, int] = {}
+                for ev in line.events:
+                    per_event_totals[ev.name] = (
+                        per_event_totals.get(ev.name, 0) + ev.duration_ns
+                    )
+                    per_event_counts[ev.name] = per_event_counts.get(ev.name, 0) + 1
+                for name, total in per_event_totals.items():
+                    if per_event_counts[name] != n_calls:
+                        continue
+                    if total > best_total_ns:
+                        best_total_ns = total
+        if best_total_ns == 0:
+            return math.inf
+        return best_total_ns / n_calls / 1000.0
+
+
+def make_pallas_paired_device_us_bench(
+    *,
+    n_calls: int = _PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_N_CALLS,
+    n_warmup: int = _PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_N_WARMUP,
+    passes: int = _PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_PASSES,
+) -> Callable[..., list[tuple[float, float]]] | None:
+    """Build a paired device-us bench callable for the Pallas backend.
+
+    Returns ``None`` when the user opted out via
+    ``HELION_AUTOTUNE_RANK_BY=wall_us``, in which case the autotuner
+    keeps its legacy wall-clock paired-sample ranking.  Returns a
+    closure with the
+    :func:`paired_device_us_bench` signature otherwise; the closure
+    captures ``n_calls`` / ``n_warmup`` / ``passes`` so the autotuner
+    doesn't have to pass them at call time.
+
+    Why this lives next to ``paired_device_us_bench``: the autotuner's
+    ``_run_final_pick_verification_paired`` calls
+    ``backend.get_paired_device_us_bench()`` once per final-pick phase
+    and reuses the returned callable across the top-K candidates;
+    constructing it here keeps the per-call import of ``jax`` and the
+    env-var read off the autotune hot path.
+    """
+    if not _autotune_rank_by_device_us():
+        return None
+
+    def _bench(
+        fns: list[Callable[..., object]],
+        reference_fn: Callable[..., object],
+        *,
+        desc: str | None = None,
+    ) -> list[tuple[float, float]]:
+        def _device_us_fn(fn: Callable[[], object]) -> float:
+            return _pallas_device_us_for_fn(fn, n_calls=n_calls, n_warmup=n_warmup)
+
+        return paired_device_us_bench(
+            fns,
+            reference_fn,
+            device_us_fn=_device_us_fn,
+            passes=passes,
+            desc=desc,
+        )
+
+    return _bench
 
 
 def _summarize_statistics_fallback(

@@ -86,6 +86,30 @@ _DEFAULT_FINAL_PICK_TOP_K = 10
 # median behaviour.
 _DEFAULT_FINAL_PICK_PAIRED = True
 
+# Compiler-seed bias band for the device-us paired-delta re-rank.
+# When a compiler-seed candidate's paired delta is within
+# ``_DEVICE_US_DELTA_SEED_BIAS_BAND_US`` of the proposed (non-seed)
+# winner, the re-rank promotes the seed instead.  Rationale: compiler
+# seeds (e.g. ``PallasMatmulNoTilingSeedHeuristic``) carry structural
+# information that the autotuner can't infer from raw paired-delta
+# alone — the no-tiling seed unlocks the G7-prefetch
+# ``lax.dot_general``-via-XLA-cross-program-prefetch lowering whose
+# ~17% on-device kernel speedup is genuinely better, but the autotune
+# search frequently discovers tiled configs (e.g. ``[512, 1024,
+# 1024] outer_grid pb=False``) whose device us is within ~0.3-1.0 us
+# of the no-tiling seed on the headline shape.  Without a wide seed
+# bias band the per-run pick would oscillate between the no-tiling
+# seed and the tiled near-miss, regressing the G7-prefetch headline
+# closure on roughly half of autotune sessions.  A 1.0 us band is wide
+# enough to catch every plausible tiled near-miss on compute-bound
+# 5-10 us kernels but tight enough that a structurally-better non-seed
+# config (≥ 1.0 us / ~10-20% on a 5-us kernel — well outside any
+# paired-noise band) still trips the re-rank away from the seed.  Pin
+# test
+# ``test_pallas_autotuner_final_pick_device_us_prefers_compiler_seed_in_noise_band``
+# locks the behaviour against future refactors.
+_DEVICE_US_DELTA_SEED_BIAS_BAND_US = 1.0
+
 
 def final_pick_settings() -> tuple[int, int, bool]:
     """Read the final-pick verification knobs from the environment.
@@ -1478,6 +1502,52 @@ class PopulationBasedSearch(BaseSearch):
         # own ranking semantics; leave the legacy path in place.
         return self.settings.autotune_benchmark_fn is None
 
+    def _resolve_device_us_paired_bench(
+        self, *, passes: int
+    ) -> Callable[..., list[tuple[float, float]]] | None:
+        """Return a paired-device-us bench helper iff the backend supports it.
+
+        On Pallas / TPU with ``static_shapes=True`` and (by default)
+        ``HELION_AUTOTUNE_RANK_BY=device_us`` set, the active backend
+        returns a closure that wraps ``jax.profiler.start_trace`` to
+        report per-call on-device us per candidate.  The autotuner uses
+        the closure to re-rank the final-pick cohort by device-us so
+        the per-call ~125 us PJRT / ``pallas_call`` dispatch overhead
+        doesn't drown the 3-10 us on-chip difference between candidate
+        configs (plan.md §5 G7-autotune-device).
+
+        Args:
+            passes: Number of paired-sample passes the autotuner wants
+                the bench to run per candidate (mirrors
+                ``HELION_AUTOTUNE_FINAL_PICK_PASSES`` / the legacy
+                wall-clock paired path).  Forwarded to the backend's
+                bench factory so the user-configured pass count
+                affects both the wall-clock and device-us re-rank.
+
+        Returns ``None`` when:
+          * the backend doesn't override ``get_paired_device_us_bench``
+            (CUDA / Triton, CuTe, Metal today);
+          * the kernel is dynamic-shape — device-us doesn't usefully
+            separate candidates either when each call re-traces;
+          * the backend's hook returned ``None`` (user opted out via
+            ``HELION_AUTOTUNE_RANK_BY=wall_us`` or ``jax`` is missing).
+        """
+        settings = getattr(self, "settings", None)
+        if settings is None:
+            return None
+        if not getattr(settings, "static_shapes", False):
+            return None
+        backend = getattr(getattr(self, "config_spec", None), "backend", None)
+        if backend is None:
+            return None
+        # Base ``Backend`` class always defines ``get_paired_device_us_bench``
+        # returning ``None``; the ``getattr`` keeps the unit-test scaffolds
+        # that build a fake backend without the hook working.
+        getter = getattr(backend, "get_paired_device_us_bench", None)
+        if getter is None:
+            return None
+        return getter(passes=passes)
+
     def _run_final_pick_verification_paired(
         self,
         best: PopulationMember,
@@ -1486,15 +1556,269 @@ class PopulationBasedSearch(BaseSearch):
     ) -> PopulationMember:
         """Paired-sample re-rank path for :meth:`run_final_pick_verification`.
 
-        Each pass pairs every candidate call with one call to ``best``
-        inside the same ``perf_counter`` window via
-        :func:`paired_interleaved_bench`.  Rank by ``median(paired
-        delta)`` across passes; common-mode drift cancels so the decision
-        survives chip-thermal noise that would otherwise flip the rank.
+        On Pallas / TPU with ``static_shapes=True`` and (by default)
+        ``HELION_AUTOTUNE_RANK_BY=device_us`` set, this routes through
+        :meth:`_run_final_pick_verification_device_us` which re-ranks the
+        cohort by per-call on-device us (via ``jax.profiler.start_trace``)
+        instead of single-call wall-clock us.  Otherwise each pass pairs
+        every candidate call with one call to ``best`` inside the same
+        ``perf_counter`` window via :func:`paired_interleaved_bench` and
+        ranks by ``median(paired delta)`` across passes.  Common-mode
+        chip-thermal / scheduler drift cancels in either delta so the
+        decision survives noise that would otherwise flip the rank.
         """
-        # Repeat count mirrors :meth:`rebenchmark` so paired-sample
-        # measurements scale with kernel cost the same way the
-        # absolute-median path does.
+        device_us_bench = self._resolve_device_us_paired_bench(passes=passes)
+        if device_us_bench is not None:
+            return self._run_final_pick_verification_device_us(
+                best,
+                candidates,
+                device_us_bench=device_us_bench,
+                passes=passes,
+            )
+        return self._run_final_pick_verification_paired_wall_us(
+            best, candidates, passes
+        )
+
+    def _run_final_pick_verification_device_us(
+        self,
+        best: PopulationMember,
+        candidates: list[PopulationMember],
+        *,
+        device_us_bench: Callable[..., list[tuple[float, float]]],
+        passes: int,
+    ) -> PopulationMember:
+        """Device-us paired re-rank path for the autotune final-pick phase.
+
+        Calls the backend-supplied ``device_us_bench`` once across the
+        candidate cohort.  The bench is itself paired-sample (each
+        candidate is timed alongside ``best`` inside the same
+        ``device_us_fn`` invocation) and runs ``passes`` paired
+        traces per candidate; the bench's per-call device us is the
+        average of many calls inside a single
+        ``jax.profiler.start_trace`` window, so per-event sub-us
+        stability replaces the per-pass aggregation that the wall-clock
+        path needs while the cross-pass median further suppresses
+        any per-pass scheduler / cache-state variance.
+
+        Ranking rule: primary key = paired device-us delta vs
+        ``best`` (smaller = on-device faster than the reference);
+        secondary key = candidate device-us absolute (tie-break in
+        absolute speed).  Plus a compiler-seed bias band (1 us) that
+        promotes a compiler-seeded candidate over a non-seed
+        paired-delta minimum when the seed is within the band of the
+        winner — preserves G2 / G3 / G4 / G7-prefetch seeds whose
+        structural advantage the raw paired-delta can't see.  Falls
+        back to the wall-clock paired path on any exception so a
+        transient profiler / sync error never bricks autotune.
+
+        Args:
+            best: The cohort's incoming best.  Used both as the paired
+                reference inside ``device_us_bench`` AND as the fallback
+                returned when no candidate's device-us reading is
+                finite.
+            candidates: The top-K final-pick cohort drawn by
+                :meth:`run_final_pick_verification` (always includes
+                ``best`` and the compiler-seed members).
+            device_us_bench: Closure returned by the backend's
+                ``get_paired_device_us_bench`` (Pallas / TPU today).
+                Same signature as :func:`paired_device_us_bench`.
+            passes: Number of paired-sample passes the device-us
+                fallback uses if the bench raises mid-pass.  Mirrors
+                ``HELION_AUTOTUNE_FINAL_PICK_PASSES`` so the user-
+                configured pass count flows into the wall-clock
+                fallback.
+
+        Returns:
+            The candidate with the lowest paired device-us delta
+            (with compiler-seed bias-band tie-break applied).
+        """
+        from ..runtime import _bump_autotune_device_us_rankings
+
+        if len(self.benchmark_provider.mutated_arg_indices) > 0:
+            benchmark_args = _clone_args(
+                self.args,
+                self.kernel.env.process_group_name,
+                idx_to_clone=self.benchmark_provider.mutated_arg_indices,
+            )
+        else:
+            benchmark_args = self.args
+        candidate_fns: list[Callable[..., object]] = [
+            functools.partial(member.fn, *benchmark_args) for member in candidates
+        ]
+        reference_fn: Callable[..., object] = functools.partial(
+            best.fn, *benchmark_args
+        )
+
+        desc = (
+            "Final-pick verification device_us"
+            if self.settings.autotune_progress_bar
+            else None
+        )
+        try:
+            results = device_us_bench(
+                candidate_fns,
+                reference_fn,
+                desc=desc,
+            )
+        except Exception as err:
+            self.log(
+                f"Device-us final-pick re-rank failed ({err!r}); falling back "
+                f"to wall-clock paired-sample rebenchmark."
+            )
+            return self._run_final_pick_verification_paired_wall_us(
+                best, candidates, passes=passes
+            )
+
+        _bump_autotune_device_us_rankings()
+
+        # Aggregate raw device us / paired-delta us values per candidate.
+        # The unit is microseconds here (device us is reported by the
+        # backend hook); we DON'T fold into ``PopulationMember.perfs`` or
+        # ``self.best_perf_so_far`` because both downstream consumers
+        # represent wall-clock milliseconds and mixing units would
+        # silently corrupt the search loop's ``int(200 / best_perf_so_far)``
+        # repeat heuristic plus the autotune-metrics export (device us is
+        # ~10-20x smaller than wall-clock us on Pallas matmuls, so a
+        # synthetic-ms reading would shrink the wall-clock comparison
+        # baseline by an order of magnitude).
+        aggregated: list[tuple[int, float, float]] = []
+        finite_count = 0
+        for slot_idx, (device_us, paired_delta_us) in enumerate(results):
+            if not math.isfinite(device_us) or not math.isfinite(paired_delta_us):
+                aggregated.append((slot_idx, inf, inf))
+                continue
+            aggregated.append((slot_idx, paired_delta_us, device_us))
+            finite_count += 1
+
+        # If every device-us trace was unusable (no ``.xplane.pb``,
+        # ``/device:TPU:0`` plane missing, ``jax`` missing on a CUDA-
+        # backed scaffold, profiler format change, etc.) the device-us
+        # signal can't be trusted — fall back to the wall-clock paired
+        # path so final-pick verification isn't silently skipped.  An
+        # empty ``aggregated`` (zero finite candidates) means we'd
+        # otherwise just return ``best`` with no re-ranking at all.
+        if finite_count == 0:
+            self.log(
+                "Final-pick verification (device_us) collected no finite "
+                "device us readings across the cohort; falling back to "
+                "wall-clock paired-sample rebenchmark."
+            )
+            return self._run_final_pick_verification_paired_wall_us(
+                best, candidates, passes=passes
+            )
+
+        # Primary key: paired device-us delta vs ``best``.  Secondary
+        # key: candidate device-us absolute.
+        best_slot, best_delta, best_device = min(
+            aggregated, key=operator.itemgetter(1, 2)
+        )
+        if not math.isfinite(best_delta) or not math.isfinite(best_device):
+            return best
+
+        best_member = candidates[best_slot]
+
+        # Compiler-seed tie-break: when a compiler-seeded candidate's
+        # paired delta is within ``_DEVICE_US_DELTA_SEED_BIAS_BAND_US`` of
+        # the proposed winner, prefer the compiler seed.  Rationale:
+        # compiler seeds (e.g. ``PallasMatmulNoTilingSeedHeuristic``)
+        # carry structural information that the autotuner can't infer
+        # from raw paired-delta alone — the no-tiling seed unlocks the
+        # G7-prefetch ``lax.dot_general``-via-XLA-cross-program-prefetch
+        # lowering whose ~17% on-device kernel speedup is genuinely
+        # better.  But the autotune search frequently finds tiled
+        # configs (e.g. ``[512, 1024, 1024] outer_grid pb=False``)
+        # whose paired device-us is within ~0.3-1.0 us of the
+        # no-tiling seed; ranking by raw paired-delta alone causes
+        # the per-run pick to oscillate between the seed and the
+        # near-miss, regressing the G7-prefetch headline closure on
+        # roughly half of autotune sessions.  Biasing toward the
+        # compiler seed when the device-us delta is in the ~1.0 us
+        # band preserves prior cycles' kernel-side closures (G2 / G3
+        # / G4 seeds + G7-prefetch's no-tiling seed) without blocking
+        # the re-rank from picking a genuinely-faster non-seed config
+        # (≥ 1.0us / ~10-20% on a 5us kernel is well above the band).
+        compiler_seed_members = getattr(self, "_compiler_seed_members", []) or []
+        compiler_seed_ids: set[int] = {id(m) for m in compiler_seed_members}
+        if compiler_seed_ids and id(best_member) not in compiler_seed_ids:
+            # Sort seed candidates by paired delta (best-first) so when
+            # multiple seeds fall inside the bias band the seed with the
+            # lowest measured paired delta wins instead of the first one
+            # in cohort order.
+            seed_aggregated = sorted(
+                (
+                    (slot_idx, delta, device_us)
+                    for slot_idx, delta, device_us in aggregated
+                    if id(candidates[slot_idx]) in compiler_seed_ids
+                    and math.isfinite(delta)
+                ),
+                key=operator.itemgetter(1, 2),
+            )
+            for slot_idx, _delta, _device_us in seed_aggregated:
+                if (_delta - best_delta) >= _DEVICE_US_DELTA_SEED_BIAS_BAND_US:
+                    continue
+                # The seed is within noise — promote it.
+                seed_member = candidates[slot_idx]
+                self.log(
+                    f"Final-pick verification (device_us) preferred "
+                    f"compiler-seed {seed_member.config} (paired "
+                    f"device-us delta {_delta:+.3f}us) over "
+                    f"non-seed winner {best_member.config} (paired "
+                    f"device-us delta {best_delta:+.3f}us) — "
+                    f"within the ~1.0us device-us seed-bias band, so the "
+                    f"structural compiler-seed pick wins the tie-break."
+                )
+                best_slot = slot_idx
+                best_delta = _delta
+                best_device = _device_us
+                best_member = seed_member
+                break
+
+        if best_member is best:
+            self.log(
+                f"Final-pick verification (device_us) confirmed best "
+                f"(paired device-us delta {best_delta:+.3f}us, "
+                f"absolute device-us {best_device:.3f}us)"
+            )
+        else:
+            original_idx = next(
+                (
+                    slot_idx
+                    for slot_idx, member in enumerate(candidates)
+                    if member is best
+                ),
+                None,
+            )
+            if original_idx is not None:
+                original_delta = aggregated[original_idx][1]
+                self.log(
+                    f"Final-pick verification (device_us) re-picked "
+                    f"{best_member.config} (paired device-us delta "
+                    f"{best_delta:+.3f}us) over previous best "
+                    f"{best.config} (paired device-us delta "
+                    f"{original_delta:+.3f}us)"
+                )
+            else:
+                self.log(
+                    f"Final-pick verification (device_us) picked "
+                    f"{best_member.config} (paired device-us delta "
+                    f"{best_delta:+.3f}us)"
+                )
+        return best_member
+
+    def _run_final_pick_verification_paired_wall_us(
+        self,
+        best: PopulationMember,
+        candidates: list[PopulationMember],
+        passes: int,
+    ) -> PopulationMember:
+        """Wall-clock paired-sample fallback for the device-us re-rank.
+
+        Identical to the body of :meth:`_run_final_pick_verification_paired`
+        absent the device-us re-rank early-exit (which would loop
+        back here if invoked).  Extracted so the device-us path can
+        recover from a transient profiler / sync error without
+        re-entering the device-us branch.
+        """
         base_repeat = (
             int(200 / self.best_perf_so_far)
             if math.isfinite(self.best_perf_so_far) and self.best_perf_so_far > 0
@@ -1519,10 +1843,6 @@ class PopulationBasedSearch(BaseSearch):
             best.fn, *benchmark_args
         )
 
-        # Per-candidate accumulators for the per-pass median and the
-        # per-pass paired delta vs. the incoming best.  The legacy
-        # ``perfs`` list also gets appended-to so downstream code (logs,
-        # final-pick reports) still sees the new measurements.
         per_candidate_medians: list[list[float]] = [[] for _ in candidates]
         per_candidate_deltas: list[list[float]] = [[] for _ in candidates]
 
@@ -1539,14 +1859,12 @@ class PopulationBasedSearch(BaseSearch):
                     repeat=repeat,
                     desc=desc if self.settings.autotune_progress_bar else None,
                 )
-            except Exception as err:  # pragma: no cover - defensive
+            except Exception as err:
                 self.log(
                     f"Paired-sample rebenchmark failed on pass "
                     f"{pass_idx + 1}/{passes} ({err!r}); falling back to "
                     f"absolute-median rebenchmark for the remaining passes."
                 )
-                # Fall back to the legacy ranking for the rest of the
-                # phase by chaining into the absolute-median path.
                 return self.run_final_pick_verification(
                     best,
                     passes=passes,
@@ -1561,9 +1879,6 @@ class PopulationBasedSearch(BaseSearch):
                     if median_ms < self.best_perf_so_far:
                         self.best_perf_so_far = median_ms
 
-        # Rank by the median of per-pass paired deltas vs ``best``; ties
-        # (e.g. the incoming best paired against itself) fall back to the
-        # candidate's median absolute timing.
         aggregated: list[tuple[int, float, float]] = []
         for slot_idx, deltas in enumerate(per_candidate_deltas):
             finite_deltas = [d for d in deltas if math.isfinite(d)]
@@ -1581,10 +1896,6 @@ class PopulationBasedSearch(BaseSearch):
                 )
             )
 
-        # Primary key: median paired delta (smaller = faster than the
-        # reference).  Secondary key: median absolute time, so two
-        # candidates with identical paired deltas are broken by their
-        # absolute speed.
         best_slot, best_delta, best_median = min(
             aggregated, key=operator.itemgetter(1, 2)
         )
@@ -1622,7 +1933,6 @@ class PopulationBasedSearch(BaseSearch):
                     f"{best_member.config} (paired-delta median "
                     f"{best_delta:+.4f}ms)"
                 )
-
         if math.isfinite(best_median) and best_median < self.best_perf_so_far:
             self.best_perf_so_far = best_median
         return best_member

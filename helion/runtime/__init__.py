@@ -742,6 +742,53 @@ def _reset_pallas_matmul_dot_general_lowerings() -> None:
     _PALLAS_MATMUL_DOT_GENERAL_LOWERINGS = 0
 
 
+# Per-autotune-run count of final-pick verifications that re-ranked
+# the top-K candidate cohort by on-device per-call us (via
+# ``jax.profiler.start_trace``) instead of single-call wall-clock us.
+# Bumps once per ``_run_final_pick_verification_paired`` invocation that
+# took the device-us ranking path; pin tests assert the autotuner
+# exercises the device-us re-rank on Pallas / static-shape kernels and
+# falls back to wall-clock when the backend can't supply a device-us
+# bench helper (CUDA / Triton, dynamic shapes, or the user opted out via
+# ``HELION_AUTOTUNE_RANK_BY=wall_us``).  Single-call wall-clock us on
+# small / medium Pallas matmuls is ~96-98% PJRT + ``pallas_call``
+# dispatch overhead, so candidate configs that differ by 3-9 us on the
+# chip register as the same ~125 us at the user-call level and the
+# autotuner ships a dispatch-cheap but device-expensive pick; the
+# device-us re-rank fixes this by ranking the final-pick cohort on the
+# 200-call ``jax.profiler`` trace average instead.
+_AUTOTUNE_DEVICE_US_RANKINGS = 0
+
+
+def _autotune_device_us_rankings() -> int:
+    """Return the count of final-pick verifications that ranked by device-us.
+
+    Test instrumentation: pin tests assert that the autotuner re-ranks the
+    final-pick cohort by on-device us (via ``jax.profiler``) on Pallas /
+    static-shape kernels, and falls back to wall-clock ranking when the
+    backend can't supply a device-us bench helper.
+    """
+    return _AUTOTUNE_DEVICE_US_RANKINGS
+
+
+def _reset_autotune_device_us_rankings() -> None:
+    """Reset the device-us ranking counter (test instrumentation)."""
+    global _AUTOTUNE_DEVICE_US_RANKINGS
+    _AUTOTUNE_DEVICE_US_RANKINGS = 0
+
+
+def _bump_autotune_device_us_rankings() -> None:
+    """Increment the device-us ranking counter.
+
+    Called from :func:`helion.autotuner.base_search.PopulationBasedSearch.
+    _run_final_pick_verification_paired` once per final-pick phase that
+    re-ranks the cohort using a backend-supplied device-us bench helper
+    (``backend.get_paired_device_us_bench``).
+    """
+    global _AUTOTUNE_DEVICE_US_RANKINGS
+    _AUTOTUNE_DEVICE_US_RANKINGS += 1
+
+
 # Per-call direct-dispatch sig-check elisions.  G5-launcher-Y squeeze:
 # after the first successful direct-dispatch hit on a static-shape
 # launcher cache entry, the per-arg ``(shape, dtype)`` signature is
