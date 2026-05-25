@@ -64,6 +64,15 @@ _SUSPICIOUS_REBENCHMARK_WARMUP = 25
 _SUSPICIOUS_REBENCHMARK_REP = 100
 
 
+# Compiler-seed bias band for the device-us re-rank: when a compiler-seed
+# candidate's paired delta is within this many us of the proposed non-seed
+# winner, promote the seed.  Seeds carry structural info (the no-tiling
+# dot_general/prefetch lowering, ~17% faster) that the raw delta misses, and
+# tiled near-misses often land within ~0.3-1.0 us; 1.0 us catches them while
+# still yielding to a clearly-better (>=1.0 us) non-seed config.
+_DEVICE_US_DELTA_SEED_BIAS_BAND_US = 1.0
+
+
 class _HasDeviceAndProcessGroupName(Protocol):
     device: torch.device
     process_group_name: str | None
@@ -1331,6 +1340,34 @@ class PopulationBasedSearch(BaseSearch):
             return False
         return self.settings.autotune_benchmark_fn is None
 
+    def _resolve_device_us_paired_bench(
+        self,
+    ) -> Callable[..., list[tuple[float, float]]] | None:
+        """Return a paired-device-us bench helper iff the backend supports it.
+
+        On Pallas/TPU with ``static_shapes=True`` and (by default)
+        ``HELION_AUTOTUNE_RANK_BY=device_us``, the active backend returns a
+        closure that wraps ``jax.profiler.start_trace`` to report per-call
+        on-device us per candidate, so the ~125us dispatch overhead doesn't drown
+        the 3-10us on-chip difference between configs.  Returns ``None`` on other
+        backends, dynamic-shape kernels, or when the user opts out via
+        ``HELION_AUTOTUNE_RANK_BY=wall_us`` / ``jax`` is missing.
+        """
+        settings = getattr(self, "settings", None)
+        if settings is None:
+            return None
+        if not getattr(settings, "static_shapes", False):
+            return None
+        backend = getattr(getattr(self, "config_spec", None), "backend", None)
+        if backend is None:
+            return None
+        # Base ``Backend`` defines ``get_paired_device_us_bench`` returning None;
+        # the getattr keeps fake-backend unit-test scaffolds working.
+        getter = getattr(backend, "get_paired_device_us_bench", None)
+        if getter is None:
+            return None
+        return getter()
+
     def _run_final_pick_verification_paired(
         self,
         best: PopulationMember,
@@ -1338,12 +1375,151 @@ class PopulationBasedSearch(BaseSearch):
     ) -> PopulationMember:
         """Paired-sample re-rank: time each candidate against ``best`` in one window.
 
-        :func:`paired_interleaved_bench` runs each candidate call back-to-back
-        with one ``best`` call, so common-mode drift cancels; rank by the paired
-        delta (smaller = faster than ``best``), tie-broken by absolute median.
+        On Pallas/TPU (``static_shapes=True``, default
+        ``HELION_AUTOTUNE_RANK_BY=device_us``) this routes through
+        :meth:`_run_final_pick_verification_device_us`, which ranks by per-call
+        on-device us (``jax.profiler``) instead of wall-clock us -- wall-clock is
+        masked by the ~125us dispatch overhead.  Otherwise it falls back to
+        :meth:`_run_final_pick_verification_paired_wall_us`.
         """
-        # Repeat count mirrors :meth:`rebenchmark` so the measurement scales
-        # with kernel cost the same way the absolute-median path does.
+        device_us_bench = self._resolve_device_us_paired_bench()
+        if device_us_bench is not None:
+            return self._run_final_pick_verification_device_us(
+                best, candidates, device_us_bench=device_us_bench
+            )
+        return self._run_final_pick_verification_paired_wall_us(best, candidates)
+
+    def _run_final_pick_verification_device_us(
+        self,
+        best: PopulationMember,
+        candidates: list[PopulationMember],
+        *,
+        device_us_bench: Callable[..., list[tuple[float, float]]],
+    ) -> PopulationMember:
+        """Device-us paired re-rank: rank the cohort by per-call on-chip us.
+
+        ``device_us_bench`` times each candidate alongside ``best`` inside one
+        ``jax.profiler.start_trace`` window and returns ``(device_us, paired
+        delta vs best)`` per candidate; per-call device us isn't masked by the
+        ~125us dispatch overhead the wall-clock fallback pays.  Ranks by paired
+        delta (smaller = on-device faster), tie-broken by absolute device us,
+        with a compiler-seed bias band (``_DEVICE_US_DELTA_SEED_BIAS_BAND_US``)
+        that promotes a within-noise compiler seed.  Device us stays in us and is
+        NOT folded into ``perfs``/``best_perf_so_far`` (those are wall-clock ms).
+        Falls back to the wall-clock paired path on any error.
+        """
+        if len(self.benchmark_provider.mutated_arg_indices) > 0:
+            benchmark_args = _clone_args(
+                self.args,
+                self.kernel.env.process_group_name,
+                idx_to_clone=self.benchmark_provider.mutated_arg_indices,
+            )
+        else:
+            benchmark_args = self.args
+        candidate_fns: list[Callable[..., object]] = [
+            functools.partial(member.fn, *benchmark_args) for member in candidates
+        ]
+        reference_fn: Callable[..., object] = functools.partial(
+            best.fn, *benchmark_args
+        )
+
+        desc = (
+            "Final-pick verification device_us"
+            if self.settings.autotune_progress_bar
+            else None
+        )
+        try:
+            results = device_us_bench(candidate_fns, reference_fn, desc=desc)
+        except Exception as err:
+            self.log(
+                f"Device-us final-pick re-rank failed ({err!r}); falling back "
+                f"to wall-clock paired-sample rebenchmark."
+            )
+            return self._run_final_pick_verification_paired_wall_us(best, candidates)
+
+        # results[i] == (absolute device us, paired device-us delta vs best).
+        device_us_by_slot = [device_us for device_us, _delta in results]
+        delta_by_slot = [delta for _device_us, delta in results]
+        finite_count = sum(
+            1
+            for device_us, delta in results
+            if math.isfinite(device_us) and math.isfinite(delta)
+        )
+        # No usable device-us trace (missing xplane/jax, profiler-format change):
+        # the signal can't be trusted, so fall back rather than skip the re-rank.
+        if finite_count == 0:
+            self.log(
+                "Final-pick verification (device_us) collected no finite device "
+                "us readings; falling back to wall-clock paired-sample rebenchmark."
+            )
+            return self._run_final_pick_verification_paired_wall_us(best, candidates)
+
+        # Rank by paired device-us delta vs best, tie-break by absolute device us.
+        def _device_key(slot_idx: int) -> tuple[float, float]:
+            delta, device_us = delta_by_slot[slot_idx], device_us_by_slot[slot_idx]
+            if not math.isfinite(delta) or not math.isfinite(device_us):
+                return (inf, inf)
+            return (delta, device_us)
+
+        best_slot = min(range(len(candidates)), key=_device_key)
+        best_delta = delta_by_slot[best_slot]
+        best_device = device_us_by_slot[best_slot]
+        if not math.isfinite(best_delta) or not math.isfinite(best_device):
+            return best
+        best_member = candidates[best_slot]
+
+        # Compiler-seed tie-break: prefer a compiler-seeded candidate whose paired
+        # delta is within ``_DEVICE_US_DELTA_SEED_BIAS_BAND_US`` of the winner, so
+        # a structural seed pick survives a within-noise tie.
+        compiler_seed_ids = {
+            id(m) for m in getattr(self, "_compiler_seed_members", []) or []
+        }
+        if compiler_seed_ids and id(best_member) not in compiler_seed_ids:
+            seed_slots = sorted(
+                (
+                    slot_idx
+                    for slot_idx in range(len(candidates))
+                    if id(candidates[slot_idx]) in compiler_seed_ids
+                    and math.isfinite(delta_by_slot[slot_idx])
+                ),
+                key=_device_key,
+            )
+            for slot_idx in seed_slots:
+                delta = delta_by_slot[slot_idx]
+                if delta - best_delta >= _DEVICE_US_DELTA_SEED_BIAS_BAND_US:
+                    continue
+                self.log(
+                    f"Final-pick preferred compiler-seed "
+                    f"{candidates[slot_idx].config} (device-us delta {delta:+.3f}us) "
+                    f"over non-seed winner {best_member.config} (device-us delta "
+                    f"{best_delta:+.3f}us) -- within the "
+                    f"{_DEVICE_US_DELTA_SEED_BIAS_BAND_US}us seed-bias band."
+                )
+                best_slot = slot_idx
+                best_delta = delta
+                best_device = device_us_by_slot[slot_idx]
+                best_member = candidates[slot_idx]
+                break
+
+        if best_member is not best:
+            self.log(
+                f"Final-pick re-picked {best_member.config} "
+                f"(device-us delta {best_delta:+.3f}us, absolute "
+                f"{best_device:.3f}us) over {best.config}"
+            )
+        return best_member
+
+    def _run_final_pick_verification_paired_wall_us(
+        self,
+        best: PopulationMember,
+        candidates: list[PopulationMember],
+    ) -> PopulationMember:
+        """Wall-clock paired-sample fallback for the device-us re-rank.
+
+        Same as the paired body minus the device-us early-exit (which would loop
+        back here).  Extracted so the device-us path can recover from a transient
+        profiler/sync error without re-entering the device-us branch.
+        """
         base_repeat = (
             int(200 / self.best_perf_so_far)
             if math.isfinite(self.best_perf_so_far) and self.best_perf_so_far > 0

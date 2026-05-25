@@ -310,6 +310,28 @@ class Backend(abc.ABC):
         """
         return None
 
+    def get_paired_device_us_bench(
+        self,
+    ) -> Callable[..., list[tuple[float, float]]] | None:
+        """Return a paired device-us bench helper for autotune final-pick.
+
+        Backends that can report per-call on-device us cheaply (e.g. Pallas/TPU
+        via ``jax.profiler.start_trace``) override this to return a callable::
+
+            fn(candidates: list[Callable[[], object]],
+               reference: Callable[[], object],
+               *,
+               desc: str | None) -> list[tuple[float, float]]
+
+        where each tuple is ``(candidate_device_us, paired_delta_us)``.
+        ``PopulationBasedSearch._run_final_pick_verification_paired`` calls this
+        on Pallas/static-shape kernels to re-rank the top-K cohort by device-us
+        instead of wall-clock us, which on small/medium Pallas matmuls is
+        ~96-98% dispatch overhead and masks 3-10us on-chip differences
+        (plan.md §5 G7-autotune-device).  The default returns ``None``.
+        """
+        return None
+
     def supports_precompile(self) -> bool:
         """Whether this backend supports subprocess precompilation.
 
@@ -1671,6 +1693,28 @@ class PallasBackend(Backend):
         from ..autotuner.benchmarking import interleaved_bench_generic
 
         return interleaved_bench_generic
+
+    def get_paired_device_us_bench(
+        self,
+    ) -> Callable[..., list[tuple[float, float]]] | None:
+        """Paired device-us bench helper for the autotune final-pick re-rank.
+
+        Wraps the Pallas ``jax.profiler.start_trace`` device-us helper into the
+        :func:`helion.autotuner.benchmarking.paired_device_us_bench` signature so
+        ``PopulationBasedSearch._run_final_pick_verification_paired`` can re-rank
+        the cohort by per-call on-device us instead of wall-clock us, which on
+        small/medium Pallas matmuls is ~96-98% dispatch overhead and masks
+        3-10us on-chip differences (plan.md §5 G7-autotune-device).
+
+        Opt-out: set ``HELION_AUTOTUNE_RANK_BY=wall_us`` to keep the legacy
+        wall-clock paired-sample ranking (default is ``device_us``).  Returns
+        ``None`` when the env var opts out, when ``jax`` is unavailable, or for
+        dynamic-shape kernels (which re-trace per call, so device-us doesn't
+        usefully separate candidates).
+        """
+        from ..autotuner.benchmarking import make_pallas_paired_device_us_bench
+
+        return make_pallas_paired_device_us_bench()
 
     def supports_precompile(self) -> bool:
         return False
