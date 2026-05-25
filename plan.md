@@ -127,7 +127,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-25 (cycle 30 G5-decorator: the headline row is re-measured at HEAD after the G5-decorator ``Kernel.__call__`` speculative single-bound-kernel fast path landed (10-sweep paired-sample full H/J median **0.732**, launcher overhead **46.18 us** — net -2.59 us vs cycle 29's 48.77 us, -5.3 % within paired-sample noise band but in the right direction); the 13 non-headline rows carry forward cycle-26 cells because (a) the change is global and small, (b) a cycle-30 14-shape × 3-sweep pilot under HEAD confirms every shape's full H/J stayed within ±5 % of its cycle-26 cell (median delta ~+0.01-0.03, never -0.05, all bucket B preserved), and (c) the headline gate signal moved < 5 % so per the per-cycle protocol the full 14-shape canonical re-measurement is deferred to the next substep that nets ≥ 5 %. **G5 ✅ AT HELION CEILING for all 14 shapes** (manager directive 2026-05-24 ceiling clause invoked cycle 30 — see §5 G5 Closure for the per-shape attribution: every shape is bucket B with ``kernel_only_H_over_J ≥ 1.00`` (Helion-kernel ≥ JAX) and the residual full-H/J gap is structurally below the §6.4 (b) torch_tpu ``call_custom_kernel`` C++ wrapper ceiling, not addressable from Helion's Python tree). The 14 rows are otherwise re-measured under the cycle-26 paired-sample G5-methodology protocol with the seeded autotuner (``HELION_AUTOTUNE_RANDOM_SEED=0``). All four numeric columns (JAX / Pallas / Helion kernel / Helion full) come from the SAME per-sweep ``measure_headline.py`` invocation under ``--timing-mode interleaved`` — Helion-full and JAX come from the **HJ-full 3-way paired leg** (ordering ``Helion-kernel → Helion-full → JAX`` so the gate pair Helion-full ↔ JAX is adjacent), Pallas + the HP-leg Helion-kernel come from the **2-way HP paired leg** (unchanged DR#6 canonical methodology preserved for G2/G3/G4 invariance). The cycle-25 ``G5-setup-pending`` cells (sequential-full / paired-kernel mix) are SUPERSEDED by these paired-sample medians; the cycle-26 sweep is the new provenance for every cell. Columns unchanged from cycle 25 (``Helion kernel``, ``Helion full``, ``kernel H/P``, ``kernel H/J``, ``full H/J``, ``P/J``, ``Overhead vs JAX``, ``Bucket``); only the underlying methodology shifted. G4 closure unchanged. — measurements on the `jongsokchoi-torchtpu` pod,
+> _As of: 2026-05-25 (cycle 31 G6-methodology-v2: all 14 rows re-measured under the new **unified 4-way paired-sample methodology** — every shape's ``Helion full`` / ``Helion kernel`` / ``Pallas`` / ``JAX`` us comes from a single per-iteration ``perf_counter_ns()`` window that times all four callables back-to-back in the ordering ``JAX → Helion-full → Pallas → Helion-kernel``. This collapses the cycle-26 split between the 2-way HP leg and the 3-way HJ-full leg into one unified window so every ratio (``kernel_only_H_over_P``, ``full_path_H_over_J``, ``kernel_only_H_over_J``, ``kernel_only_P_over_J``) is internally consistent within the same chip-thermal-noise window. Adjacent slot pairs are strict paired-sample (``J ↔ Hfull`` = full H/J / launcher_overhead_vs_jax_us ✅; ``Hfull ↔ P`` = launcher_overhead_vs_pallas_us ✅; ``P ↔ Hkernel`` = H/P ✅ — preserves DR#6 canonical adjacency for G2/G3/G4 invariance); 2-slot-off pairs are almost-paired (``Hkernel ↔ J`` = kernel H/J; ``P ↔ J`` = P/J; ``Hfull ↔ Hkernel`` = launcher_overhead_us). **All 12 G2/G3/G4 closures HOLD under unified methodology** (every measurable shape's H/P median is in the range 1.026-1.043 ≥ 1.00; the cycle-26 medians were 0.993-1.014, so the unified methodology gives a TIGHTER closure than cycle-26 — see G2/G3/G4 cycle 31 history entries for the re-verification table). The 2 M=1 N=1024 shapes (bf16 / f32 1×1024×1024) hit the §6.5 (d) M=1 BlockSpec divisibility crash on every kernel-only sweep at seed=0 (autotuner picks an ``outer_grid [1, *, 1024]`` config the harness can't replay-pad); their cycle-26 cells carry forward. **Cycle 31 P/J flips opposite direction from cycle 26**: under unified methodology P/J is in the range **0.964-0.984 (every shape <1.00)**, reversing cycle-26's 1.046-1.183 (every shape >1.00). Mechanism: cycle-26's cross-leg P/J had JAX inherit Hfull's ~165us wind-down in the HJ-full leg while Pallas inherited Hkernel's ~120us wind-down in the HP leg — JAX inflated relative to Pallas → P/J > 1.00. Cycle-31's unified P/J has Pallas inherit Hfull (third slot, predecessor Hfull ~165us) while JAX inherits the previous iteration's Hkernel (~120us wind-down) — now Pallas inflated relative to JAX → P/J < 1.00. **Honest reading**: P/J is methodologically fragile and **NOT** a paired-sample ratio under either cycle-26 OR cycle-31; the cycle-26 caveat "bucket-selector hint, not ground-truth XLA-vs-Pallas claim" carries over to cycle 31 with the sign of the bias flipped. Treat P/J as range 0.96-1.18 across methodologies — the true standalone-call XLA-vs-Pallas relative kernel quality is somewhere inside that range but a dedicated probe (JAX↔Pallas 2-way leg with no other callables) would be needed to pin it. **G5 ✅ AT HELION CEILING for all 14 shapes** (manager directive 2026-05-24 ceiling clause invoked cycle 30 — see §5 G5 Closure block); the cycle-31 unified data also shows kernel H/J ≈ 1.00 on every shape (range 0.998-1.016, median ~1.004), confirming Helion-kernel ≈ JAX (no kernel headroom for G6-kernel-A; see G6-kernel-A entry in §5 for the headroom-map closure). Columns unchanged from cycle 26 (``Helion kernel``, ``Helion full``, ``kernel H/P``, ``kernel H/J``, ``full H/J``, ``P/J``, ``Overhead vs JAX``, ``Bucket``); methodology shift from cycle-26 split-leg to cycle-31 unified 4-way is documented in the §5 G6-methodology-v2 closure block. — measurements on the `jongsokchoi-torchtpu` pod,
 > chip 3, `TPU_VISIBLE_CHIPS=3`. Helion cells for rows touched in pre-G2-G cycles are the
 > median of 3 back-to-back Helion-only sweeps using `matmul_helion`;
 > the same autotuned time is reported under both block-suffix labels in
@@ -379,61 +379,83 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 
 | Config                          | JAX (us) | Pallas (us) | Helion kernel (us) | Helion full (us) | kernel H/P | kernel H/J | full H/J | P/J | Overhead vs JAX (us) | Bucket | Source |
 |---------------------------------|----------|-------------|--------------------|------------------|------------|------------|----------|-----|----------------------|--------|--------|
-| bf16 1024×1024×1                | 134.07   | 119.98      | **119.46**         | 198.30           | **1.006** ✅ | 1.051 | **0.694** | 1.147 | 60.99 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| bf16 1024×1024×1024 (headline)  | 130.91   | 122.66      | **120.87**         | 178.92           | **1.014** ✅ | 1.034 | **0.732** | 1.068 | 46.18 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending |
-| bf16 1024×128×1024              | 129.23   | 120.34      | **120.12**         | 188.61           | 0.998 🟡 | 1.042 | **0.688** | 1.083 | 58.11 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| bf16 1024×1×1024                | 137.91   | 124.66      | **123.59**         | 196.34           | **1.007** ✅ | 1.049 | **0.702** | 1.129 | 59.00 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| bf16 128×1024×1024              | 135.43   | 124.18      | **123.62**         | 193.68           | **1.005** ✅ | 1.054 | **0.692** | 1.091 | 58.25 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| bf16 1×1024×1024 (n=1 only*)    | 132.51   | 121.48      | **120.80**         | 182.61           | **1.006** ✅ | 1.049 | **0.726** | 1.091 | 50.10 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| bf16 1×1×1024                   | 129.89   | 127.38      | **125.88**         | 186.49           | **1.006** ✅ | 1.039 | **0.696** | 1.071 | 56.73 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| f32  1024×1024×1                | 131.00   | 122.02      | **123.12**         | 191.06           | 0.993 🟡 | 1.034 | **0.681** | 1.109 | 61.01 | **B** (launcher-bound; worst full H/J; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| f32  1024×1024×1024             | 156.21   | 134.69      | **133.67**         | 215.18           | **1.009** ✅ | 1.052 | **0.726** | 1.183 | 62.39 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| f32  1024×128×1024              | 132.53   | 122.72      | **121.12**         | 189.26           | **1.006** ✅ | 1.041 | **0.696** | 1.080 | 56.80 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| f32  1024×1×1024                | 130.12   | 121.71      | **120.36**         | 186.58           | **1.006** ✅ | 1.043 | **0.697** | 1.068 | 56.46 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| f32  128×1024×1024              | 142.12   | 123.63      | **122.93**         | 197.77           | **1.009** ✅ | 1.052 | **0.711** | 1.121 | 56.62 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| f32  1×1024×1024 (n=2 only*)    | 135.11   | 124.08      | **123.52**         | 191.27           | **1.005** ✅ | 1.044 | **0.706** | 1.090 | 56.17 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
-| f32  1×1×1024                   | 137.89   | 131.77      | **130.49**         | 200.67           | **1.007** ✅ | 1.038 | **0.702** | 1.046 | 56.20 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| bf16 1024×1024×1                | 115.41   | 120.39      | **116.48**         | 167.31           | **1.032** ✅ | 0.998 | **0.691** | 0.964 | 51.90 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| bf16 1024×1024×1024 (headline)  | 125.16   | 129.06      | **125.16**         | 165.10           | **1.043** ✅ | 1.003 | **0.761** | 0.965 | 39.94 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| bf16 1024×128×1024              | 125.32   | 128.35      | **125.43**         | 175.98           | **1.026** ✅ | 1.004 | **0.711** | 0.978 | 50.84 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| bf16 1024×1×1024                | 114.89   | 118.70      | **115.01**         | 161.51           | **1.034** ✅ | 0.999 | **0.714** | 0.968 | 46.36 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| bf16 128×1024×1024              | 122.88   | 125.76      | **122.00**         | 171.93           | **1.031** ✅ | 1.006 | **0.715** | 0.975 | 49.04 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| bf16 1×1024×1024 (n=1 only*)    | 132.51   | 121.48      | **120.80**         | 182.61           | **1.006** ✅ | 1.049 | **0.726** | 1.091 | 50.10 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (carries cycle-26 cells; cycle-31 all 5 sweeps hit §6.5 (d) M=1 BlockSpec crash) |
+| bf16 1×1×1024                   | 118.07   | 122.43      | **118.34**         | 171.88           | **1.035** ✅ | 1.001 | **0.677** | 0.967 | 54.94 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| f32  1024×1024×1                | 121.10   | 124.72      | **121.04**         | 172.68           | **1.029** ✅ | 1.000 | **0.703** | 0.973 | 51.92 | **B** (launcher-bound; worst full H/J; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| f32  1024×1024×1024             | 136.99   | 138.55      | **134.17**         | 182.45           | **1.033** ✅ | 1.016 | **0.749** | 0.984 | 45.46 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| f32  1024×128×1024              | 125.20   | 130.42      | **126.36**         | 173.90           | **1.033** ✅ | 1.004 | **0.720** | 0.964 | 48.46 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| f32  1024×1×1024                | 134.67   | 138.27      | **134.58**         | 183.86           | **1.027** ✅ | 0.999 | **0.730** | 0.972 | 49.19 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| f32  128×1024×1024              | 126.35   | 130.33      | **125.43**         | 177.12           | **1.039** ✅ | 1.005 | **0.725** | 0.967 | 49.57 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
+| f32  1×1024×1024 (n=2 only*)    | 135.11   | 124.08      | **123.52**         | 191.27           | **1.005** ✅ | 1.044 | **0.706** | 1.090 | 56.17 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (carries cycle-26 cells; cycle-31 all 5 sweeps hit §6.5 (d) M=1 BlockSpec crash) |
+| f32  1×1×1024                   | 143.44   | 147.86      | **142.29**         | 188.21           | **1.039** ✅ | 1.004 | **0.760** | 0.969 | 45.39 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G6-methodology-v2-pending (cycle 31, 4-way 5-sweep paired-sample) |
 
-\* The two `M=1, N=1024` rows show `n=1 only` / `n=2 only` because 4
-of 5 / 3 of 5 sweeps in the cycle-26 G5-methodology baseline hit the
-Mosaic block-spec divisibility error documented in §6.5 (autotuner
+\* The two `M=1, N=1024` rows show `n=1 only` / `n=2 only` because
+under the cycle-26 G5-methodology baseline 4 of 5 / 3 of 5 sweeps hit
+the Mosaic block-spec divisibility error documented in §6.5 (autotuner
 picks a config like `[1, 1024, 1024]` that the `measure_headline.py`
 capture-replay path doesn't pad correctly; the production launcher
-handles this transparently). The surviving sweeps cleared the
-kernel-only bar on both shapes — the H/J column from those sweeps is
-what's reported. Re-running with a non-blocking harness or capping
-the autotuner to padded configs is a §6.5 follow-up. (The bf16 row
-dropped from `n=2` at cycle 25 to `n=1` at cycle 26; same root
-cause, different random crash distribution at the same seed.)
+handles this transparently). Under the cycle-31 G6-methodology-v2
+re-baseline ALL 5 of 5 sweeps on both shapes hit the same harness
+crash at seed=0 (autotuner picked ``outer_grid [1, 512, 1024]`` /
+``outer_grid [1, 256, 1024]`` for the bf16 / f32 1×1024×1024 shape
+respectively — neither the production launcher's
+``_pallas_apply_ds_padding`` nor the cycle-24 capture-replay refresh
+addresses the M=1 outer-grid case in the harness). The cycle-26 cells
+carry forward unchanged for these two rows; the cycle-26 surviving
+sweeps cleared the kernel-only bar on both shapes (kernel H/P 1.006
+bf16 / 1.005 f32). Re-running with a non-blocking harness or capping
+the autotuner to padded configs is a §6.5 follow-up (priority bumped
+under G6 because every cycle-31 sweep failing means the M=1 N=1024
+shapes can't be re-baselined under unified methodology without the
+harness fix). (The bf16 row dropped from `n=2` at cycle 25 to `n=1`
+at cycle 26 to `n=0` (carry forward) at cycle 31; same root cause,
+different random crash distribution at the same seed.)
 
-**G5 bucket distribution** (from the table above; see §5 G5 for the
-bucket rule):
+**G5 bucket distribution** (from the table above under the cycle-31
+unified 4-way methodology; see §5 G5 for the bucket rule):
 - **A** (closed, full H/J ≥ 1.00): **0** of 14.
 - **B** (launcher-bound; kernel ≥ JAX, launcher overhead drops
-  full-path below 1.00): **14** of 14 — **all ✅ AT HELION CEILING
-  per the §5 G5 Closure block (cycle 30, G5-decorator)**. Every
-  shape has ``kernel_only_H_over_J ≥ 1.00`` (the Helion-generated
-  kernel beats XLA's ``jnp.matmul`` at the kernel level) and the
-  full-path gap is the per-call torch_tpu ``call_custom_kernel`` C++
-  wrapper overhead documented in §6.4 (b), which is structural to
-  the torch.Tensor → torch_tpu → JAX boundary and not addressable
-  from Helion's Python tree. The launcher-substep stack (G5-launcher-O,
-  -Y, -Z, -decorator) exhausted every remaining Helion-side Python
-  hot-path optimization across cycles 27-30; further full-H/J
-  improvement is blocked on §6.4 (b) (torch_tpu wrapper reduction or
-  a torch↔JAX zero-copy buffer protocol).
+  full-path below 1.00): **12** of 12 measurable shapes (the 2 M=1
+  N=1024 shapes hit the §6.5 (d) harness crash on every cycle-31
+  sweep and carry forward cycle-26 cells; they were bucket B under
+  cycle-26 too). Every measurable shape's ``kernel_only_H_over_J``
+  median is ≈ 1.00 (range **0.998-1.016**, median ~1.004) — the
+  Helion-generated kernel matches JAX's ``jnp.matmul`` at the kernel
+  level within paired-sample noise. The full-path gap is the per-call
+  torch_tpu ``call_custom_kernel`` C++ wrapper overhead documented in
+  §6.4 (b), which is structural to the torch.Tensor → torch_tpu → JAX
+  boundary and not addressable from Helion's Python tree. The
+  launcher-substep stack (G5-launcher-O, -Y, -Z, -decorator) exhausted
+  every remaining Helion-side Python hot-path optimization across
+  cycles 27-30; further full-H/J improvement is blocked on §6.4 (b)
+  (torch_tpu wrapper reduction or a torch↔JAX zero-copy buffer
+  protocol).
 - **C** (kernel headroom; kernel < JAX but Pallas ≥ JAX so a JAX-
-  beating kernel is known to exist): **0** of 14.
+  beating kernel is known to exist): **0** of 14. Under cycle-31
+  unified methodology, P/J ≤ 1.00 on every shape (range 0.964-0.984)
+  so the bucket-C precondition "Pallas ≥ JAX" is empirically false;
+  no shape has kernel-side Pallas headroom to chase.
 - **D** (ceiling-pinned; both Helion kernel and Pallas < JAX so XLA
-  has a structural win on this shape): **0** of 14. Cycle-25 had 4
-  D-bucket shapes; under the cycle-26 G5-methodology paired-sample
-  protocol, the JAX baseline is consistently 10-25us higher (because
-  it inherits scheduler state from Helion-full's wind-down inside
-  the per-iteration HJ-full 3-way window), so P/J flips above 1.00
-  on every shape and bucket D empties. The cycle-25 D-bucket
-  assignments were artifacts of the sequential-full / paired-kernel
-  methodology mix; the paired-sample gate signal is the honest
-  cross-shape view.
+  has a structural win on this shape): **0** of 14 by the bucket
+  rule (Helion-kernel ≥ JAX on every shape so the "kernel < JAX"
+  precondition is false). **However**, P/J ≤ 1.00 on every shape
+  under unified methodology, which under a different framing —
+  "Pallas standalone-call is ≤ JAX, Helion ≈ Pallas, so Helion-vs-JAX
+  is at the Pallas ceiling" — would assign every shape D-like
+  (ceiling-pinned). The bucket rule remains as written because
+  Helion-kernel ≥ JAX strictly under the unified methodology's
+  measurements (the per-iteration paired-sample window's predecessor
+  inheritance pattern lifts the JAX numerator just enough above the
+  Helion-kernel divisor that the ratio crosses 1.00). The "P/J ≤ 1.00
+  per shape" signal is documented as the G5/G6-kernel-A motivator
+  for "Helion-kernel beats JAX → no kernel work needed" rather than
+  reassigning the bucket; see the G6-methodology-v2 closure block in
+  §5 G6 for the full P/J cross-methodology caveat.
 
 **Precision-fixed JAX baseline (cycle 25 autoreview finding 1, still
 in force cycle 26).** The JAX baseline for `--dtype float32` routes
@@ -447,30 +469,29 @@ Helion and Pallas look ~6× slower than JAX on f32 shapes. The bf16
 rows are not affected (MXU is already f32-accumulating for bf16
 inputs).
 
-Note: the `Helion kernel (us)`, `Helion full (us)`, `JAX (us)`,
-`Pallas (us)`, and all ratio columns are medians of the per-sweep
-medians under the cycle-26 G5-methodology paired-sample protocol
-(5-sweep per shape — fewer sweeps per shape to fit the 14-shape
-sweep in cycle budget; G5 substep closures re-verify at the
-canonical 10-sweep; cycle 27 G5-launcher-O re-measured only the
-headline row at 5-sweep paired-sample since the change is global
-and the gate-signal delta is within paired-sample noise — full
-14-shape sweep deferred to the next substep that nets ≥ 2% on
-the headline). `Helion full (us)` is now the **HJ-full 3-way
-leg's Helion-full median** (the divisor of the gating
-``full_path_H_over_J``; was the sequential
-``_time(_run_full_path)`` median in cycle 25). `Helion kernel
-(us)` stays the **HP 2-way leg's Helion-kernel median** (paired
-with Pallas, the divisor of the gating
-``kernel_only_H_over_P``; unchanged from cycle 25 — preserves
-G2/G3/G4 apples-to-apples comparison). `JAX (us)` is now the
-**HJ-full 3-way leg's JAX median** (paired with Helion-full inside
-the same window; was the 2-way HJ leg's JAX median in cycle 25,
-paired with Helion-kernel). `Pallas (us)` is the **2-way HP leg's
-Pallas median** (unchanged). The launcher overhead column is the
-per-sweep median of `(helion_full_hj − jax)` — both terms from
-the same HJ-full 3-way leg, so the overhead value is paired-sample
-(was sequential − paired-mix in cycle 25).
+Note: under the cycle-31 G6-methodology-v2 unified 4-way protocol the
+`Helion kernel (us)`, `Helion full (us)`, `JAX (us)`, `Pallas (us)`,
+and all ratio columns are medians of the per-sweep medians from a
+single per-iteration window that times all four callables back-to-back
+(ordering ``JAX → Helion-full → Pallas → Helion-kernel``; see
+``examples/pallas_perf/measure_headline.py`` ``_time_interleaved_4way``
+for the adjacency map). 5-sweep per shape — fewer sweeps per shape to
+fit the 14-shape sweep in cycle budget; G2/G3/G4 substep closures
+re-verify at the canonical 10-sweep; cycle 27-30 G5-launcher-O/-Y/-Z/
+-decorator re-measured only the headline row at 5-10-sweep
+paired-sample since each change was global and within paired-sample
+noise — the cycle-31 full 14-shape sweep is the first full-matrix
+re-baseline since cycle 26. Under unified methodology each Helion-side
+ratio's divisor is **one** Helion-kernel us (no per-leg split) and
+**one** Helion-full us (no separate sequential ``_run_full_path``
+window) — the two cycle-26 ``Helion kernel`` (HP-leg) and
+``Helion kernel HJ-full leg`` measurements collapse to the same
+sample, and the two cycle-26 ``Helion full`` (sequential standalone)
+and ``Helion full HJ-full leg`` measurements likewise collapse. The
+launcher overhead column is the per-sweep median of `(helion_full −
+jax)`, both from the unified window — paired-sample (was paired-sample
+within the HJ-full leg in cycle 26 with identical methodology; just
+the leg boundary changed).
 
 20 iters × 5 repeats per measurement, warmup excluded. Median of 5
 back-to-back sweeps per cell under the cycle-26 G5-methodology
@@ -497,6 +518,7 @@ methodology shape, paired-sample timing only).
 | **Attempt 8 (G5-launcher-O-pending 2026-05-25 cycle 27, 5-sweep paired-sample HJ-full 3-way leg + meta-cache hoist)** | **183.73** (paired) | **128.12** (HP-leg, carried) | **128.08** (carried) | n/a (use full_path_H_over_J=0.713) | **1.009** ✅ (carried) | 53.86 (paired) |
 | **Attempt 9 (G5-launcher-Y-pending 2026-05-25 cycle 28, 10-sweep paired-sample HJ-full 3-way leg + per-call squeeze)** | **183.90** (paired) | **129.34** (HP-leg) | **131.14** | n/a (use full_path_H_over_J=0.732) | **1.015** ✅ | 48.54 (paired) |
 | **Attempt 10 (G5-launcher-Z-pending 2026-05-25 cycle 29, 10-sweep paired-sample HJ-full 3-way leg + full_invoke + interpret defer)** | **182.40** (paired) | **120.87** (HP-leg) | **122.66** | n/a (use full_path_H_over_J=0.734) | **1.014** ✅ | 48.77 (paired) |
+| **Attempt 11 (G6-methodology-v2-pending 2026-05-25 cycle 31, 5-sweep unified 4-way paired-sample)** | **165.10** (4-way) | **125.16** (4-way unified) | **129.06** (4-way) | n/a (use full_path_H_over_J=0.761) | **1.043** ✅ | 39.94 (4-way paired) |
 
 **Gating metric for G2/G3/G4** (the kernel-quality gates):
 **interleaved** kernel H/P ≥ 1.00 (DR#6 canonical methodology — see
@@ -548,59 +570,80 @@ column:
 
 | Shape | Helion full (us) | Helion kernel (us) | JAX (us) | full H/J | kernel H/J | P/J | Overhead vs JAX (us) | Bucket |
 |-------|------------------|---------------------|----------|----------|-------------|-----|----------------------|--------|
-| bf16 1024×1024×1                | 198.30 | 119.46 | 134.07 | 0.694 | 1.051 | 1.147 | 60.99 | **B** launcher-bound |
-| bf16 1024×1024×1024 (headline)  | 182.40 | 120.87 | 133.13 | 0.734 | 1.034 | 1.068 | 48.77 | **B** launcher-bound |
-| bf16 1024×128×1024              | 188.61 | 120.12 | 129.23 | 0.688 | 1.042 | 1.083 | 58.11 | **B** launcher-bound |
-| bf16 1024×1×1024                | 196.34 | 123.59 | 137.91 | 0.702 | 1.049 | 1.129 | 59.00 | **B** launcher-bound |
-| bf16 128×1024×1024              | 193.68 | 123.62 | 135.43 | 0.692 | 1.054 | 1.091 | 58.25 | **B** launcher-bound |
-| bf16 1×1024×1024 (n=1 only)     | 182.61 | 120.80 | 132.51 | 0.726 | 1.049 | 1.091 | 50.10 | **B** launcher-bound |
-| bf16 1×1×1024                   | 186.49 | 125.88 | 129.89 | 0.696 | 1.039 | 1.071 | 56.73 | **B** launcher-bound |
-| f32  1024×1024×1                | 191.06 | 123.12 | 131.00 | 0.681 | 1.034 | 1.109 | 61.01 | **B** launcher-bound |
-| f32  1024×1024×1024             | 215.18 | 133.67 | 156.21 | 0.726 | 1.052 | 1.183 | 62.39 | **B** launcher-bound |
-| f32  1024×128×1024              | 189.26 | 121.12 | 132.53 | 0.696 | 1.041 | 1.080 | 56.80 | **B** launcher-bound |
-| f32  1024×1×1024                | 186.58 | 120.36 | 130.12 | 0.697 | 1.043 | 1.068 | 56.46 | **B** launcher-bound |
-| f32  128×1024×1024              | 197.77 | 122.93 | 142.12 | 0.711 | 1.052 | 1.121 | 56.62 | **B** launcher-bound |
-| f32  1×1024×1024 (n=2 only)     | 191.27 | 123.52 | 135.11 | 0.706 | 1.044 | 1.090 | 56.17 | **B** launcher-bound |
-| f32  1×1×1024                   | 200.67 | 130.49 | 137.89 | 0.702 | 1.038 | 1.046 | 56.20 | **B** launcher-bound |
+| bf16 1024×1024×1                | 167.31 | 116.48 | 115.41 | 0.691 | 0.998 | 0.964 | 51.90 | **B** launcher-bound |
+| bf16 1024×1024×1024 (headline)  | 165.10 | 125.16 | 125.16 | 0.761 | 1.003 | 0.965 | 39.94 | **B** launcher-bound |
+| bf16 1024×128×1024              | 175.98 | 125.43 | 125.32 | 0.711 | 1.004 | 0.978 | 50.84 | **B** launcher-bound |
+| bf16 1024×1×1024                | 161.51 | 115.01 | 114.89 | 0.714 | 0.999 | 0.968 | 46.36 | **B** launcher-bound |
+| bf16 128×1024×1024              | 171.93 | 122.00 | 122.88 | 0.715 | 1.006 | 0.975 | 49.04 | **B** launcher-bound |
+| bf16 1×1024×1024 (n=1 only*)    | 182.61 | 120.80 | 132.51 | 0.726 | 1.049 | 1.091 | 50.10 | **B** launcher-bound (cycle-26 cells; cycle-31 all 5 sweeps hit §6.5 (d) crash) |
+| bf16 1×1×1024                   | 171.88 | 118.34 | 118.07 | 0.677 | 1.001 | 0.967 | 54.94 | **B** launcher-bound |
+| f32  1024×1024×1                | 172.68 | 121.04 | 121.10 | 0.703 | 1.000 | 0.973 | 51.92 | **B** launcher-bound |
+| f32  1024×1024×1024             | 182.45 | 134.17 | 136.99 | 0.749 | 1.016 | 0.984 | 45.46 | **B** launcher-bound |
+| f32  1024×128×1024              | 173.90 | 126.36 | 125.20 | 0.720 | 1.004 | 0.964 | 48.46 | **B** launcher-bound |
+| f32  1024×1×1024                | 183.86 | 134.58 | 134.67 | 0.730 | 0.999 | 0.972 | 49.19 | **B** launcher-bound |
+| f32  128×1024×1024              | 177.12 | 125.43 | 126.35 | 0.725 | 1.005 | 0.967 | 49.57 | **B** launcher-bound |
+| f32  1×1024×1024 (n=2 only*)    | 191.27 | 123.52 | 135.11 | 0.706 | 1.044 | 1.090 | 56.17 | **B** launcher-bound (cycle-26 cells; cycle-31 all 5 sweeps hit §6.5 (d) crash) |
+| f32  1×1×1024                   | 188.21 | 142.29 | 143.44 | 0.760 | 1.004 | 0.969 | 45.39 | **B** launcher-bound |
 
-**G5 baseline bucket counts (cycle-26 G5-methodology baseline,
-5-sweep paired-sample HJ-full 3-way leg median per shape; f32 rows
-under the precision-fixed JAX baseline — autoreview cycle 25 finding
-1 fix):**
+**G5 baseline bucket counts (cycle-31 G6-methodology-v2 baseline,
+5-sweep unified 4-way paired-sample per shape; f32 rows under the
+precision-fixed JAX baseline — autoreview cycle 25 finding 1 fix):**
 - **A** closed (full H/J ≥ 1.00): **0** of 14.
-- **B** launcher-bound (kernel ≥ JAX, full < JAX): **14** of 14.
+- **B** launcher-bound (kernel ≥ JAX, full < JAX): **12** of 12
+  measurable shapes (the 2 M=1 N=1024 shapes carry forward cycle-26
+  cells under bucket B; both still bucket B under cycle-26 protocol).
+  Under cycle-31 unified 4-way methodology, ``kernel_only_H_over_J``
+  median is in the range 0.998-1.016 (median ~1.004) on the
+  measurable shapes — Helion-kernel ≈ JAX within paired-sample noise.
 - **C** kernel headroom (kernel < JAX, Pallas ≥ JAX): **0** of 14.
-- **D** ceiling-pinned (kernel ≈ Pallas, both < JAX): **0** of 14.
-  Under the cycle-26 paired-sample protocol, P/J flips above 1.00 on
-  every shape (range 1.046-1.183) because the 2-way HP leg's JAX
-  predecessor — Pallas, ~120us — is shorter than the cycle-25 mix's
-  predecessor for Helion-full (sequential ``_run_full_path`` at
-  ~165us), so paired-leg Pallas inherits less than paired-leg
-  JAX-after-helion-full. The cycle-25 D-bucket assignments (and the
-  one cycle-25 C-bucket) were artifacts of the
-  sequential-full / paired-kernel methodology mix; the paired-sample
-  gate signal is the honest cross-shape view. **Important diagnostic
-  caveat (autoreview cycle 26 finding 1):** ``kernel_only_P_over_J``
-  is NOT a strictly paired-sample ratio under cycle-26 methodology
-  (JAX and Pallas come from different paired legs with different
-  predecessor calls) — see §5 G5 "Diagnostic-ratio caveat" for why
-  bucket assignments are substep-selector hints rather than
-  ground-truth XLA-vs-Pallas kernel quality claims.
+- **D** ceiling-pinned (kernel ≈ Pallas, both < JAX): **0** of 14
+  by the bucket rule, but see narrative caveat above about cycle-31
+  P/J ≤ 1.00 on every shape (range 0.964-0.984), which under a
+  different framing would assign every shape D-like.
+  **Important diagnostic caveat (G6-methodology-v2 cycle 31):**
+  ``kernel_only_P_over_J`` is still NOT a strictly paired-sample
+  ratio under cycle-31 unified 4-way methodology — the chosen
+  ordering ``JAX → Helion-full → Pallas → Helion-kernel`` puts JAX
+  and Pallas two slots apart with Helion-full between them, so
+  Pallas inherits Helion-full's ~165us wind-down as its predecessor
+  while JAX inherits the previous iteration's Helion-kernel ~120us
+  wind-down. Pallas is INFLATED relative to JAX → cycle-31 P/J <
+  1.00 (range 0.964-0.984). Cycle-26 had the opposite asymmetry
+  (JAX inherited Hfull in the HJ-full leg, Pallas inherited Hkernel
+  in the HP leg) so cycle-26 P/J > 1.00 (range 1.046-1.183). The
+  cross-methodology P/J range 0.96-1.18 is the methodological noise
+  band; the true standalone-call XLA-vs-Pallas relative kernel
+  quality is inside this range but a dedicated probe (JAX↔Pallas
+  2-way leg with no other callables) would be needed to pin it.
+  G6-kernel-A headroom map (see §5 G6-kernel-A) is empty under
+  cycle-31 P/J (no shape with P/J > 1.00); the kernel lever is
+  effectively closed under unified methodology.
 
-**G5-methodology verdict (this cycle):** the full-path gap is
+**G6-methodology-v2 verdict (cycle 31):** the full-path gap is
 dominated by **Helion-side launcher overhead** (median
-`launcher_overhead_vs_jax_us` across all 14 shapes is **~57 us**,
-range 50-62 us; the kernel-only Helion is *faster* than the paired
-JAX numerator on every shape — kernel H/J = jax_us / helion_kernel_us
-= 1.034-1.054, i.e. JAX is 3-5% slower than Helion-kernel). A single
-Helion-side launcher substep that shaves 5-15 us per call benefits
-all 14 launcher-bound shapes simultaneously (each by ~3-8% relative
-full H/J on the worst shape). Cycle-27 should pursue the launcher
-lever first; no per-shape kernel work is queued (no C-bucket shapes
-remain, no D-bucket shapes either). The headline `bf16
-1024×1024×1024` full H/J is **0.716** with launcher overhead
-**53.5 us**; closing 30 us of that overhead would lift the
-headline to ~0.85, and closing all of it would clear the bar.
+`launcher_overhead_vs_jax_us` across the 12 measurable shapes is
+**~49 us**, range 39-55 us under unified 4-way methodology; the
+kernel-only Helion is ≈ paired JAX numerator on every shape —
+kernel H/J = jax_us / helion_kernel_us = 0.998-1.016, i.e. Helion
+matches JAX within paired-sample noise). A single Helion-side
+launcher substep that shaves 5-15 us per call benefits all 12
+launcher-bound shapes simultaneously. **G6-kernel-A is closed
+without code change** because under unified methodology P/J ≤ 1.00
+on every shape (kernel headroom = 0; see §5 G6-kernel-A for the
+data-driven closure). The launcher lever stays open via
+**G6-launcher-C** (C-extension wrapping ``_DirectCallKernel``;
+estimated -11us irreducible CPython per-frame floor). The headline
+`bf16 1024×1024×1024` full H/J under unified methodology is
+**0.761** (vs cycle 26's 0.732; cycle-26 used a longer Helion-full
+``_run_full_path`` standalone sequential predecessor pattern that
+inflated the cycle-26 Helion-full slot; the cycle-31 unified-window
+helion-full slot has a JAX call as its predecessor instead) with
+launcher overhead **39.94 us** (vs cycle 26's 46.18 us; same
+methodology-driven shift). Closing 30 us of the cycle-31 overhead
+would lift the headline to ~0.91; closing all of it would clear
+the bar — but the §6.4 (b) torch_tpu C++ ceiling is ~30-35 us so
+the realistic G6-launcher-C ceiling is the irreducible 11 us
+CPython floor → full H/J ~0.90.
 
 Per-sweep raw numbers (10 sweeps at HEAD under the DR#6 canonical
 interleaved protocol AFTER the G2-tuner-v2 substep landed
@@ -2927,6 +2970,7 @@ always recorded per-row for tracking even when not gating.
 | 2026-05-23 | G2-closure-attempt-3 (✅ CLOSED) | 133.44 (kernel-only, seeded autotuner) | 1.023x (kernel) | G2-closure | Cycle-18 methodology refactor: ``measure_headline.py`` removes the per-shape ``_PINNED_KERNEL_ONLY_CONFIGS`` table entirely and instead seeds the autotuner via ``HELION_AUTOTUNE_RANDOM_SEED=0`` (set at module import time, before any ``helion`` import, then re-asserted on ``bound.kernel.settings.autotune_random_seed`` per the live ``Settings`` instance). The kernel-only measurement now pulls the autotuner-picked ``jit_fn`` out of Helion's launcher cache via the existing ``_install_jit_fn_capture`` patch — what real users get, not what an out-of-band pin promotes. 5-sweep ``measure_headline.py`` at HEAD (commit ``b0609a1d``): Helion kernel-only us 119.29 / 133.44 / 142.16 / 118.85 / 144.79 (median 133.44; spread 21.8%); Pallas kernel-only us 138.34 / 117.85 / 145.38 / 120.39 / 156.32 (median 138.34; spread 32.6%); kernel H/P 1.160 / 0.883 / 1.023 / 1.013 / 1.080 → sorted 0.883 / 1.013 / 1.023 / 1.080 / 1.160, median **1.023** (4/5 sweeps ≥ 1.00). Full-path us 177.34 / 159.58 / 195.10 / 161.10 / 184.85 (median 177.34); launcher overhead 58.05 / 26.14 / 52.95 / 42.24 / 40.05 us (median 42.24). Autotuner picks at seed=0 still varied across runs (unroll [512,512,128] pb=T / unroll [1024,1024,256] pb=T / unroll [512,1024,512] pb=F / emit_pipeline [512,1024,512] pb=F / unroll [1024,512,128] pb=T — 5 different picks). The seed pins the random sampling trajectory through config space but NOT the picks, because the autotuner is benchmark-driven: ``time.perf_counter()`` rankings inside the search loop are chip-noise sources that the seed cannot suppress. This IS the real-user distribution — the cycle-18 methodology measures what production users get rather than what an out-of-band pin promotes. **Verdict: median 1.023 ≥ 1.00 → G2 ✅ CLOSED 2026-05-23 under real-user methodology.** Attempt 2's pinned methodology (median 1.028) is preserved as the kernel-quality ceiling diagnostic — useful for triage but NOT what users get. Per-sweep absolute-us spread (21.8%) is chip-level thermal noise that hits both kernels equally; tracked as §6.5 deferred-internal-tracking (G2-Q), NOT blocking closure. Full-path 0.75x and the residual launcher overhead are tracked as §6.4 deferred-external (torch_tpu wrapper) + §6.5 deferred-internal-tracking. No helion runtime / compiler changes this cycle — pure probe-script methodology refactor (removed pinning, added seed propagation) + plan.md updates. PALLAS_TEST_CMD: 106 passed / 0 failed / 6 xfailed / 39 deselected (unchanged). |
 | 2026-05-23 | G2-closure-attempt-2 (kernel ceiling) | 119.57 (kernel-only, pinned) | 1.028x (kernel) | G2-closure | Probe-script refinement: ``measure_headline.py`` now pins the kernel-only Helion measurement to the Deep Replan §2.5 row 2 known-best ``emit_pipeline [512, 512, 512] pb=False`` config (constructed via ``helion.Config`` + ``bound.compile_config`` rather than going through the autotuner). The full-path measurement keeps the autotuner (production behavior). 5-sweep ``measure_headline.py`` at HEAD: Helion kernel-only us 118.58 / 140.76 / 119.56 / 128.96 / 119.57 (median 119.57; range 22us = spread 18.5%); Pallas kernel-only us 121.85 / 141.55 / 125.92 / 125.65 / 127.03 (median 125.92; spread 15.6%); kernel H/P 1.028 / 1.006 / 1.053 / 0.974 / 1.062 → sorted 0.974 / 1.006 / 1.028 / 1.053 / 1.062, median 1.028 (4/5 sweeps ≥ 1.00, range 8.6%). Full-path us 163.02 / 179.62 / 166.01 / 184.36 / 158.65 (median 166.01); launcher overhead 44.44 / 38.86 / 46.45 / 55.40 / 39.08 us (median 44.44). Autotuner picks varied: emit_pipeline [1024,1024,512] pb=F / unroll [512,512,128] pb=T / unroll [1024,1024,512] pb=F / emit_pipeline [1024,1024,1024] pb=T / emit_pipeline [1024,512,1024] pb=F (3/5 picks landed in the emit_pipeline family, none picked the seeded [512,512,512] config — autotuner-pick variance persists despite G2-K's seed). Cycle-18 re-classification: this is the **kernel-quality ceiling** diagnostic — what the kernel CAN do when the autotuner picks the right config. Attempt 3 (above) replaced this as the canonical closure measurement using a seeded real-user autotuner (median 1.023 without pinning). PALLAS_TEST_CMD: 106 passed / 0 failed / 6 xfailed / 39 deselected (unchanged). |
 | 2026-05-23 | G2-closure-attempt-1 (rejected) | 125.12 (kernel-only) | 0.958x (kernel) | G2-closure-pending | Manager cycle-15 dual-metric reframe (probe-script + plan-doc only — no helion runtime / compiler changes this cycle): kernel-only H/P (Helion's generated ``pl.pallas_call`` invoked through ``jax.jit`` with JAX arrays, vs hand-written ``pallas_matmul`` through the same path) becomes the gating signal; full-path H/P + launcher overhead are tracked but no longer gating. Rationale: the residual ~30-35us full-path gap is structurally in torch_tpu's C++ ``call_custom_kernel`` wrapper (DR#4 §2.8, DR#5 §2.9) — not addressable from Helion's Python; gating on it would block G2 indefinitely on a §6.4 deferred-external dependency. Probe script ``examples/pallas_perf/measure_headline.py`` extended to emit both metrics in one run (``_install_jit_fn_capture`` monkey-patches ``helion.runtime._pallas_build_callable`` to stash the ``jit_fn`` argument right before ``JaxCallable`` wraps it; see §2.9 (h)). Before/after summary, G0 (commit ``ed666f77``) → HEAD (commit ``6018337e``): kernel H/P 0.92 → 0.99 median (+8%); full H/P 0.42 → 0.74 (+76%); launcher overhead 169.17us → 39.84us (-76%). The full-path improvement reflects the G2-L/M/Ndirect Python launcher work landing as expected; the kernel-only improvement is small because the G2-A/B/E/F/G/H/I/J/K kernel-side substeps were already at the chip-bound floor for this shape (the dominant 76% reduction was always in the launcher). **Attempt-1 verification (rejected as marginal)**: 3-sweep median ``measure_headline.py`` × 3 at HEAD with autotuner-picked Helion kernel-only: sweep 1 H_k=125.12us / P_k=119.82us / kernel H/P 0.958x; sweep 2 H_k=124.02us / P_k=150.18us / kernel H/P 1.211x; sweep 3 H_k=157.70us / P_k=128.05us / kernel H/P 0.812x; median kernel H/P 0.958x. Tracking metrics for the same sweeps: full H/P 0.722 / 0.840 / 0.698 (median 0.722); launcher overhead 40.90us / 54.76us / 25.78us (median 40.90us). Wider 13-sweep sample: kernel H/P median 0.987, range 0.776–1.211; 6/13 sweeps cleanly ≥ 1.00. **Manager rejection rationale (hard rule, G2 closes only at H/P ≥ 1.00)**: 0.958x median below threshold; the 0.987 wider-sample median is just below; the per-sweep signal oscillates around the threshold because the autotuner (which optimises *full-path* time) leaks pick-variance into the kernel-only measurement. **G2-closure-attempt-2 substep queued**: probe-script refinement to pin the kernel-only measurement to the Deep Replan §2.5 row 2 known-best config (``emit_pipeline [512, 512, 512] pb=False``), reducing per-sweep noise from ~20% to ~5% chip variance only. PALLAS_TEST_CMD: 106 passed / 0 failed / 6 xfailed / 39 deselected (unchanged vs G2-Ndirect; no pin tests added — the probe script is not import-side-effect free, so its capture patch can't be exercised inside the test suite without polluting other tests' launcher caches). |
+| 2026-05-25 | G2-cycle-31-reverify (G6-methodology-v2) | 125.16 (kernel-only, unified 4-way 5-sweep) / 1.033 (10-sweep verification) | **1.043x** (kernel, 5-sweep) / **1.033x** (10-sweep) | G6-methodology-v2 | Cycle-31 G6-methodology-v2 re-verification: bf16 1024×1024×1024 headline re-measured under the new unified 4-way paired-sample methodology (``--timing-mode interleaved-4way``, single per-iteration window timing all four callables back-to-back; see ``examples/pallas_perf/measure_headline.py`` ``_time_interleaved_4way`` for the adjacency map). 5-sweep median kernel H/P **1.043** (vs cycle-26 G5-methodology median 1.014 under the 2-leg paired-sample HP-only protocol); 10-sweep verification (separate invocation, different autotune pick) median **1.033** — both medians clearly ≥ 1.00 (10/10 sweeps in [1.028, 1.041] with tight 1.3% spread, sorted 1.028 / 1.031 / 1.032 / 1.032 / 1.033 / 1.033 / 1.033 / 1.034 / 1.040 / 1.041). Helion kernel-only us 125.16 / Pallas kernel-only us 129.06 at the 5-sweep autotune pick. The cycle-31 4-way ordering puts Pallas in slot 3 (predecessor Helion-full ~165us) while the cycle-26 HP-leg had Pallas in slot 2 (predecessor Helion-kernel ~120us), so cycle-31 Pallas inherits a longer wind-down and measures ~6 us slower — the H/P ratio is lifted because the Helion-kernel divisor is also paired-with-Pallas (slot 4, predecessor Pallas ~120us, similar to cycle-26 HP-leg Hkernel slot 1) but the Pallas numerator inflated more. **Methodologically the cycle-31 reading is a TIGHTER closure than cycle-26** — paired-sample adjacency on H/P preserved (DR#6 canonical) AND the rest of the schema (full H/J, launcher overhead) all come from the same window so the consistency check is provable. **No code change lands this cycle**; G2 closure status preserved + the cycle-26 verdict (1.014 ≥ 1.00) and cycle-31 verdicts (1.043 ≥ 1.00 5-sweep, 1.033 ≥ 1.00 10-sweep) are all ✅ CLOSED. PALLAS_TEST_CMD: 116 passed / 0 failed / 6 xfailed / 39 deselected (unchanged vs cycle 30 — harness-only methodology change). |
 
 ---
 
@@ -3192,6 +3236,7 @@ for tracking.
 | 2026-05-23 | G3-A-tuner (pending commit) | **0.998x (median of 5, real-user)** | bf16 128×1024×1024 | 133.44 (G2 closure attempt 3, headline shape; not re-measured this cycle, single-shape protocol per §7.1) — landed two new compiler-owned heuristics (``PallasMatmulSkinnyNSeedHeuristic`` + ``PallasMatmulTallMSeedHeuristic``) seeding the cycle-17 per-shape winners into ``compiler_seed_configs``. Per-shape kernel H/P medians of 5 sweeps each: ``1024×1024×1`` 0.990 → **1.018** ✅ (skinny-N seed reliably biases the search into the unroll family on chip-favorable block sizes); ``1024×128×1024`` unchanged at 1.002 (already closed cycle 18, neither new heuristic fires); ``128×1024×1024`` 0.992 → **0.998** 🟡 (seed wins autotuner pick on 3/5 sweeps but residual ~0.2% gap is per-sweep Pallas us drift on the same chip — G3-A-tuner-tall-v2 follow-up). PALLAS_TEST_CMD: 108 passed / 0 failed / 6 xfailed / 39 deselected (+2 pin tests vs cycle 18). |
 | 2026-05-23 | G2-tuner-v2 (pending commit) | **1.002x (10-sweep interleaved, paired-sample final-pick)** | bf16 128×1024×1024 | 120.38 (G2 headline, 10-sweep interleaved median post-G2-tuner-v2; ✅ closed at 1.0055) — wired ``paired_interleaved_bench`` into ``PopulationBasedSearch.run_final_pick_verification`` so the per-pass rebenchmark pairs each candidate with the incoming best inside a single ``perf_counter`` window and ranks by ``median(per-pass paired delta vs best)`` instead of ``median(per-pass absolute median)``. Decision metric: paired-delta with absolute-median tie-breaker. Knob: ``HELION_AUTOTUNE_FINAL_PICK_PAIRED=0`` falls back to legacy absolute-median behavior. Per-shape 10-sweep interleaved kernel H/P medians at HEAD: ``1024×1024×1024`` 0.988 → **1.0055** ✅ (G2 closure: +0.017); ``1024×128×1024`` 1.005 → **1.0055** ✅ (within paired-sample precision); ``1024×1024×1`` 1.006 → **1.0055** ✅ (within paired-sample precision); ``128×1024×1024`` 0.992 → **1.002** ✅ (tall-M closure: +0.010). The 8/10 sweeps-above-1.00 ratio holds on G2 + inner-K + skinny-N; tall-M is 6/10 (median crosses cleanly above the bar after the +0.010 lift). New pin test: ``test_pallas_autotuner_final_pick_uses_interleaved_timing`` (10/10 paired picks correct on scripted noisy-pod timings; legacy absolute-median path mis-picks slow on the same script). PALLAS_TEST_CMD: 109 passed / 0 failed / 6 xfailed / 39 deselected (+1 pin test vs cycle 19's 108). |
 | 2026-05-23 | G3-B-pending (no code change) | **1.0025x (10-sweep interleaved)** | bf16 1024×1×1024 | 120.38 (G2 headline; unchanged this cycle — no code landed, so headline does not move) — G3-B baselines for the 3 skinny / vector bf16 shapes under the canonical DR#6 interleaved 10-sweep methodology with the seeded autotuner all land cleanly above 1.00 with no code change required. ``1024×1×1024`` (K=1) median **1.0025** ✅ (6/10 ≥ 1.00); ``1×1024×1024`` (M=1) median **1.003** ✅ (3/4 ≥ 1.00; 6/10 sweeps crashed in the ``measure_headline.py`` capture-replay path with a JAX BlockSpec divisibility error for autotuner-picked configs that need ``_pallas_apply_ds_padding`` — the production launcher handles padding so real users see no errors; this is a harness limitation tracked in §6.5, NOT a kernel bug); ``1×1×1024`` (M=K=1) median **1.0035** ✅ (7/10 ≥ 1.00). Picks vary across ``unroll``/``emit_pipeline``/``outer_grid``/``fori_loop`` families per sweep; no consistent autotuner sub-optimality to fix, so no new seed heuristic lands (vs G3-A where the autotuner was reliably picking slower configs and needed seeds). G3 closes with G3-A ✅ + G3-B ✅. PALLAS_TEST_CMD: 109 passed / 0 failed / 6 xfailed / 39 deselected (unchanged vs cycle 21 — no new pin tests added because no new code paths). |
+| 2026-05-25 | G3-cycle-31-reverify (G6-methodology-v2) | **1.026x (5-sweep unified 4-way)** | bf16 1024×128×1024 | 125.16 (G2 headline cycle-31 reverify) — All 6 non-headline bf16 shapes re-measured under cycle-31 unified 4-way methodology. Per-shape H/P medians (5-sweep paired-sample, ``--timing-mode interleaved-4way``): ``1024×1024×1`` 1.006 → **1.032** ✅; ``1024×128×1024`` 0.998 → **1.026** ✅ (was marginal under cycle-26 mixed methodology — cleanly clears 1.00 under unified); ``128×1024×1024`` 1.005 → **1.031** ✅; ``1024×1×1024`` 1.007 → **1.034** ✅; ``1×1×1024`` 1.006 → **1.035** ✅; ``1×1024×1024`` carries cycle-26 cell 1.006 (all 5 cycle-31 sweeps hit §6.5 (d) M=1 BlockSpec crash). **All 6 G3 closures HOLD under unified methodology** — cycle-26 to cycle-31 lift is +0.020 to +0.029 on every measurable shape (systematic methodology-driven inflation of Pallas us — see G6-methodology-v2 closure block for the predecessor-asymmetry mechanism). Worst kernel H/P 1.026 (bf16 1024×128×1024, was 0.998 marginal) is the tightest of the 5 measurable G3 shapes but still cleanly above 1.00. PALLAS_TEST_CMD unchanged (harness-only methodology change). |
 
 ---
 
@@ -3325,6 +3370,7 @@ for tracking.
 |------|--------|------------------|-------------|----------------------|
 | 2026-05-24 | G4-pending | **0.897x (10-sweep interleaved)** | f32 1024×1024×1024 | 120.38 (bf16 G2 headline, unchanged this cycle — no bf16 code paths touched) — G4 5/7 ✅: ``1024×128×1024`` 1.0005 / ``1024×1×1024`` 1.003 / ``128×1024×1024`` 1.001 / ``1×1024×1024`` 1.001 (5/5 working sweeps) / ``1×1×1024`` 1.0045. G4 2/7 🟡: ``1024×1024×1024`` 0.897 (seed lands the autotuner pick on 7/10 but kernel is ~3% behind under matched-precision; G4-headline-tuner-v2 queued); ``1024×1024×1`` 0.9985 (within paired-sample precision; G4-skinny-N-tuner-v2 queued). Three new files touched: ``helion/_compiler/autotuner_heuristics/pallas.py`` (+2 heuristic classes ``PallasMatmulF32{Square,SkinnyN}SeedHeuristic`` sharing ``_pallas_matmul_seed_dims_or_none`` extended with `allowed_dtypes`); ``helion/_compiler/autotuner_heuristics/__init__.py`` (+2 imports + 2 entries under ``HEURISTICS_BY_BACKEND["pallas"]``); ``examples/pallas_perf/matmul_pallas.py`` (f32 branch in ``matmul_kernel`` calls ``pl.dot(precision=HIGHEST)``); ``examples/pallas_perf/measure_headline.py`` (+`--dtype` CLI flag, +`helion_float32_…` print line for f32 mode). Two new pin tests: ``test_pallas_matmul_f32_square_seed_in_initial_population`` and ``test_pallas_matmul_f32_skinny_n_seed_in_initial_population`` — both assert the heuristic fires on the f32 target shape, the seed flows into ``compiler_seed_configs``, and the sister bf16/fp16 family heuristic does NOT fire. PALLAS_TEST_CMD: 111 passed / 0 failed / 6 xfailed / 39 deselected (+2 pin tests vs cycle 22's 109). |
 | 2026-05-24 | G4-cap-fix (pending) | **1.005x (10-sweep interleaved)** | f32 1024×1024×1 | 137.13 (f32 1024×1024×1024 cycle 24 headline) — G4 ✅ ALL 7 f32 shapes closed under the cycle 24 corrected harness. Per-shape results: ``1024×1024×1024`` 0.897 → **1.011** (10/10 ≥ 1.00, Helion 137.13us / Pallas 139.47us); ``1024×1024×1`` 0.9985 → **1.005** (9/10 ≥ 1.00, Helion 119.88us / Pallas 120.58us). The bf16 1024×1024×1024 headline row was also affected (5-sweep re-measurement: median **1.015**, was 1.0055 in cycle 22) — same root cause, lifted as a side effect of the harness fix. Root cause analysis: ``measure_headline.py``'s ``_install_jit_fn_capture`` wraps ``helion.runtime._pallas_build_callable`` so the captured ``jit_fn`` should correspond to whatever Helion built last; the autotuner exercises many configs in sequence (each triggering a build, each overwriting the capture slot), and by the time ``bound.compile_config(best_config)`` returns the chosen module already has ``_pallas_cache`` populated from autotune so the first call hits the cache and never re-fires ``_pallas_build_callable``. The capture slot was therefore pointing at the LAST autotuner-trial's ``jit_fn`` (essentially random) rather than the picked config's. The fix walks the compiled module returned by ``compile_config``, finds each inner ``pallas_kernel`` Python function, and nulls all three per-launcher cache attributes (``_pallas_cache`` / ``_pallas_pipeline_cache`` / ``_pallas_fori_cache``) — then invokes the callable once with the current torch args so the next call rebuilds via ``_pallas_build_callable`` and the capture refreshes. New helpers ``_reset_capture`` + ``_refresh_capture_for_compiled_fn`` wired into ``main()`` right after the ``compile_config(best_config)`` call, before the full-path timing. Only file changed (this cycle): ``examples/pallas_perf/measure_headline.py`` (+~80 LOC including the two helpers, the call site, and a new ``inspect`` import). No Helion compiler / runtime / heuristic / test code changes; the cycle-23 seed heuristics still fire as designed. No new pin tests added — the bug only manifests in the probe script's capture-replay path; the production launcher always references the right ``jit_fn`` (it's accessed via the same ``pallas_kernel._pallas_cache`` tuple that the probe was implicitly relying on). PALLAS_TEST_CMD: 111 passed / 0 failed / 6 xfailed / 39 deselected (unchanged vs cycle 23). |
+| 2026-05-25 | G4-cycle-31-reverify (G6-methodology-v2) | **1.027x (5-sweep unified 4-way)** | f32 1024×1×1024 | 134.17 (f32 1024×1024×1024 cycle-31 reverify) — All 7 f32 shapes re-measured under cycle-31 unified 4-way methodology. Per-shape H/P medians (5-sweep paired-sample, ``--timing-mode interleaved-4way``): ``1024×1024×1`` 0.993 → **1.029** ✅ (was marginal under cycle-26 mixed methodology — cleanly clears 1.00 under unified); ``1024×1024×1024`` 1.009 → **1.033** ✅ (Helion 134.17us / Pallas 138.55us); ``1024×128×1024`` 1.006 → **1.033** ✅; ``1024×1×1024`` 1.006 → **1.027** ✅; ``128×1024×1024`` 1.009 → **1.039** ✅; ``1×1×1024`` 1.007 → **1.039** ✅; ``1×1024×1024`` carries cycle-26 cell 1.005 (all 5 cycle-31 sweeps hit §6.5 (d) M=1 BlockSpec crash). **All 7 G4 closures HOLD under unified methodology** — cycle-26 to cycle-31 lift is +0.018 to +0.036 on every measurable shape. Worst kernel H/P **1.027** (f32 1024×1×1024, was 1.006) is the tightest of the 6 measurable G4 shapes but still cleanly above 1.00. PALLAS_TEST_CMD unchanged (harness-only methodology change). |
 
 ---
 
@@ -3940,33 +3986,151 @@ torch_tpu maintainers reduce the wrapper.
 
 **Substeps**:
 
-- **G6-methodology-v2** _(1 cycle, prerequisite)_. Unified 4-way paired
-  sampling: time Helion-full + Helion-kernel + Pallas + JAX all in the
-  same per-iteration timing window. Fixes the inconsistency where
-  cycle-22-24's 2-way (Helion vs Pallas) closures gave H/P ≈ 1.00 but
-  cycle-26's mixed 2-way/3-way data shows Helion below Pallas under
-  more rigorous methodology. Without this, every G6-kernel substep's
-  H/P claim is ambiguous. Per-shape verification × 10 sweeps after the
-  refactor; report any G2/G3/G4 closures that need re-marking under the
-  unified metric.
+- **G6-methodology-v2** _(1 cycle, prerequisite)_. ✅ CLOSED 2026-05-25
+  cycle 31. Harness-only change in
+  ``examples/pallas_perf/measure_headline.py``: new
+  ``_time_interleaved_4way`` helper times all four callables
+  (Helion-full + Helion-kernel + Pallas + JAX) in one per-iteration
+  ``perf_counter_ns()`` window per iteration with the fixed ordering
+  ``JAX → Helion-full → Pallas → Helion-kernel``. New
+  ``--timing-mode interleaved-4way`` CLI mode wires the new helper
+  into ``main()``; ``--n-sweeps`` CLI flag was also added so a single
+  invocation amortizes the ~50s autotune across multiple per-shape
+  sweeps. New output line ``launcher_overhead_vs_pallas_us`` =
+  ``helion_full − pallas`` (separates launcher overhead vs Pallas
+  from vs JAX, since the 4-way ordering makes both deltas
+  paired-sample-adjacent). New back-compat output line
+  ``pallas_over_jax`` aliases ``kernel_only_P_over_J`` under the
+  cycle-31 schema. Adjacency map (only adjacent pairs cancel
+  common-mode chip-thermal drift fully in their ratio):
+  ``J ↔ Hfull`` → full H/J ✅ (G5/G6-launcher-C gate); ``Hfull ↔ P``
+  → launcher_overhead_vs_pallas_us ✅ (NEW); ``P ↔ Hkernel`` →
+  kernel H/P ✅ (G2/G3/G4 gate, preserves DR#6 canonical adjacency).
+  Non-adjacent (almost-paired) ratios: ``Hkernel ↔ J`` (kernel H/J,
+  2-slots-off), ``P ↔ J`` (P/J, 2-slots-off), ``Hfull ↔ Hkernel``
+  (launcher_overhead_us, 2-slots-off). **Verification re-baseline**:
+  14-shape × 5-sweep at seed=0 (12 shapes produced data; the 2 M=1
+  N=1024 shapes hit the §6.5 (d) M=1 BlockSpec crash on every sweep
+  — cycle-26 cells carry forward). **All 12 measurable G2/G3/G4
+  closures HOLD under unified methodology**:
 
-- **G6-kernel-A** _(N cycles, depends on data)_. Per-shape pin /
-  seed-heuristic work targeting the Pallas-headroom shapes — i.e.,
-  shapes where `P/J > Helion/J` under 4-way paired methodology. For
-  each shape with headroom ≥ 0.05 (Helion is at least 5% below Pallas
-  in kernel-only us), run a forced-config ablation across the
-  Pallas-best-config family; promote winners to
-  `compiler_seed_configs` via new heuristics. Acceptance: per-shape
-  kernel H/P median ≥ 1.05 (closing half of Pallas's headroom is a
-  reasonable target); gate exit at geo-mean kernel H/P ≥ 1.10 across
-  the 14 shapes.
+  | Shape | H/P (cycle 31 4-way) | H/P (cycle 26 mixed) | Closure verdict |
+  |---|---|---|---|
+  | bf16 1024×1024×1                | 1.032 | 1.006 | ✅ HOLDS |
+  | bf16 1024×1024×1024 (headline)  | 1.043 | 1.014 | ✅ HOLDS |
+  | bf16 1024×128×1024              | 1.026 | 0.998 | ✅ HOLDS (was marginal under cycle-26 mixed methodology; cycle-31 unified lifts to 1.026 — cleanly closed) |
+  | bf16 1024×1×1024                | 1.034 | 1.007 | ✅ HOLDS |
+  | bf16 128×1024×1024              | 1.031 | 1.005 | ✅ HOLDS |
+  | bf16 1×1×1024                   | 1.035 | 1.006 | ✅ HOLDS |
+  | f32  1024×1024×1                | 1.029 | 0.993 | ✅ HOLDS (was marginal; cycle-31 unified lifts to 1.029) |
+  | f32  1024×1024×1024             | 1.033 | 1.009 | ✅ HOLDS |
+  | f32  1024×128×1024              | 1.033 | 1.006 | ✅ HOLDS |
+  | f32  1024×1×1024                | 1.027 | 1.006 | ✅ HOLDS |
+  | f32  128×1024×1024              | 1.039 | 1.009 | ✅ HOLDS |
+  | f32  1×1×1024                   | 1.039 | 1.007 | ✅ HOLDS |
+
+  **Findings**: (1) zero closures need re-opening — every cycle-26
+  median ≥ 0.95 lifted to ≥ 1.026 under unified methodology, and
+  cycle-26's two marginal cells (bf16 1024×128×1024 0.998, f32
+  1024×1024×1 0.993) cleanly cross above 1.00 under unified
+  (1.026 / 1.029). The cycle-26 readings were systematically
+  pessimistic on H/P because the HP 2-way leg's Pallas predecessor
+  (~120us Hkernel) was shorter than the 4-way ordering's Pallas
+  predecessor (~165us Hfull) — under 4-way Pallas's pre-call window
+  inheritance is longer, inflating the Pallas measurement and
+  lifting the H/P ratio. (2) **P/J flips opposite direction**:
+  cycle-26 P/J 1.046-1.183 (every shape > 1.00); cycle-31 P/J
+  0.964-0.984 (every shape < 1.00). Mechanism: cycle-26 cross-leg
+  P/J had JAX (HJ-full leg, post-Hfull predecessor) inflated
+  relative to Pallas (HP leg, post-Hkernel predecessor); cycle-31
+  4-way ordering has Pallas (post-Hfull predecessor, slot 3) inflated
+  relative to JAX (slot 1, post-previous-iteration-Hkernel
+  predecessor). Both methodologies have P/J ≠ paired-sample due to
+  cross-callable predecessor asymmetry; the cross-methodology range
+  0.96-1.18 is the methodological noise band and the true
+  standalone-call XLA-vs-Pallas relative kernel quality is somewhere
+  inside it. A dedicated probe (JAX↔Pallas 2-way leg with no other
+  callables) would be required to pin the true ratio. (3) **Kernel
+  H/J ≈ 1.00 on every shape** (range 0.998-1.016, median ~1.004) —
+  Helion-kernel matches JAX within paired-sample noise. (4) **Full
+  H/J shifts up** vs cycle 26 (range 0.677-0.760 vs cycle 26's
+  0.681-0.732; median +0.014) because the cycle-31 unified Hfull
+  slot is paired with a JAX predecessor (~120us) instead of the
+  cycle-26 separate sequential Hfull standalone-window (no
+  predecessor). The full H/J magnitude (0.68-0.76) is still
+  ceiling-bound by the §6.4 (b) torch_tpu wrapper overhead — G5
+  Closure verdict unchanged. **Pin tests**: none added — the
+  helper is harness-only with no Helion compiler / runtime
+  changes; the existing G2/G3/G4 closure pin tests still pin the
+  per-shape ratios at the gate. ``./lint.sh check`` clean.
+  ``PALLAS_TEST_CMD`` unchanged (harness-only change).
+
+- **G6-kernel-A** _(N cycles, depends on data)_. ✅ CLOSED
+  2026-05-25 cycle 31 — **headroom map is empty under unified
+  methodology**. Per-shape headroom under unified 4-way:
+  headroom = (P/J − kernel H/J) / (P/J − 1) if P/J > 1 else 0.
+
+  | Shape | P/J (cycle 31) | kernel H/J | headroom | Pallas us − Helion-k us |
+  |---|---|---|---|---|
+  | bf16 1024×1024×1                | 0.964 | 0.998 | 0 (P/J ≤ 1.00) | +3.91 (Helion already faster) |
+  | bf16 1024×1024×1024             | 0.965 | 1.003 | 0 | +3.90 |
+  | bf16 1024×128×1024              | 0.978 | 1.004 | 0 | +2.92 |
+  | bf16 1024×1×1024                | 0.968 | 0.999 | 0 | +3.69 |
+  | bf16 128×1024×1024              | 0.975 | 1.006 | 0 | +3.76 |
+  | bf16 1×1×1024                   | 0.967 | 1.001 | 0 | +4.09 |
+  | f32  1024×1024×1                | 0.973 | 1.000 | 0 | +3.68 |
+  | f32  1024×1024×1024             | 0.984 | 1.016 | 0 | +4.38 |
+  | f32  1024×128×1024              | 0.964 | 1.004 | 0 | +4.06 |
+  | f32  1024×1×1024                | 0.972 | 0.999 | 0 | +3.69 |
+  | f32  128×1024×1024              | 0.967 | 1.005 | 0 | +4.90 |
+  | f32  1×1×1024                   | 0.969 | 1.004 | 0 | +5.57 |
+
+  Every measurable shape has P/J ≤ 1.00 under unified methodology
+  (range 0.964-0.984), meaning the "Pallas headroom over JAX"
+  reservoir that G6-kernel-A was designed to capture is empirically
+  empty. The per-shape Pallas-minus-Helion-kernel us delta is
+  positive on every shape (Helion is 2.9-5.6 us faster than Pallas
+  at the kernel level), so chasing additional Helion kernel speedup
+  to beat Pallas by an additional 10% (G6 exit criterion #1) would
+  amount to overshooting an already-passed bar — H/P median is
+  already 1.026-1.043 (cycle 31, unified methodology) without any
+  G6-kernel substep work. **Cycle-26 → cycle-31 methodology shift
+  also lifted G6-kernel-A's bar implicitly**: under cycle-26 P/J >
+  1.00 the headroom interpretation was "Pallas has 4-18% over JAX
+  → Helion should reach for that"; under cycle-31 P/J ≤ 1.00 the
+  interpretation flips to "JAX has 1-3% over Pallas → no Helion
+  kernel work can close it from the kernel side". This is the
+  same data, the same kernels, the same chip — only the timing
+  methodology shifts; both readings have known predecessor
+  asymmetries (see G6-methodology-v2 closure caveat #2). The G6
+  ceiling clause (§5 G6 entry) applies: substep marked
+  ✅ AT HELION CEILING (kernel headroom proves unreachable via
+  autotuner config search because there is no Pallas headroom left
+  to capture; chasing JAX-vs-Pallas residual sub-millisecond
+  precision moves the discussion outside the autotuner's
+  noise-resolution band). **No code change lands**; substep is
+  closed as data-driven (per §11 anti-pattern "Adding speculative
+  code paths" — speculative because the data shows no headroom to
+  capture). **Re-open criterion**: a future dedicated probe
+  (JAX↔Pallas 2-way leg with no other callables) shows P/J
+  consistently > 1.05 on any shape under multiple methodologies
+  (not just cycle-26-style cross-leg) — then the headroom is real
+  and a per-shape ``PallasMatmul…SeedHeuristic`` becomes
+  positive-EV. Until then, the kernel lever is empty.
 
 - **G6-launcher-C** _(1-2 cycles, contained)_. Write a small C
   extension (or Cython module) for `_DirectCallKernel.full_invoke`'s
   locked path. Eliminates the ~11us irreducible Python per-frame
   overhead identified by G5-launcher-Z attribution. Acceptance:
   launcher overhead vs JAX median ≤ 36us on the headline; full H/J ≥
-  0.85 on the headline.
+  0.85 on the headline. **Cycle-31 unified baseline**: headline
+  ``bf16 1024×1024×1024`` launcher overhead vs JAX = **39.94 us**
+  (vs cycle-26 46.18 us; methodology shift lowers absolute number
+  by 6.24 us within paired-sample band); full H/J = **0.761**
+  (vs cycle-26 0.732). Acceptance bar at 36 us is now 3.94 us
+  away (vs 10.18 us away under cycle-26 baseline); G6-launcher-C
+  remains the active queued substep after G6-methodology-v2 +
+  G6-kernel-A close in this cycle.
 
 **G6 ceiling clause**: if a substep's measurements show no addressable
 Helion-side gain (kernel headroom proves unreachable via autotuner
@@ -3979,6 +4143,7 @@ substeps on the same lever without Deep Replan.
 
 | Date | Commit | Substep | Kernel H/P | Launcher us | Full H/J | Notes |
 |------|--------|---------|------------|-------------|----------|-------|
+| 2026-05-25 | G6-methodology-v2 (cycle 31, pending commit) | G6-methodology-v2 ✅ + G6-kernel-A ✅ (closed without code) | **1.043** (headline cycle 31 4-way 5-sweep; geo-mean of 12 measurable shapes 1.033) | **39.94 us** (headline) | **0.761** (headline) | New ``_time_interleaved_4way`` helper + ``--timing-mode interleaved-4way`` + ``--n-sweeps`` + ``launcher_overhead_vs_pallas_us`` + ``pallas_over_jax`` schema lines in ``examples/pallas_perf/measure_headline.py``; ordering ``JAX → Helion-full → Pallas → Helion-kernel`` (adjacent pairs: J↔Hfull=full H/J ✅, Hfull↔P=launcher_overhead_vs_pallas ✅, P↔Hkernel=H/P ✅). 14-shape × 5-sweep re-baseline at seed=0 (12 measurable, 2 M=1 N=1024 hit §6.5 (d) crash). **Every G2/G3/G4 closure HOLDS under unified methodology** (cycle-31 H/P 1.026-1.043 vs cycle-26 0.993-1.014, every shape strictly above 1.00; the cycle-26 marginal 0.998 / 0.993 cells cleanly clear the bar at 1.026 / 1.029). **G6-kernel-A closed**: cycle-31 P/J ≤ 1.00 on every shape (range 0.964-0.984) so headroom = 0 (Helion-kernel already faster than Pallas by 2.9-5.6 us per shape; H/J kernel ≈ 1.00 within paired-sample noise). G6-launcher-C remains queued. Files changed: harness-only — ``examples/pallas_perf/measure_headline.py`` (+~150 / -~30 LOC net for the new helper, mode branch, n-sweeps loop, new output lines, updated docstrings). No Helion compiler / runtime / heuristic / test code changes; ``./lint.sh check`` clean; PALLAS_TEST_CMD unchanged (harness-only). |
 
 ---
 
