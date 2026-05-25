@@ -46,6 +46,7 @@ python measure_headline.py --dtype float32 --shape 1024 1024 1024   # G4 f32 pat
 python measure_headline.py --seed 7           # override default seed (0)
 python measure_headline.py --timing-mode interleaved                 # DR#6 HP + G5-methodology HJ-full
 python measure_headline.py --timing-mode interleaved-4way            # G6-methodology-v2 unified 4-way (cycle 31)
+python measure_headline.py --device-us-calls 0                       # skip device_us collection (default 200)
 ```
 
 Output (parseable lines, one per metric):
@@ -67,6 +68,21 @@ pallas_over_jax: <ratio>                  # cycle-31 G6-methodology-v2 spec name
 launcher_overhead_us: <us>                # Helion-internal launcher overhead = helion_full − helion_kernel; paired-sample (both terms from HJ-full leg) in interleaved; paired-sample two-slots-off in interleaved-4way; sequential-window in sequential
 launcher_overhead_vs_jax_us: <us>         # Helion full-path overhead vs JAX = helion_full − jax; paired-sample (both terms from HJ-full leg) in interleaved; paired-sample adjacent in interleaved-4way; sequential-window in sequential
 launcher_overhead_vs_pallas_us: <us>      # Helion full-path overhead vs Pallas = helion_full − pallas; paired-sample adjacent in interleaved-4way (separates wrapper-vs-Pallas from wrapper-vs-JAX so G6-launcher-C substep can isolate which side moved); cross-leg / sequential under the other modes
+
+helion_full_path_device_us_<M>x<K>x<N>: <us>     # G7-dispatch-amortize (cycle 36) — per-call on-device us for Helion full-path callable, jax.profiler 200-call avg of dominant /device:TPU:0 event
+helion_kernel_only_device_us_<M>x<K>x<N>: <us>   # per-call on-device us for Helion kernel-only (autotuner-picked jit_fn)
+pallas_kernel_only_device_us_<M>x<K>x<N>: <us>   # per-call on-device us for hand-Pallas reference
+jax_kernel_only_device_us_<M>x<K>x<N>: <us>      # per-call on-device us for JAX baseline
+device_H_over_P: <ratio>                  # device-level kernel ratio = pallas_device_us / helion_kernel_device_us (Helion beats Pallas on-device when > 1.00)
+device_H_over_J: <ratio>                  # device-level kernel ratio = jax_device_us / helion_kernel_device_us (Helion beats JAX on-device when > 1.00)
+device_P_over_J: <ratio>                  # device-level reference ratio = jax_device_us / pallas_device_us (XLA vs hand-Pallas; <1.00 means JAX wins on-device)
+device_full_H_over_J: <ratio>             # device-level full-path ratio = jax_device_us / helion_full_device_us (Helion full-path vs JAX at the device level — typically tracks device_H_over_J closely because static-shapes kernels do the same device work on full-path vs kernel-only)
+
+theoretical_min_us_<M>x<K>x<N>: <us>                  # G7-dispatch-amortize (cycle 36 manager refinement) — per-shape FLOPs / peak_FLOPS ceiling = 2*M*K*N / (peak_tflops * 1e6). Peak depends on dtype: bf16 = --peak-tflops-bf16 (default 1155 = TPU v7), f32 HIGHEST = --peak-tflops-f32 (default 192.5).
+helion_full_path_device_pct_of_min_<M>x<K>x<N>: <ratio>     # theoretical_min_us / helion_full_device_us — 1.00 = at theoretical peak. Per-shape headroom signal; "data-bounded" shapes (small/skinny) sit far below 1.00 not because the kernel is bad but because dispatch / chip-latency dominates a microseconds-fraction theoretical min. Compute-bound shapes (1024³, 2048³, 4096³) sit at meaningful fractions of peak and have real kernel-level headroom.
+helion_kernel_only_device_pct_of_min_<M>x<K>x<N>: <ratio>   # theoretical_min_us / helion_kernel_device_us
+pallas_kernel_only_device_pct_of_min_<M>x<K>x<N>: <ratio>   # theoretical_min_us / pallas_device_us
+jax_kernel_only_device_pct_of_min_<M>x<K>x<N>: <ratio>      # theoretical_min_us / jax_device_us — XLA reference fraction of peak; cycle-36 baseline shows JAX hits ~33% peak on 1024³ headline, ~66% on 2048³ large, near 1.00 on 4096³ large (sustained MXU)
 ```
 
 **Reconstruction note for log scrapers (interleaved mode, cycle 26+).**
@@ -139,9 +155,11 @@ typically drop 2-3 of 5 sweeps in a multi-sweep baseline.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import inspect
 import os
 import sys
+import tempfile
 import time
 import timeit
 from typing import Callable
@@ -180,6 +198,23 @@ _DEFAULT_AUTOTUNE_SEED = int(os.environ["HELION_AUTOTUNE_RANDOM_SEED"])
 _DTYPE_CHOICES = {
     "bfloat16": (torch.bfloat16, jnp.bfloat16),
     "float32": (torch.float32, jnp.float32),
+}
+
+# Per-dtype theoretical MXU peak (TFLOPS/s) for TPU v7 / TPU7x. Sourced from
+# ``jax._src.pallas.mosaic.tpu_info`` ``_get_tpu_info_impl`` for
+# ``ChipVersion.TPU_7X`` with ``tensor_cores_per_chip=2`` and the
+# ``TPU_VISIBLE_CHIPS=3`` pin (one logical core, ``num_cores=1``):
+#   - bf16 / fp16 MXU peak = **1155 TFLOPS/s** (2.31e15 ops/s / 2).
+#   - f32 MXU ``precision=HIGHEST`` effective peak = **~192.5 TFLOPS/s**
+#     (standard multi-pass emulation ratio ~bf16/6; DR#7 §5 G7 validated
+#     empirically — f32 1024³ device-only run hit 128.2 TFLOPS = 66.6% of
+#     this estimate, matching expected near-peak behavior for a 1024³
+#     HIGHEST matmul). Overridable from the CLI via ``--peak-tflops-bf16``
+#     / ``--peak-tflops-f32`` for future TPU generations or
+#     calibration runs.
+_DEFAULT_PEAK_TFLOPS = {
+    "bfloat16": 1155.0,
+    "float32": 192.5,
 }
 
 
@@ -645,6 +680,196 @@ def _time_interleaved_4way(
     return helion_full_us, helion_kernel_us, pallas_us, jax_us
 
 
+def _time_device_us(
+    fn: Callable[[], object],
+    n_calls: int = 200,
+    n_warmup: int = 5,
+) -> float:
+    """Return per-call on-device us under a ``jax.profiler`` trace.
+
+    Wraps ``n_calls`` invocations of ``fn`` in a single
+    ``jax.profiler.start_trace`` / ``stop_trace`` window, parses the
+    resulting ``.xplane.pb`` via ``jax.profiler.ProfileData.from_file``,
+    finds the dominant compute event on the ``/device:TPU:0`` plane
+    (largest total ``duration_ns`` across all events on that plane), and
+    returns ``total_duration_ns / n_calls / 1000``.
+
+    Rationale (DR#7 §5 G7 — see plan.md §1 ``device_us`` block). The
+    existing single-call us metric is ~96-98% PJRT + ``pallas_call``
+    dispatch overhead on small / medium matmuls. ``device_us`` exposes
+    the kernel-actual time so substeps targeting kernel quality
+    (G7-prefetch, G7-launch-fusion) have a signal that isn't drowned
+    by dispatch noise. Both metrics are tracked side-by-side: the
+    single-call us reflects what users actually pay per call, the
+    ``device_us`` reflects on-device throughput.
+
+    Aggregation rule: per dominant compute event name (e.g.
+    ``jit_wrapped(<hash>)`` for Helion-kernel, ``jit_pallas_matmul(<hash>)``
+    for hand-Pallas, ``jit_matmul(<hash>)`` for JAX). DR#7 Track 3
+    confirmed the per-event device us is uniform across calls inside
+    a single trace window (no scheduler-induced drift across the
+    200-call loop), so the avg per call equals the median per call
+    within sub-us. Returning the average is simpler and matches DR#7's
+    reported numbers (JAX 5.50us / Pallas 9.91us / Helion 6.12us on
+    the bf16 1024³ headline).
+
+    Args:
+      fn: zero-arg callable that issues one device-side op and (via
+        a tail ``jax.block_until_ready`` or equivalent inside the
+        callable) makes the result visible to ``stop_trace``. The
+        existing per-callable wrappers (``_run_full_path``,
+        ``_run_helion_kernel_only``, ``_run_pallas_kernel_only``,
+        ``_run_jax_kernel_only``) already do this.
+      n_calls: number of calls to amortize over. Default 200 matches
+        the DR#7 Track 3 probe; tighter than the 5-sweep single-call
+        median (each sweep is 20×5=100 calls) and the ``ProfileData``
+        per-event averages are sub-us stable at 200 calls.
+      n_warmup: warmup calls before ``start_trace``. Default 5 matches
+        the rest of the harness.
+
+    Raises:
+      FileNotFoundError: no ``.xplane.pb`` was written under the
+        trace dir (means ``start_trace`` failed silently — typically a
+        XLA flag mis-set; the harness should surface this).
+      RuntimeError: trace contains no ``/device:TPU:0`` plane (means
+        the run ran on a non-TPU device, e.g. the chip pin
+        ``TPU_VISIBLE_CHIPS=3`` was missed).
+    """
+    for _ in range(n_warmup):
+        fn()
+
+    with tempfile.TemporaryDirectory(prefix="device_us_trace_") as trace_dir:
+        jax.profiler.start_trace(trace_dir)
+        last_out: object = None
+        for _ in range(n_calls):
+            last_out = fn()
+        # Belt-and-suspenders: the per-call ``fn`` already calls
+        # ``block_until_ready`` (or its torch-side equivalent), but a
+        # final sync makes sure the last call's device work is included
+        # in the trace before ``stop_trace`` finalises the .pb. The
+        # ``contextlib.suppress`` covers callables whose return value is
+        # ``None`` (full-path callables synchronise inside the fn) or a
+        # non-JAX-array type — ``block_until_ready`` raises ``TypeError`` /
+        # ``AttributeError`` on those, which is benign here.
+        if last_out is not None:
+            with contextlib.suppress(TypeError, AttributeError):
+                jax.block_until_ready(last_out)
+        jax.profiler.stop_trace()
+
+        # Find the .xplane.pb file
+        pb_path: str | None = None
+        for root, _dirs, files in os.walk(trace_dir):
+            for f in files:
+                if f.endswith(".xplane.pb"):
+                    pb_path = os.path.join(root, f)
+                    break
+            if pb_path is not None:
+                break
+        if pb_path is None:
+            raise FileNotFoundError(
+                f"No .xplane.pb under {trace_dir}; jax.profiler.start_trace "
+                "produced no output — check XLA flags / pod TPU pin."
+            )
+
+        # Parse via the public ProfileData API. The trace's /device:TPU:0
+        # plane has multiple lines (host-side jit summary + device-side
+        # HLO events + SparseCore counters + DVFS / hardware P-state
+        # counter samples); the dominant compute event is the largest
+        # per-event total across the lines whose event count equals
+        # ``n_calls`` (one event per call — these are the jit / HLO ops
+        # that actually issued once per call). The count filter is
+        # required to exclude the device's hardware ``P state`` counter
+        # line: when ``LIBTPU_INIT_ARGS=--xla_tpu_dvfs_p_state=7`` is set
+        # (canonical in ``examples/pallas_perf/benchmark.sh``), the trace
+        # gains a second ``_counters_`` line carrying ~17 DVFS-sampled
+        # ``P state`` events whose total spans the full 200-call window
+        # (~52 ms total). Without the count filter the aggregator picks
+        # that line, computes ``52000us / 200 = 260us/call``, and reports
+        # ~45× the actual on-device time. DR#7 validation: post-filter,
+        # this is uniformly the top-level ``jit_<name>(<hash>)`` line
+        # (line "XLA Modules") for all 3 paths (Helion / Pallas / JAX) —
+        # the same line that aggregates every device-side op for that
+        # jit call, matching DR#7 Track 3's reported per-call us (5.50
+        # JAX / 9.91 Pallas / 6.12 Helion on bf16 1024³).
+        pd = jax.profiler.ProfileData.from_file(pb_path)
+        best_total_ns = 0
+        saw_device_plane = False
+        for plane in pd.planes:
+            if plane.name != "/device:TPU:0":
+                continue
+            saw_device_plane = True
+            for line in plane.lines:
+                per_event_totals: dict[str, int] = {}
+                per_event_counts: dict[str, int] = {}
+                for ev in line.events:
+                    per_event_totals[ev.name] = (
+                        per_event_totals.get(ev.name, 0) + ev.duration_ns
+                    )
+                    per_event_counts[ev.name] = per_event_counts.get(ev.name, 0) + 1
+                for name, total in per_event_totals.items():
+                    if per_event_counts[name] != n_calls:
+                        continue
+                    if total > best_total_ns:
+                        best_total_ns = total
+        if not saw_device_plane:
+            raise RuntimeError(
+                f"jax.profiler trace at {pb_path} has no /device:TPU:0 plane "
+                "— is TPU_VISIBLE_CHIPS=3 set and the device JAX-visible?"
+            )
+        if best_total_ns == 0:
+            raise RuntimeError(
+                f"jax.profiler trace at {pb_path} has no /device:TPU:0 event "
+                f"with count == {n_calls}; the per-call kernel may have a "
+                "different cardinality than 1 (e.g. inner loop emits multiple "
+                "events per call) — adjust the count filter or use a different "
+                "n_calls."
+            )
+
+    # us per call = ns_total / n_calls / 1000.
+    return best_total_ns / n_calls / 1000.0
+
+
+def _theoretical_min_us(m: int, k: int, n: int, peak_tflops: float) -> float:
+    """Return the theoretical minimum per-call us for a matmul (manager
+    refinement 2026-05-25 — see plan.md §1 device-us block).
+
+    The per-shape achievable ceiling is shape-dependent — small / skinny
+    shapes can never hit 90% of MXU peak because there aren't enough
+    arithmetic ops to amortize MXU pipeline fill / drain, while compute-bound
+    shapes (e.g. 1024³, 2048³, 4096³) can saturate the chip. The correct
+    per-shape lower bound is::
+
+        theoretical_min_us = FLOPs / peak_FLOPS
+                           = (2 * M * K * N) / (peak_tflops * 1e12) / 1e-6
+                           = (2 * M * K * N) / (peak_tflops * 1e6)
+
+    Examples (bf16 1155 TFLOPS/s on TPU v7):
+      - 1024×1024×1024: 2.15 GFLOP → ~1.86 us min; headline Helion 6.12 us
+        device → ~30% of theoretical min (PLENTY of room for kernel work
+        on this and larger shapes).
+      - 1024×1×1024: 2.10 MFLOP → ~0.0018 us min; structurally
+        dispatch-bounded — device_pct_of_min only reaches the chip
+        latency floor on this kind of shape, not the MXU peak.
+      - 1×1×1024: 2 KFLOP → ~0.0000017 us min; latency-bounded, cannot
+        approach peak under any kernel strategy.
+      - 4096×4096×4096: 137 GFLOP → ~119 us min; large enough for true
+        MXU sustained-peak work — the canonical signal shape for any
+        future G7-prefetch / G7-launch-fusion substep.
+
+    Args:
+      m, k, n: matmul dims (A is m × k, B is k × n, C is m × n).
+      peak_tflops: per-dtype TPU MXU peak in TFLOPS/s
+        (``_DEFAULT_PEAK_TFLOPS[dtype]`` or the ``--peak-tflops-{bf16,f32}``
+        CLI override).
+
+    Returns:
+      Theoretical minimum per-call wall-clock us — the device cannot
+      finish the matmul in less time even if every cycle hit MXU peak.
+    """
+    flops = 2.0 * m * k * n
+    return flops / (peak_tflops * 1e6)
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -743,6 +968,52 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "standalone sequential ``_time(_run_full_path)`` window "
             "regardless of this flag (preserves the cycle 15-25 log "
             "scraper contract for full-path-vs-Pallas tracking)."
+        ),
+    )
+    parser.add_argument(
+        "--device-us-calls",
+        type=int,
+        default=200,
+        help=(
+            "Number of calls to amortize per ``jax.profiler.start_trace`` "
+            "window for the ``device_us`` metric (DR#7 §5 G7 — see "
+            "plan.md §1 ``device_us`` block). Default 200 matches the "
+            "DR#7 Track 3 probe. Set to 0 to skip device-us collection "
+            "entirely (e.g. on hosts where ``jax.profiler`` traces don't "
+            "produce a parseable .xplane.pb; the single-call us metric "
+            "is unaffected). Emitted as one ``<path>_device_us`` line "
+            "per callable (Helion-full, Helion-kernel, Pallas, JAX) "
+            "plus derived ``device_H_over_P`` / ``device_H_over_J`` / "
+            "``device_P_over_J`` ratios."
+        ),
+    )
+    parser.add_argument(
+        "--peak-tflops-bf16",
+        type=float,
+        default=_DEFAULT_PEAK_TFLOPS["bfloat16"],
+        help=(
+            "TPU MXU bf16/fp16 peak TFLOPS/s used to compute the "
+            "per-shape ``theoretical_min_us`` and ``device_pct_of_min`` "
+            "lines (manager refinement 2026-05-25 — see plan.md §1 "
+            "device-us block). Default 1155.0 = TPU v7 / TPU7x bf16 "
+            "per-tensor-core peak per "
+            "``jax._src.pallas.mosaic.tpu_info`` ``_get_tpu_info_impl`` "
+            "(``ChipVersion.TPU_7X`` with ``tensor_cores_per_chip=2``; "
+            "the ``TPU_VISIBLE_CHIPS=3`` pin sees one logical core)."
+        ),
+    )
+    parser.add_argument(
+        "--peak-tflops-f32",
+        type=float,
+        default=_DEFAULT_PEAK_TFLOPS["float32"],
+        help=(
+            "TPU MXU f32 ``precision=HIGHEST`` effective peak TFLOPS/s "
+            "used to compute the per-shape ``theoretical_min_us`` and "
+            "``device_pct_of_min`` lines. Default 192.5 = standard "
+            "multi-pass emulation ratio ~bf16/6 (DR#7 §5 G7 — f32 1024³ "
+            "device-only run validated empirically at 128.2 TFLOPS = "
+            "66.6% of this estimate, matching expected near-peak behavior "
+            "for a 1024³ HIGHEST matmul)."
         ),
     )
     return parser.parse_args(argv)
@@ -1109,6 +1380,154 @@ def main(argv: list[str] | None = None) -> None:
                 f"launcher_overhead_vs_pallas_us{ratio_tag}: "
                 f"{launcher_overhead_vs_pallas_us:.2f} us"
             )
+
+            # ----- Device-us collection (G7-dispatch-amortize, cycle 36).
+            # Per DR#7 (plan.md §5 G7 ceiling-verification block), the
+            # single-call us above is ~96-98% PJRT + ``pallas_call`` dispatch
+            # overhead on small / medium matmuls — kernel-side substeps
+            # (G7-prefetch, G7-launch-fusion) producing 5-10% on-device wins
+            # only move the single-call us ~0.5% and disappear into the
+            # autotuner-pick noise band. ``device_us`` is the per-call
+            # on-device matmul time measured via a ``jax.profiler`` trace
+            # over ``--device-us-calls`` calls (default 200), divided by the
+            # call count. Both metrics are tracked side-by-side: single-call
+            # us reflects user-perceived per-call latency (dispatch dominates),
+            # ``device_us`` reflects kernel-actual on-device time (substeps
+            # targeting kernel quality have a meaningful signal). The
+            # ``device_us`` is independent of ``--timing-mode`` (it's a
+            # profile-trace average, not a paired-sample wall-clock window),
+            # but is emitted under the same ``[mode]`` / ``_<mode>`` tag
+            # for log-scraper consistency.
+            #
+            # Device us is also useful for the §1 14-row table's
+            # ``device_H_over_P`` / ``device_H_over_J`` / ``device_P_over_J``
+            # columns; the cycle-36 DR#7 baseline on the headline shape
+            # was JAX 5.50 / Pallas 9.91 / Helion 6.12 us (Helion beats
+            # hand-Pallas 1.6× on-device but is 11% slower than JAX —
+            # the inverse of the single-call story where all three converge
+            # at ~120us).
+            if args.device_us_calls > 0:
+                helion_full_device_us = _time_device_us(
+                    _run_full_path, n_calls=args.device_us_calls
+                )
+                helion_kernel_device_us = _time_device_us(
+                    _run_helion_kernel_only, n_calls=args.device_us_calls
+                )
+                pallas_device_us = _time_device_us(
+                    _run_pallas_kernel_only, n_calls=args.device_us_calls
+                )
+                jax_device_us = _time_device_us(
+                    _run_jax_kernel_only, n_calls=args.device_us_calls
+                )
+
+                print(
+                    f"helion_full_path_device_us_{m}x{k}x{n}{line_tag}: "
+                    f"{helion_full_device_us:.4f} us  "
+                    f"[{args.device_us_calls}-call jax.profiler avg]"
+                )
+                print(
+                    f"helion_kernel_only_device_us_{m}x{k}x{n}{line_tag}: "
+                    f"{helion_kernel_device_us:.4f} us  "
+                    f"[{args.device_us_calls}-call jax.profiler avg]"
+                )
+                print(
+                    f"pallas_kernel_only_device_us_{m}x{k}x{n}{line_tag}: "
+                    f"{pallas_device_us:.4f} us  "
+                    f"[{args.device_us_calls}-call jax.profiler avg]"
+                )
+                print(
+                    f"jax_kernel_only_device_us_{m}x{k}x{n}{line_tag}: "
+                    f"{jax_device_us:.4f} us  "
+                    f"[{args.device_us_calls}-call jax.profiler avg]"
+                )
+
+                # Device-level ratios mirror the kernel-only ratio shape:
+                # ``device_H_over_P`` = pallas_device_us / helion_kernel_device_us
+                # (Helion beats Pallas when > 1.00); same for H/J and P/J.
+                # The Helion-full vs Helion-kernel comparison at the device
+                # level isolates how much of Helion's full-path on-device
+                # time is the launched-via-torch_tpu dispatch path bumping
+                # things vs the kernel itself — typically near-zero on
+                # ``static_shapes=True`` kernels because the device-side
+                # work is identical, but tracked for symmetry with the
+                # single-call ``launcher_overhead_us``.
+                device_h_over_p = pallas_device_us / helion_kernel_device_us
+                device_h_over_j = jax_device_us / helion_kernel_device_us
+                device_p_over_j = jax_device_us / pallas_device_us
+                device_full_h_over_j = jax_device_us / helion_full_device_us
+                print(f"device_H_over_P{ratio_tag}: {device_h_over_p:.3f}")
+                print(f"device_H_over_J{ratio_tag}: {device_h_over_j:.3f}")
+                print(f"device_P_over_J{ratio_tag}: {device_p_over_j:.3f}")
+                print(f"device_full_H_over_J{ratio_tag}: {device_full_h_over_j:.3f}")
+
+                # ----- Per-shape data-size-adjusted ceiling (manager
+                # refinement 2026-05-25 — see plan.md §1 device-us block).
+                # The right per-shape lower bound for device_us is
+                # ``theoretical_min_us = FLOPs / peak_FLOPS``, NOT a
+                # universal "% peak" — small / skinny shapes can never
+                # hit MXU peak because there are not enough arithmetic
+                # ops to amortize MXU pipeline fill / drain (the per-call
+                # latency floor sits at the chip's irreducible dispatch
+                # latency, not at the MXU FLOPS ceiling). Examples on
+                # TPU v7 bf16 (1155 TFLOPS/s):
+                #   - 1024³: 2.15 GFLOP → 1.86 us min; headline Helion
+                #     ~6.12 us device → device_pct_of_min ~30% (plenty
+                #     of room for kernel work — this is the canonical
+                #     compute-bound headroom signal).
+                #   - 1024×1×1024 / 1×1×1024 / 1×1024×1024: KFLOPs–MFLOP
+                #     range → us-fraction theoretical min; structurally
+                #     dispatch-bounded, device_pct_of_min sits at the
+                #     chip latency floor (% of peak is irrelevant — the
+                #     headroom signal these shapes carry is "no kernel
+                #     headroom; this row is §6.4 territory").
+                #   - 2048³ / 4096³ (manager-added large-shape extension):
+                #     17 / 137 GFLOP → 14.9 / 119 us min — large enough
+                #     to exercise true MXU sustained-peak work; the
+                #     canonical compute-bound headroom shapes for any
+                #     future G7-prefetch / G7-launch-fusion substep.
+                #
+                # ``device_pct_of_min`` is reported as
+                # ``theoretical_min_us / device_us`` (in [0, 1]+; 1.0
+                # = at theoretical MXU peak — meaning device_us equals
+                # the theoretical minimum, the chip cannot finish the
+                # matmul any faster; values < 1 indicate room above the
+                # min). One ``theoretical_min_us`` line is emitted per
+                # sweep (per timing-mode tag, identical across sweeps —
+                # pure shape × dtype × peak_tflops function); one
+                # ``device_pct_of_min`` line is emitted per callable
+                # (Helion-full / Helion-kernel / Pallas / JAX) so the
+                # per-shape headroom map is parseable per path.
+                peak_tflops = (
+                    args.peak_tflops_bf16
+                    if args.dtype == "bfloat16"
+                    else args.peak_tflops_f32
+                )
+                theoretical_min_us = _theoretical_min_us(m, k, n, peak_tflops)
+                print(
+                    f"theoretical_min_us_{m}x{k}x{n}{line_tag}: "
+                    f"{theoretical_min_us:.6f} us  "
+                    f"[2*M*K*N FLOPs / {peak_tflops:.1f} TFLOPS]"
+                )
+                helion_full_pct = theoretical_min_us / helion_full_device_us
+                helion_kernel_pct = theoretical_min_us / helion_kernel_device_us
+                pallas_pct = theoretical_min_us / pallas_device_us
+                jax_pct = theoretical_min_us / jax_device_us
+                print(
+                    f"helion_full_path_device_pct_of_min_{m}x{k}x{n}"
+                    f"{line_tag}: {helion_full_pct:.4f}"
+                )
+                print(
+                    f"helion_kernel_only_device_pct_of_min_{m}x{k}x{n}"
+                    f"{line_tag}: {helion_kernel_pct:.4f}"
+                )
+                print(
+                    f"pallas_kernel_only_device_pct_of_min_{m}x{k}x{n}"
+                    f"{line_tag}: {pallas_pct:.4f}"
+                )
+                print(
+                    f"jax_kernel_only_device_pct_of_min_{m}x{k}x{n}"
+                    f"{line_tag}: {jax_pct:.4f}"
+                )
 
 
 if __name__ == "__main__":
