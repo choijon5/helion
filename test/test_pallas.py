@@ -1573,6 +1573,181 @@ class TestPallas(TestCase):
             "drift flips the absolute median -- why paired timing is needed.",
         )
 
+    def test_pallas_matmul_bf16_no_tiling_seed_covers_large_cubes(self) -> None:
+        """No-tiling seed fires on each bf16 cube in ``_PALLAS_NO_TILING_DIMS``.
+
+        ``PallasMatmulNoTilingSeedHeuristic`` plants
+        ``block_sizes == [N, N, N] unroll pre_broadcast=True`` for each
+        square bf16 cube whose dim is in the heuristic's eligibility
+        set.  Per-shape forced-config ablation:
+          - bf16 1024-cube (headline): kH/J 0.79 → 1.00 (+26%);
+          - bf16 2048-cube (manager large-shape extension): kH/J 0.92
+            → 1.00 (+8.5%);
+          - bf16 4096-cube (manager large-shape extension): kH/J 1.00
+            at parity (seeding is benign; the compiler-seed bias band
+            keeps the pick on the seed when the autotuner's tiled
+            candidates land within ~1 us paired-delta of it).
+
+        Pin asserts per cube N:
+          1. ``is_eligible`` returns True for bf16 ``N×N×N``;
+          2. ``compiler_seed_configs`` includes the
+             ``[N, N, N] unroll pb=True`` entry;
+          3. the heuristic name is registered on
+             ``ConfigSpec.autotuner_heuristics``.
+
+        Also asserts a negative case: a bf16 cube outside the set
+        (e.g. 256-cube) is NOT eligible, so the heuristic stays
+        scoped to its ablation-validated shapes.
+        """
+        from helion._compiler.autotuner_heuristics.pallas import _PALLAS_NO_TILING_DIMS
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulNoTilingSeedHeuristic,
+        )
+
+        self.assertEqual(
+            sorted(_PALLAS_NO_TILING_DIMS),
+            [1024, 2048, 4096],
+            "Eligibility set must cover the 3 ablation-validated bf16 "
+            "cubes (1024 / 2048 / 4096). Any change here needs a "
+            "per-shape ablation backing it.",
+        )
+
+        for dim in sorted(_PALLAS_NO_TILING_DIMS):
+            torch.manual_seed(0)
+            x = torch.empty(dim, dim, device=DEVICE, dtype=torch.bfloat16)
+            torch.manual_seed(1)
+            y = torch.empty(dim, dim, device=DEVICE, dtype=torch.bfloat16)
+            bound = pallas_matmul_bf16.bind((x, y))
+
+            self.assertTrue(
+                PallasMatmulNoTilingSeedHeuristic.is_eligible(
+                    bound.env, bound.host_function.device_ir
+                ),
+                f"Heuristic must fire on bf16 {dim}-cube; dim is in "
+                f"_PALLAS_NO_TILING_DIMS = {sorted(_PALLAS_NO_TILING_DIMS)}.",
+            )
+            self.assertIn(
+                PallasMatmulNoTilingSeedHeuristic.name,
+                bound.config_spec.autotuner_heuristics,
+                f"Heuristic name must be recorded on bf16 {dim}-cube so "
+                "the seed is attributable.",
+            )
+            seed_blocks = (dim, dim, dim)
+            seeded = [
+                (
+                    tuple(cfg.config.get("block_sizes", ())),
+                    cfg.config.get("pallas_loop_type"),
+                    cfg.config.get("pallas_pre_broadcast"),
+                )
+                for cfg in bound.config_spec.compiler_seed_configs
+            ]
+            self.assertIn(
+                (seed_blocks, "unroll", True),
+                seeded,
+                f"Compiler seed configs must include the no-tiling "
+                f"[{dim}, {dim}, {dim}] unroll pb=True entry on bf16 "
+                f"{dim}-cube so the dot_general lowering reaches the "
+                "autotuner's candidate pool.",
+            )
+
+        # Negative: 256-cube is not in the set so the heuristic must
+        # refuse it (no per-shape ablation has validated forced
+        # no-tiling at this size).
+        small_x = torch.empty(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        small_y = torch.empty(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        small_bound = pallas_matmul_bf16.bind((small_x, small_y))
+        self.assertFalse(
+            PallasMatmulNoTilingSeedHeuristic.is_eligible(
+                small_bound.env, small_bound.host_function.device_ir
+            ),
+            "No-tiling heuristic must refuse cubes outside "
+            "_PALLAS_NO_TILING_DIMS so the seed stays scoped to "
+            "ablation-validated shapes.",
+        )
+
+    def test_pallas_matmul_f32_no_tiling_seed_only_covers_1024_cube(self) -> None:
+        """f32 no-tiling seed is intentionally narrower than the bf16 sibling.
+
+        ``PallasMatmulF32NoTilingSeedHeuristic`` plants the
+        ``[1024, 1024, 1024] unroll pb=True`` seed for f32 1024-cube
+        only — the per-shape ablation showed forced no-tiling regresses
+        by ~2-2.5% vs the autotuner's tiled picks on f32 2048-cube and
+        4096-cube.
+
+        Pin asserts:
+          1. f32 1024-cube fires the heuristic;
+          2. ``compiler_seed_configs`` includes the
+             ``[1024, 1024, 1024] unroll pb=True`` entry;
+          3. f32 2048-cube and 4096-cube do NOT fire the heuristic
+             (the narrower f32 cap is the intentional guard against
+             the per-shape regression).
+        """
+        from helion._compiler.autotuner_heuristics.pallas import (
+            _PALLAS_F32_NO_TILING_DIMS,
+        )
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulF32NoTilingSeedHeuristic,
+        )
+
+        self.assertEqual(
+            sorted(_PALLAS_F32_NO_TILING_DIMS),
+            [1024],
+            "f32 eligibility set must stay pinned to 1024 — the 2048 "
+            "and 4096 f32 large rows regress under forced no-tiling per "
+            "the per-shape ablation. Widening here requires fresh f32 "
+            "ablation data.",
+        )
+
+        torch.manual_seed(0)
+        x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.float32)
+        bound = pallas_matmul_f32.bind((x, y))
+
+        self.assertTrue(
+            PallasMatmulF32NoTilingSeedHeuristic.is_eligible(
+                bound.env, bound.host_function.device_ir
+            ),
+            "Heuristic must fire on f32 1024-cube (dim in _PALLAS_F32_NO_TILING_DIMS).",
+        )
+        self.assertIn(
+            PallasMatmulF32NoTilingSeedHeuristic.name,
+            bound.config_spec.autotuner_heuristics,
+            "Heuristic name must be recorded so the seed is attributable.",
+        )
+        seed_blocks = (1024, 1024, 1024)
+        seeded = [
+            (
+                tuple(cfg.config.get("block_sizes", ())),
+                cfg.config.get("pallas_loop_type"),
+                cfg.config.get("pallas_pre_broadcast"),
+            )
+            for cfg in bound.config_spec.compiler_seed_configs
+        ]
+        self.assertIn(
+            (seed_blocks, "unroll", True),
+            seeded,
+            "Compiler seed configs must include the no-tiling "
+            "[1024, 1024, 1024] unroll pb=True entry on f32 1024-cube.",
+        )
+
+        # Negative: f32 2048-cube and 4096-cube must NOT be eligible.
+        # If a refactor widens f32 eligibility without per-shape
+        # ablation evidence, this guard surfaces the regression as a
+        # test failure rather than a silent perf drop.
+        for dim in (2048, 4096):
+            big_x = torch.empty(dim, dim, device=DEVICE, dtype=torch.float32)
+            big_y = torch.empty(dim, dim, device=DEVICE, dtype=torch.float32)
+            big_bound = pallas_matmul_f32.bind((big_x, big_y))
+            self.assertFalse(
+                PallasMatmulF32NoTilingSeedHeuristic.is_eligible(
+                    big_bound.env, big_bound.host_function.device_ir
+                ),
+                f"f32 no-tiling heuristic must refuse {dim}-cube — "
+                "forced no-tiling regresses on f32 large shapes per "
+                "ablation.",
+            )
+
     def test_pallas_autotuner_compiler_seed_survives_final_pick(self) -> None:
         """Compiler-seeded members are re-considered during final-pick verification.
 
@@ -1708,6 +1883,150 @@ class TestPallas(TestCase):
         self.assertIn("lax.dot_general(", code)
         self.assertIn("preferred_element_type=jnp.float32", code)
         self.assertNotIn("pl.dot(", code)
+
+    def test_pallas_matmul_dot_general_lowering_fires_on_no_tiling(self) -> None:
+        """No-tiling 2-input matmul emits ``lax.dot_general``, not ``pl.pallas_call``.
+
+        Spies on ``_build_matmul_dot_general_jit_fn``: it runs once on first
+        compile (not on cache-hit repeats) and the output matches the
+        ``pl.pallas_call`` path.
+        """
+        from unittest.mock import patch
+
+        from helion import runtime as helion_runtime
+        from helion.runtime.config import Config
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_dot_general_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        # Force the no-tiling config (block_sizes match input dims).
+        bound = _matmul_dot_general_pin.bind((x, y))
+        no_tiling_cfg = Config(block_sizes=[256, 256, 256])
+
+        with patch.object(
+            helion_runtime,
+            "_build_matmul_dot_general_jit_fn",
+            wraps=helion_runtime._build_matmul_dot_general_jit_fn,
+        ) as build_spy:
+            compiled_fn = bound.compile_config(no_tiling_cfg)
+            result_no_tiling = compiled_fn(x, y)
+            for _ in range(3):
+                compiled_fn(x, y)
+        self.assertEqual(
+            build_spy.call_count,
+            1,
+            "Pure matmul + no-tiling config must lower via ``lax.dot_general`` "
+            "exactly once (first cache-build); cache hits must not rebuild.",
+        )
+
+        # Numerical equivalence to a tiled ``pl.pallas_call`` reference
+        # (within bf16 tolerance — the dot_general path uses XLA's
+        # default precision rules which match Helion-Pallas's
+        # ``preferred_element_type=jnp.float32 + cast-back`` codegen).
+        bound_ref = _matmul_dot_general_pin.bind((x, y))
+        tiled_cfg = Config(block_sizes=[128, 128, 128])
+        with patch.object(
+            helion_runtime,
+            "_build_matmul_dot_general_jit_fn",
+            wraps=helion_runtime._build_matmul_dot_general_jit_fn,
+        ) as build_spy_tiled:
+            compiled_ref = bound_ref.compile_config(tiled_cfg)
+            result_tiled = compiled_ref(x, y)
+        # Tiled config must NOT trigger the lowering.
+        self.assertEqual(
+            build_spy_tiled.call_count,
+            0,
+            "Tiled config (block_size < input_dim) must keep the "
+            "``pl.pallas_call`` path; the dot_general builder must not run.",
+        )
+        max_abs_diff = (
+            (result_no_tiling.float() - result_tiled.float()).abs().max().item()
+        )
+        # bf16 matmul on K=256 with f32 accum is ~1-2e-2 typical;
+        # allow a small tolerance for the dot_general vs pallas_call
+        # rounding differences (both accumulate in f32 then cast back
+        # to bf16, but the order of accumulation differs across paths).
+        self.assertLess(
+            max_abs_diff,
+            5e-2,
+            "dot_general lowering output diverged from pallas_call "
+            f"reference by {max_abs_diff} (>5e-2 tolerance).",
+        )
+
+    def test_pallas_matmul_dot_general_lowering_skips_tiled_configs(self) -> None:
+        """Tiled autotuner configs (block_size < input_dim on any axis)
+        must NOT trigger the ``lax.dot_general`` lowering path —
+        per-launch ``pl.pallas_call`` is faster on multi-launch kernels.
+
+        Pin asserts the counter stays at 0 when the kernel's resolved
+        block_sizes are smaller than the input dims on at least one
+        axis (the usual autotuner pick on shapes where one launch
+        won't fit VMEM, e.g. 4096^3 bf16).
+        """
+        from unittest.mock import patch
+
+        from helion import runtime as helion_runtime
+        from helion.runtime.config import Config
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_tiled_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(512, 512, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(512, 512, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_tiled_pin.bind((x, y))
+        # Block size < input dim on every axis: forces the
+        # ``pl.pallas_call`` tiled path.
+        tiled_cfg = Config(block_sizes=[128, 128, 128])
+
+        with patch.object(
+            helion_runtime,
+            "_build_matmul_dot_general_jit_fn",
+            wraps=helion_runtime._build_matmul_dot_general_jit_fn,
+        ) as build_spy:
+            compiled_fn = bound.compile_config(tiled_cfg)
+            compiled_fn(x, y)
+            compiled_fn(x, y)
+        self.assertEqual(
+            build_spy.call_count,
+            0,
+            "Tiled config must NOT emit lax.dot_general; the "
+            "``pl.pallas_call`` path is more efficient when the "
+            "kernel actually has to tile.",
+        )
 
     def test_bmm(self) -> None:
         """Test BMM with default config — exercises size_matches fix.
