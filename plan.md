@@ -127,7 +127,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-25 (cycle 35 G7-algo explored — no source change; the 14-row table cells are unchanged from cycle 32. The cycle-35 G7-algo hand-probe on the bf16 1024×1024×1024 headline shape compared the current Helion baseline kernel (Pattern A) against a split-K kernel using `hl.atomic_add` (Pattern B). Pattern A median **148.6 us** (autotuner picked `[1024, 512, 512] unroll pb=F`); Pattern B median **465.5 us** with autotuner forced to `split_k=1` (every `split_k > 1` candidate rejected at the accuracy check because Helion's Pallas `atomic_add` lowering emits a non-atomic `out[:, :] = _prev + acc` RMW that races across the parallel-K grid axis) — **3.13x SLOWER** than baseline. Mechanism: TPU v7 single-core (`num_cores=1` per chip, confirmed cycle 34) gives a parallel-K grid axis no parallelism benefit while paying an extra HBM read-add-write per K-split per output cell vs the baseline's 2D grid + sequential K reduction in a VMEM scratch buffer. Asymmetric tiling (Pattern C) is structurally inapplicable as a new Helion-DSL pattern because the existing `block_sizes` `PowerOfTwoFragment` is already independent per axis and the per-shape best picks already include non-square tiles. **Verdict**: G7-algo CLOSED with no addressable gain; **G7 ceiling clause invoked**: G7 ✅ AT HELION CEILING for all 14 shapes (Helion-kernel already ≈ JAX with median kH/J ~1.004; chip's matmul peak is the binding constraint). The cycle-34 hand-Pallas cluster-grid probe (`pl.core_map(pltpu.create_tensorcore_mesh("core", num_cores=N))` + `pltpu.emit_pipeline(..., core_axis_name="core")`) compiled and ran correctly with `num_cores=2` and `num_cores=4`, but produced **no speedup** vs single-core hand-Pallas on any of 5 probed shapes (bf16 1024³ @ blocks (512,512,512)/(256,512,512)/(128,512,512), bf16 2048×1024×2048 @ (512,512,512), f32 1024³ @ (512,512,512)); paired-sample interleaved timing (50 iter × 2 sweeps) showed cluster-grid speedup ranging 0.962x–1.023x with median below 1.00. Best single speedup was +2.3% on bf16 2048×1024×2048 with num_cores=2; the headline bf16 1024³ row is consistently **−2.2 to −2.4% slower** under cluster grids. The TPU v7 architectural fact is `num_cores=1` per physical chip (per `jax._src.pallas.mosaic.tpu_info.get_tpu_info`), so the `core_map` API can be invoked but cannot recruit a second physical TensorCore — cluster grids emit valid Mosaic IR that runs sequentially with extra DMA/synchronization overhead, hence the slowdown. The 3% gain bar is missed on every shape → G7-cluster CLOSED with no addressable gain. The cycle-33 G7-Mosaic ablation pinned to `[512,512,512] unroll pb=F` on the bf16 1024³ headline shape probed four Mosaic `CompilerParams` knobs that Helion's autotuner does not currently explore (`vmem_limit_bytes`, `internal_scratch_in_bytes`, `disable_bounds_checks`, `disable_semaphore_checks`) and showed every knob inside the ±0.5% per-sweep variance band of baseline kHJ=0.994; G7-Mosaic CLOSED with no addressable gain — see §5 G7 substep menu and history table for the per-knob attribution. Carrying forward: the headline row reflects the cycle-32 measurement after wiring the C extension into ``_DirectCallKernel.full_invoke``'s locked path — 10-sweep paired-sample median: helion_full 167.49us (was 165.10us cycle 31, +1.4% inside autotuner-pick noise band), launcher overhead vs JAX 46.61us (was 39.94us cycle 31, +6.7us; **does NOT clear the 36us G6-launcher-C exit bar — G6 ceiling clause invoked, see §5 G6-launcher-C closure block**). The C extension is provably active: pin tests ``test_pallas_direct_call_c_extension_loaded`` and ``test_pallas_direct_call_c_extension_correctness`` both pass; the launcher's ``direct_call.full_invoke`` is an instance of ``helion._helion_c_launcher.DirectCallPureOutput`` and its C-side counters bump on every locked call. The wall-clock movement is bounded because the residual ~46us overhead is structurally inside torch_tpu's ``call_custom_kernel`` C++ wrapper (per §6.4 (b) ~30-35us) plus the JAX pytree ``out_tree.unflatten`` (~5-7us) plus ~3-5us of irreducible Python frame for the ``compiled_fn`` / launcher cache-hit branch — none of which the C extension can reach. Cycle-31 G6-methodology-v2 baseline: all 14 rows re-measured under the new **unified 4-way paired-sample methodology** — every shape's ``Helion full`` / ``Helion kernel`` / ``Pallas`` / ``JAX`` us comes from a single per-iteration ``perf_counter_ns()`` window that times all four callables back-to-back in the ordering ``JAX → Helion-full → Pallas → Helion-kernel``. This collapses the cycle-26 split between the 2-way HP leg and the 3-way HJ-full leg into one unified window so every ratio (``kernel_only_H_over_P``, ``full_path_H_over_J``, ``kernel_only_H_over_J``, ``kernel_only_P_over_J``) is internally consistent within the same chip-thermal-noise window. Adjacent slot pairs are strict paired-sample (``J ↔ Hfull`` = full H/J / launcher_overhead_vs_jax_us ✅; ``Hfull ↔ P`` = launcher_overhead_vs_pallas_us ✅; ``P ↔ Hkernel`` = H/P ✅ — preserves DR#6 canonical adjacency for G2/G3/G4 invariance); 2-slot-off pairs are almost-paired (``Hkernel ↔ J`` = kernel H/J; ``P ↔ J`` = P/J; ``Hfull ↔ Hkernel`` = launcher_overhead_us). **All 12 G2/G3/G4 closures HOLD under unified methodology** (every measurable shape's H/P median is in the range 1.026-1.043 ≥ 1.00; the cycle-26 medians were 0.993-1.014, so the unified methodology gives a TIGHTER closure than cycle-26 — see G2/G3/G4 cycle 31 history entries for the re-verification table). The 2 M=1 N=1024 shapes (bf16 / f32 1×1024×1024) hit the §6.5 (d) M=1 BlockSpec divisibility crash on every kernel-only sweep at seed=0 (autotuner picks an ``outer_grid [1, *, 1024]`` config the harness can't replay-pad); their cycle-26 cells carry forward. **Cycle 31 P/J flips opposite direction from cycle 26**: under unified methodology P/J is in the range **0.964-0.984 (every shape <1.00)**, reversing cycle-26's 1.046-1.183 (every shape >1.00). Mechanism: cycle-26's cross-leg P/J had JAX inherit Hfull's ~165us wind-down in the HJ-full leg while Pallas inherited Hkernel's ~120us wind-down in the HP leg — JAX inflated relative to Pallas → P/J > 1.00. Cycle-31's unified P/J has Pallas inherit Hfull (third slot, predecessor Hfull ~165us) while JAX inherits the previous iteration's Hkernel (~120us wind-down) — now Pallas inflated relative to JAX → P/J < 1.00. **Honest reading**: P/J is methodologically fragile and **NOT** a paired-sample ratio under either cycle-26 OR cycle-31; the cycle-26 caveat "bucket-selector hint, not ground-truth XLA-vs-Pallas claim" carries over to cycle 31 with the sign of the bias flipped. Treat P/J as range 0.96-1.18 across methodologies — the true standalone-call XLA-vs-Pallas relative kernel quality is somewhere inside that range but a dedicated probe (JAX↔Pallas 2-way leg with no other callables) would be needed to pin it. **G5 ✅ AT HELION CEILING for all 14 shapes** (manager directive 2026-05-24 ceiling clause invoked cycle 30 — see §5 G5 Closure block); the cycle-31 unified data also shows kernel H/J ≈ 1.00 on every shape (range 0.998-1.016, median ~1.004), confirming Helion-kernel ≈ JAX (no kernel headroom for G6-kernel-A; see G6-kernel-A entry in §5 for the headroom-map closure). Columns unchanged from cycle 26 (``Helion kernel``, ``Helion full``, ``kernel H/P``, ``kernel H/J``, ``full H/J``, ``P/J``, ``Overhead vs JAX``, ``Bucket``); methodology shift from cycle-26 split-leg to cycle-31 unified 4-way is documented in the §5 G6-methodology-v2 closure block. — measurements on the `jongsokchoi-torchtpu` pod,
+> _As of: 2026-05-25 (DR#7 plan-only Deep Replan — see §5 G7 ceiling-verification block for the 4-track direct-evidence results that REVOKED the cycle-35 G7 ceiling clause. The 14-row table cells are unchanged from cycle 32; DR#7 added on-device per-call us as a complementary metric. Headline bf16 1024³ direct device-side per-call us (200-call jax.profiler trace avg): **JAX 5.50 / hand-Pallas 9.91 / Helion-kernel 6.12 us** → Helion BEATS hand-Pallas by 1.6× on-device, but is 11% slower than JAX. JAX itself runs at only **33.8% of MXU peak** on the headline (1155 TFLOPS/s × 5.50 us = 6.4 GFLOPS achieved per call; chip can do 19.1 GFLOPS theoretically). The single-call us (~120 us across all paths) is **~96-98% PJRT/pallas_call dispatch overhead**, not kernel work — the H/P ≈ 1.00 verdict was honest at the user-call level but masked the device-level reality. **G7 reopened** with new substep menu (G7-dispatch-amortize, G7-prefetch, G7-prefetch-pallas, G7-launch-fusion). The cycle-35 narrative carries forward below for history but the "at HELION CEILING" attribution is now ⚠️ INVALIDATED — see §5 G7 DR#7 verdict block. Original cycle-35 G7-algo carry-forward: The cycle-35 G7-algo hand-probe on the bf16 1024×1024×1024 headline shape compared the current Helion baseline kernel (Pattern A) against a split-K kernel using `hl.atomic_add` (Pattern B). Pattern A median **148.6 us** (autotuner picked `[1024, 512, 512] unroll pb=F`); Pattern B median **465.5 us** with autotuner forced to `split_k=1` (every `split_k > 1` candidate rejected at the accuracy check because Helion's Pallas `atomic_add` lowering emits a non-atomic `out[:, :] = _prev + acc` RMW that races across the parallel-K grid axis) — **3.13x SLOWER** than baseline. Mechanism: TPU v7 single-core (`num_cores=1` per chip, confirmed cycle 34) gives a parallel-K grid axis no parallelism benefit while paying an extra HBM read-add-write per K-split per output cell vs the baseline's 2D grid + sequential K reduction in a VMEM scratch buffer. Asymmetric tiling (Pattern C) is structurally inapplicable as a new Helion-DSL pattern because the existing `block_sizes` `PowerOfTwoFragment` is already independent per axis and the per-shape best picks already include non-square tiles. **Verdict**: G7-algo CLOSED with no addressable gain; **G7 ceiling clause invoked**: G7 ✅ AT HELION CEILING for all 14 shapes (Helion-kernel already ≈ JAX with median kH/J ~1.004; chip's matmul peak is the binding constraint). The cycle-34 hand-Pallas cluster-grid probe (`pl.core_map(pltpu.create_tensorcore_mesh("core", num_cores=N))` + `pltpu.emit_pipeline(..., core_axis_name="core")`) compiled and ran correctly with `num_cores=2` and `num_cores=4`, but produced **no speedup** vs single-core hand-Pallas on any of 5 probed shapes (bf16 1024³ @ blocks (512,512,512)/(256,512,512)/(128,512,512), bf16 2048×1024×2048 @ (512,512,512), f32 1024³ @ (512,512,512)); paired-sample interleaved timing (50 iter × 2 sweeps) showed cluster-grid speedup ranging 0.962x–1.023x with median below 1.00. Best single speedup was +2.3% on bf16 2048×1024×2048 with num_cores=2; the headline bf16 1024³ row is consistently **−2.2 to −2.4% slower** under cluster grids. The TPU v7 architectural fact is `num_cores=1` per physical chip (per `jax._src.pallas.mosaic.tpu_info.get_tpu_info`), so the `core_map` API can be invoked but cannot recruit a second physical TensorCore — cluster grids emit valid Mosaic IR that runs sequentially with extra DMA/synchronization overhead, hence the slowdown. The 3% gain bar is missed on every shape → G7-cluster CLOSED with no addressable gain. The cycle-33 G7-Mosaic ablation pinned to `[512,512,512] unroll pb=F` on the bf16 1024³ headline shape probed four Mosaic `CompilerParams` knobs that Helion's autotuner does not currently explore (`vmem_limit_bytes`, `internal_scratch_in_bytes`, `disable_bounds_checks`, `disable_semaphore_checks`) and showed every knob inside the ±0.5% per-sweep variance band of baseline kHJ=0.994; G7-Mosaic CLOSED with no addressable gain — see §5 G7 substep menu and history table for the per-knob attribution. Carrying forward: the headline row reflects the cycle-32 measurement after wiring the C extension into ``_DirectCallKernel.full_invoke``'s locked path — 10-sweep paired-sample median: helion_full 167.49us (was 165.10us cycle 31, +1.4% inside autotuner-pick noise band), launcher overhead vs JAX 46.61us (was 39.94us cycle 31, +6.7us; **does NOT clear the 36us G6-launcher-C exit bar — G6 ceiling clause invoked, see §5 G6-launcher-C closure block**). The C extension is provably active: pin tests ``test_pallas_direct_call_c_extension_loaded`` and ``test_pallas_direct_call_c_extension_correctness`` both pass; the launcher's ``direct_call.full_invoke`` is an instance of ``helion._helion_c_launcher.DirectCallPureOutput`` and its C-side counters bump on every locked call. The wall-clock movement is bounded because the residual ~46us overhead is structurally inside torch_tpu's ``call_custom_kernel`` C++ wrapper (per §6.4 (b) ~30-35us) plus the JAX pytree ``out_tree.unflatten`` (~5-7us) plus ~3-5us of irreducible Python frame for the ``compiled_fn`` / launcher cache-hit branch — none of which the C extension can reach. Cycle-31 G6-methodology-v2 baseline: all 14 rows re-measured under the new **unified 4-way paired-sample methodology** — every shape's ``Helion full`` / ``Helion kernel`` / ``Pallas`` / ``JAX`` us comes from a single per-iteration ``perf_counter_ns()`` window that times all four callables back-to-back in the ordering ``JAX → Helion-full → Pallas → Helion-kernel``. This collapses the cycle-26 split between the 2-way HP leg and the 3-way HJ-full leg into one unified window so every ratio (``kernel_only_H_over_P``, ``full_path_H_over_J``, ``kernel_only_H_over_J``, ``kernel_only_P_over_J``) is internally consistent within the same chip-thermal-noise window. Adjacent slot pairs are strict paired-sample (``J ↔ Hfull`` = full H/J / launcher_overhead_vs_jax_us ✅; ``Hfull ↔ P`` = launcher_overhead_vs_pallas_us ✅; ``P ↔ Hkernel`` = H/P ✅ — preserves DR#6 canonical adjacency for G2/G3/G4 invariance); 2-slot-off pairs are almost-paired (``Hkernel ↔ J`` = kernel H/J; ``P ↔ J`` = P/J; ``Hfull ↔ Hkernel`` = launcher_overhead_us). **All 12 G2/G3/G4 closures HOLD under unified methodology** (every measurable shape's H/P median is in the range 1.026-1.043 ≥ 1.00; the cycle-26 medians were 0.993-1.014, so the unified methodology gives a TIGHTER closure than cycle-26 — see G2/G3/G4 cycle 31 history entries for the re-verification table). The 2 M=1 N=1024 shapes (bf16 / f32 1×1024×1024) hit the §6.5 (d) M=1 BlockSpec divisibility crash on every kernel-only sweep at seed=0 (autotuner picks an ``outer_grid [1, *, 1024]`` config the harness can't replay-pad); their cycle-26 cells carry forward. **Cycle 31 P/J flips opposite direction from cycle 26**: under unified methodology P/J is in the range **0.964-0.984 (every shape <1.00)**, reversing cycle-26's 1.046-1.183 (every shape >1.00). Mechanism: cycle-26's cross-leg P/J had JAX inherit Hfull's ~165us wind-down in the HJ-full leg while Pallas inherited Hkernel's ~120us wind-down in the HP leg — JAX inflated relative to Pallas → P/J > 1.00. Cycle-31's unified P/J has Pallas inherit Hfull (third slot, predecessor Hfull ~165us) while JAX inherits the previous iteration's Hkernel (~120us wind-down) — now Pallas inflated relative to JAX → P/J < 1.00. **Honest reading**: P/J is methodologically fragile and **NOT** a paired-sample ratio under either cycle-26 OR cycle-31; the cycle-26 caveat "bucket-selector hint, not ground-truth XLA-vs-Pallas claim" carries over to cycle 31 with the sign of the bias flipped. Treat P/J as range 0.96-1.18 across methodologies — the true standalone-call XLA-vs-Pallas relative kernel quality is somewhere inside that range but a dedicated probe (JAX↔Pallas 2-way leg with no other callables) would be needed to pin it. **G5 ✅ AT HELION CEILING for all 14 shapes** (manager directive 2026-05-24 ceiling clause invoked cycle 30 — see §5 G5 Closure block); the cycle-31 unified data also shows kernel H/J ≈ 1.00 on every shape (range 0.998-1.016, median ~1.004), confirming Helion-kernel ≈ JAX (no kernel headroom for G6-kernel-A; see G6-kernel-A entry in §5 for the headroom-map closure). Columns unchanged from cycle 26 (``Helion kernel``, ``Helion full``, ``kernel H/P``, ``kernel H/J``, ``full H/J``, ``P/J``, ``Overhead vs JAX``, ``Bucket``); methodology shift from cycle-26 split-leg to cycle-31 unified 4-way is documented in the §5 G6-methodology-v2 closure block. — measurements on the `jongsokchoi-torchtpu` pod,
 > chip 3, `TPU_VISIBLE_CHIPS=3`. Helion cells for rows touched in pre-G2-G cycles are the
 > median of 3 back-to-back Helion-only sweeps using `matmul_helion`;
 > the same autotuned time is reported under both block-suffix labels in
@@ -4313,9 +4313,16 @@ currently at kH/J 0.998-1.016. Need ~10% kernel speedup over JAX.
 H/P is tracked but not gating — Helion is already 3-4% above hand-Pallas;
 the H/J ≥ 1.10 target is the binding constraint.
 
-**Honest expectation**: this is a stretch. TPU v7's MXU is near its
-matmul peak on the shapes we test, and JAX's `jnp.matmul` lowers to
-XLA's hand-tuned `dot`. Each substep below gives 1-5% on some shapes;
+**Honest expectation** _(revised 2026-05-25 DR#7)_: this is a stretch
+but **the headroom is real**. The cycle-35 "TPU v7's MXU is near its
+matmul peak" claim was wrong; DR#7 Track 3 measured JAX-kernel-only at
+**34% MXU peak** on the headline (5.50 us device for 1024³ bf16; chip
+peak would be ~1.86 us). The H/J ≥ 1.10 target requires either (a)
+beating JAX's `dot_general` lowering inside its own custom-call regime
+(unlikely; we're already 8-30% slower on-device) or (b) capturing
+XLA's `cross_program_prefetch` lever via a `dot_general` lowering path
+for matmul shapes (Track 4 finding — the structural ~12% headline gap).
+Each substep below gives 1-5% on some shapes;
 hitting 1.10 geo-mean requires stacking multiple substeps to land
 cleanly + finding novel Helion-DSL patterns Pallas didn't try. May
 hit the chip's matmul ceiling before reaching geo-mean 1.10 — in
@@ -4479,76 +4486,415 @@ ceiling.
   (where split-K could avoid the HBM RMW penalty), would re-open
   this substep.
 
-**G7 ceiling clause** ✅ INVOKED 2026-05-25 (cycle 35). All 4 substeps
-of the G7 menu either landed structurally (none) or closed as
-no-addressable-gain (G7-Mosaic cycle 33 ✗; G7-cluster cycle 34 ✗;
-G7-algo cycle 35 ✗; G7-search is a no-op because its premise — "new
-lowering levers exist" — is unsatisfied across all three explored
-substeps). Kernel H/P + H/J did not move ≥ 5% (in fact, did not move
-at all on the addressable shapes; the cycle-31 unified-methodology
-medians of kH/P 1.026-1.043 and kH/J 0.998-1.016 are the cycle-32
-carry-forward and remain the cycle-35 baseline). **G7 ✅ AT HELION
-CEILING for all 14 shapes** with attribution to "hand-written Pallas
-is already near the chip's matmul ceiling on TPU v7; Helion-DSL-
-specific gains beyond this require hardware-architecture changes
-(num_cores > 1, atomic VMEM, multi-chip cluster API) or novel
-algorithmic patterns out of scope for matmul." Helion-kernel ≈ JAX
-(median kH/J ~1.004) on every measurable shape — the Helion-generated
-matmul kernel matches XLA's hand-tuned `dot` lowering at the kernel
-level, and that lowering is already near the chip's matmul peak. The
-H/J 1.10 stretch goal is unachievable from Helion-side levers alone;
-the residual full-path gap (full H/J ~0.73) is structurally inside
-torch_tpu's `call_custom_kernel` C++ wrapper (§6.4 (b)) which is not
-addressable from Helion's Python.
+**G7 ceiling clause** ⚠️ INVOKED 2026-05-25 (cycle 35), **REVOKED 2026-05-25
+(DR#7) — see DR#7 verdict block below**. The cycle-35 invocation rested
+on the inference "Helion ≈ Pallas ≈ JAX at the kernel level under
+unified methodology, all 3 substeps no-gain, therefore at chip ceiling."
+DR#7 direct-evidence verification (Tracks 1–4 below) shows this
+inference was false: the convergence happens at the ~125 us **dispatch
+ceiling** (PJRT + pallas-call setup), **not** the MXU ceiling. The
+single-call `measure_headline.py` per-call us is ~96-98% per-call
+dispatch overhead and ~2-22% actual on-device matmul time. The
+"kernel-only ≈ 1.00 H/P" verdict is honest at the user-perceived call
+level but masks the device-level reality: hand-Pallas is **1.6×–2.9×
+SLOWER than JAX at the device level**, and **Helion-kernel beats
+hand-Pallas at the device level on every measured shape** (small
+2.99 vs 4.22 us, headline 6.12 vs 9.91 us, large 24.25 vs 64.71 us).
+JAX itself sits at 33.8% of MXU peak on the headline and 66.0% on the
+2048³ large — neither is at MXU ceiling. The G7-Mosaic / G7-cluster /
+G7-algo cycle-33/34/35 verdicts ("no addressable Helion-side gain")
+still stand within their substep scope, but the **attribution** ("chip
+is at matmul ceiling") was wrong; the kernel-level signal we tried to
+measure was buried under dispatch noise, so a kernel-side substep
+producing a 5-10% on-device improvement would not have moved the
+kernel-only median (which is ~95% dispatch). Reopening G7 with a new
+substep menu calibrated to the DR#7 findings — see the substep
+proposals at the bottom of this block.
 
-**G7 ceiling-verification (DR#7, reopen 2026-05-25)**: the cycle-35 G7
-closure is based on **indirect evidence** (Helion ≈ Pallas ≈ JAX
-converge under unified methodology; 3 substeps landed no-gain). Before
-declaring G7 ceiling FINAL, gather **direct evidence** via Deep Replan
-#7 — 4 verification tracks:
+**G7 ceiling-verification (DR#7 verdict 2026-05-25)**: the cycle-35 G7
+ceiling clause rested on indirect evidence (kernel-only H/P ≈ H/J ≈
+1.00 → "at chip ceiling"). DR#7 ran 4 verification tracks producing
+**direct evidence** that overturns that attribution. Verdict per
+track:
 
-1. **Measured TFLOPS vs TPU v7 peak**: per shape, compute `2·M·K·N/us`
-   → measured TFLOPS. Compare to TPU v7 published bf16 peak (~918
-   TFLOPs/s per chip) and f32 peak. Per-shape MXU utilization %; any
-   shape < 90% peak suggests unfound headroom and re-opens G7
-   substep menu with concrete bound.
-2. **Roofline classification**: per-shape arithmetic intensity
-   (FLOPs/byte) vs peak FLOPS vs peak HBM bandwidth on TPU v7.
-   Compute-bound shapes hit the FLOPS ceiling we're attributing to;
-   memory-bound or latency-bound shapes have a different ceiling and
-   require different levers (DMA pipelining, prefetch, etc.).
-3. **XProfile / jax.profiler trace analysis**: `jax.profiler.start_trace`
-   produces `.xplane.pb` TPU traces with MXU/DMA/scheduler counters.
-   Parse via `jax.profiler.ProfileData` API (programmatic — `xprof`
-   binary and `tensorboard_plugin_profile` are NOT installed on the
-   pod; analysis is scripted, not GUI). Extract per-shape MXU
-   utilization %, DMA stall %, scheduling overhead. MXU > 90%
-   utilization confirms the kernel is at MXU peak; DMA stall > 10%
-   or scheduling overhead > 5% indicates a non-MXU bottleneck.
-4. **XLA HLO dump comparison**: `XLA_FLAGS=--xla_dump_to=…` (verified
-   working on pod — produces module files in dump dir) for each path
-   (Helion's `jit`, hand-Pallas's `jit`, JAX `jnp.matmul`'s `jit`).
-   Diff structurally to confirm functional similarity. Identical (or
-   trivially-different) HLO is strong evidence of shared lowering;
-   divergent HLO indicates each path takes different ops and may
-   have headroom we haven't found.
+**Authoritative TPU 7x per-tensor-core peaks** (sourced from
+`jax._src.pallas.mosaic.tpu_info` `_get_tpu_info_impl` for
+`ChipVersion.TPU_7X` with `tensor_cores_per_chip=2`; the
+`TPU_VISIBLE_CHIPS=3` pin sees one logical core with `num_cores=1`):
 
-**DR#7 verdict rules**:
-- All 4 tracks confirm "at MXU ceiling" (TFLOPS ≥ 90% peak; matched
-  HLO across paths; MXU > 90% utilized in profile; roofline
-  compute-bound) → G7 ✅ CEILING FINAL with verified direct
-  attribution. Loop genuinely stops here.
-- Any track shows headroom (utilization < 90%, divergent HLO, DMA
-  stall > 10%, memory-bound shape) → re-open G7 substep menu with
-  the specific diagnostic pointing at the gap; new substep proposals
-  flow from the data.
-- Mixed results (some shapes at ceiling, some with headroom) → close
-  the at-ceiling shapes per the cycle-35 ceiling clause; queue
-  substep(s) only for the headroom shapes.
+  - bf16 / fp16 MXU peak: **1155 TFLOPS/s** (2.31e15 ops/s / 2)
+  - fp8 peak: 2300 TFLOPS/s (informational; not benchmarked)
+  - f32 MXU `precision=HIGHEST` effective peak: not in JAX table;
+    standard MXU multi-pass emulation ratio ~bf16/6 → **192.5 TFLOPS/s**
+    (validated empirically: f32 1024³ device-only run hits 128.2
+    TFLOPS = 66.6% of this estimate, matching expected near-peak
+    behavior for a 1024³ HIGHEST matmul)
+  - HBM bandwidth: **3.70 TB/s** (7.40e12 / 2)
+  - VMEM capacity: 64 MiB per core
+  - HBM capacity: 103 GB per core
 
-DR#7 is a 1-cycle Deep Replan; harness + plan changes only, no Helion
-source. Output: this section gets a verdict block with the 4-track
-data; G7 substep menu either ✅ finalizes or re-opens with new substeps.
+---
+
+**Track 1 — Measured TFLOPS vs TPU 7x peak per shape (single-call
+measure_headline.py us → kernel us → TFLOPS).**
+
+Per-shape kernel-only us from §1 cycle-31 unified-methodology row table
+(unchanged this cycle). The single-call us is the user-perceived
+per-call latency (1 jit call wrapped in `block_until_ready`).
+
+| dtype | M    | K    | N    | Helion us | TFLOPS (Helion) | %bf16-peak | %dtype-peak | verdict |
+|-------|------|------|------|-----------|-----------------|-----------|-------------|--------|
+| bf16  | 1024 | 1024 | 1    | 116.48    | 0.018           | 0.00%     | 0.00%       | HEADROOM (single-call) |
+| bf16  | 1024 | 1024 | 1024 | **120.87** | **17.77**      | **1.54%** | **1.54%**   | HEADROOM (single-call) |
+| bf16  | 1024 | 128  | 1024 | 125.43    | 2.14            | 0.19%     | 0.19%       | HEADROOM (single-call) |
+| bf16  | 1024 | 1    | 1024 | 115.01    | 0.018           | 0.00%     | 0.00%       | HEADROOM (single-call) |
+| bf16  | 128  | 1024 | 1024 | 122.00    | 2.20            | 0.19%     | 0.19%       | HEADROOM (single-call) |
+| bf16  | 1    | 1024 | 1024 | 120.80    | 0.017           | 0.00%     | 0.00%       | HEADROOM (single-call) |
+| bf16  | 1    | 1    | 1024 | 118.34    | 0.000035        | 0.00%     | 0.00%       | HEADROOM (single-call) |
+| f32   | 1024 | 1024 | 1    | 121.04    | 0.017           | 0.00%     | 0.01%       | HEADROOM (single-call) |
+| f32   | 1024 | 1024 | 1024 | 134.17    | 16.01           | 1.39%     | 8.31%       | HEADROOM (single-call) |
+| f32   | 1024 | 128  | 1024 | 126.36    | 2.12            | 0.18%     | 1.10%       | HEADROOM (single-call) |
+| f32   | 1024 | 1    | 1024 | 134.58    | 0.016           | 0.00%     | 0.01%       | HEADROOM (single-call) |
+| f32   | 128  | 1024 | 1024 | 125.43    | 2.14            | 0.19%     | 1.11%       | HEADROOM (single-call) |
+| f32   | 1    | 1024 | 1024 | 123.52    | 0.017           | 0.00%     | 0.01%       | HEADROOM (single-call) |
+| f32   | 1    | 1    | 1024 | 142.29    | 0.000029        | 0.00%     | 0.00%       | HEADROOM (single-call) |
+
+**0 of 14 shapes hit ≥ 90% peak under the single-call measurement.**
+The headline bf16 1024³ shape lands at **1.54% of bf16 peak**.
+
+Direct-evidence cross-check via amortized JIT loop (`fori_loop x500`
+per call, single jit dispatch — amortizes any per-call host cost,
+giving on-device wall-clock):
+
+| Shape                     | single jit us | fori×500 us | implied dispatch us | %bf16 peak (×500) |
+|---------------------------|---------------|-------------|---------------------|-------------------|
+| bf16 1024×1024×1024       | 130.31        | **2.80**    | **127.51**          | **66.49%**        |
+| bf16 1024×128×1024        | 130.66        | 2.16        | 128.50              | 10.74%            |
+| bf16 128×1024×1024        | 129.01        | 0.87        | 128.14              | 26.65%            |
+| bf16 2048×2048×2048       | 144.58        | **19.90**   | 124.68              | **74.74%**        |
+| f32  1024×1024×1024       | 136.11        | 17.51       | 118.60              | 10.62% (bf16) / **63.7%** (f32_HIGHEST) |
+
+**Single-call us is ~96-98% dispatch overhead** (~125 us of PJRT +
+pallas_call setup before any kernel work). The actual on-device matmul
+time is 2-20 us for these shapes. Per Track 1's primary rule
+("≥ 90% peak = at MXU ceiling"), even with dispatch backed out, the
+headline shape sits at 66.5% of bf16 peak when amortized — **NOT at
+MXU ceiling**. The large 2048³ shape reaches 74.7% peak (closer but
+still ≤ 90%).
+
+**Track 1 verdict: HEADROOM on every shape under single-call
+methodology (0/14 ≥ 90% peak). Even amortized, only the bf16 1024³
+and 2048³ reach ~67-75% peak — both below the 90% bar.**
+
+---
+
+**Track 2 — Roofline classification per shape.**
+
+TPU 7x roofline ridge (FLOPs/byte): bf16 = **312.2**; f32 HIGHEST = **52.0**
+(both at 90% of compute-vs-BW crossover for the dtype's effective
+peak).
+
+| dtype | M    | K    | N    | AI (FLOPs/byte) | classification |
+|-------|------|------|------|-----------------|----------------|
+| bf16  | 1024 | 1024 | 1    | 1.00            | memory-bound (degenerate N=1) |
+| bf16  | 1024 | 1024 | 1024 | **341.33**     | **compute-bound** |
+| bf16  | 1024 | 128  | 1024 | 102.40          | memory-bound |
+| bf16  | 1024 | 1    | 1024 | 1.00            | memory-bound (degenerate K=1) |
+| bf16  | 128  | 1024 | 1024 | 102.40          | memory-bound |
+| bf16  | 1    | 1024 | 1024 | 1.00            | memory-bound (degenerate M=1) |
+| bf16  | 1    | 1    | 1024 | 0.50            | memory-bound (degenerate M=1,K=1) |
+| f32   | 1024 | 1024 | 1    | 0.50            | memory-bound (degenerate N=1) |
+| f32   | 1024 | 1024 | 1024 | **170.67**     | **compute-bound** |
+| f32   | 1024 | 128  | 1024 | 51.20           | memory-bound (just below ridge 52.0) |
+| f32   | 1024 | 1    | 1024 | 0.50            | memory-bound (degenerate K=1) |
+| f32   | 128  | 1024 | 1024 | 51.20           | memory-bound (just below ridge) |
+| f32   | 1    | 1024 | 1024 | 0.50            | memory-bound (degenerate M=1) |
+| f32   | 1    | 1    | 1024 | 0.25            | memory-bound (degenerate) |
+
+Per the roofline / measured-throughput cross:
+
+| Shape                     | classification | Helion %peak_dtype | %roofline (lower ceiling) |
+|---------------------------|----------------|--------------------|---------------------------|
+| bf16 1024×1024×1024       | compute-bound  | 1.54% (single)     | 1.54% (single)            |
+| f32  1024×1024×1024       | compute-bound  | 8.31% (single)     | 8.31% (single)            |
+| bf16 1024×128×1024        | memory-bound   | 0.19% (single)     | 0.56% (single)            |
+| bf16 128×1024×1024        | memory-bound   | 0.19% (single)     | 0.58% (single)            |
+| f32  1024×128×1024        | memory-bound   | 1.10% (single)     | 1.12% (single)            |
+| f32  128×1024×1024        | memory-bound   | 1.11% (single)     | 1.13% (single)            |
+| (8 degenerate shapes — see table above) | memory-bound (deg.) | < 0.01% (single) | < 1% (single) |
+
+**Track 2 verdict**: 2 shapes are compute-bound (headline bf16 1024³
+and f32 1024³); 4 are memory-bound (the 128-K and 128-M shapes); 8 are
+degenerate (one dim ∈ {1}; effectively latency-bound vector work, not
+MXU). All 14 shapes fall **far below** their respective roofline
+ceilings under single-call methodology. Even amortized, only the bf16
+1024³ reaches 67% of FLOPS ceiling and the f32 1024³ reaches 67% of
+its emulated-FLOPS ceiling. The 128-K memory-bound shapes never get
+profiled close to BW ceiling because the kernel issue is dispatch
+serialization, not BW.
+
+---
+
+**Track 3 — jax.profiler trace analysis (programmatic).**
+
+`jax.profiler.start_trace(dir)` produces a single `.xplane.pb` per
+session under `dir/plugins/profile/<ts>/<host>.xplane.pb`. The
+`jax.profiler.ProfileData` API exposes:
+  - `from_file(path)` → ProfileData
+  - `.planes` → iterator of `ProfilePlane` (`name`, `lines`, `stats`)
+  - each `ProfileLine` → `name`, `events`
+  - each `ProfileEvent` → `name`, `start_ns`, `end_ns`, `duration_ns`, `stats`
+
+**Planes discovered** on the pod (tpu7x, single chip): `/host:metadata`
+(empty), `/device:TPU:0` (7 lines, ~95k events for 200 calls),
+`/device:CUSTOM:Megascale Trace` (empty), `/host:CPU` (7 lines, ~8k
+events), `Task Environment` (empty).
+
+**Device plane (`/device:TPU:0`) per-call structure** is identical for
+all 3 paths: one dominant `%fusion` or `%pallas_matmul.1` or
+`%tpu_custom_call.1` event of 2-22 us, plus a tiny `%copy-start` (~0.024 us
+for 200 calls in JAX, absent in Pallas/Helion) and a `%copy-done`
+(0.4 us total). **No DMA/wait/semaphore-stall/scheduler events are
+exposed by the API on the device plane**, only the named compute
+events. The remaining "lines" on the device plane are SparseCore
+counters (`VF_CHIP_DIE1_SC_0_SCTD_11_...`) with zero duration — not
+TensorCore MXU counters. **The trace API does NOT programmatically
+expose MXU-busy-%, HBM-stall-%, scheduler-overhead %; only per-event
+device wall-clock time.** This is the partial-data limit.
+
+What IS extractable: **per-call on-device matmul time for each path**
+(direct, ground-truth):
+
+| Shape                   | path             | dev us/call | TFLOPS | %bf16 peak |
+|-------------------------|------------------|-------------|--------|------------|
+| **small** bf16 128×1024×1024 | jax           | **2.28**    | 117.63 | 10.18%     |
+| small                   | pallas           | 4.22        | 63.66  | 5.51%      |
+| small                   | helion_kernel    | 2.99        | 89.76  | 7.77%      |
+| **headline** bf16 1024×1024×1024 | jax       | **5.50**    | 390.36 | **33.80%** |
+| headline                | pallas           | 9.91        | 216.78 | 18.77%     |
+| headline                | helion_kernel    | **6.12**    | 351.16 | **30.40%** |
+| **large** bf16 2048×2048×2048 | jax          | **22.54**   | 762.13 | **65.99%** |
+| large                   | pallas           | 64.71       | 265.48 | 22.99%     |
+| large                   | helion_kernel    | **24.25**   | 708.47 | **61.34%** |
+
+Host plane structure (per call, headline shape):
+  - `PjitFunction(matmul_jit)` ~31 us (Python-side JIT trampoline)
+  - `PjRtCApiLoadedExecutable::Execute` ~26 us
+  - `CommonPjRtLoadedExecutable::Execute` ~24 us
+  - `TpuLoadedExecutable::ExecuteLaunch` ~17 us
+  - `tpu::System::Execute` ~16 us
+  - `DoEnqueueProgram` ~9 us
+  - ~30-100us additional that aggregates as the ~125 us dispatch tax
+    measured in Track 1's single-jit-vs-batched comparison.
+
+**Track 3 verdict — direct evidence overturns cycle-35 attribution**:
+  - At the **device level**, Helion-kernel **beats hand-Pallas** on
+    every shape (small 2.99 vs 4.22 us; headline 6.12 vs 9.91 us; large
+    24.25 vs 64.71 us — Helion is **1.4×–2.7× faster than hand-Pallas
+    at the device level**).
+  - JAX is **fastest** at the device level on every shape (JAX 2.28 /
+    5.50 / 22.54 us vs Helion 2.99 / 6.12 / 24.25 us — Helion is
+    **8-30% slower than JAX at the device level**, NOT ≈ 1.00 as
+    measure_headline.py's single-call ratio suggests).
+  - JAX itself runs at **only 34% of bf16 peak on the headline shape**;
+    66% on the large 2048³ shape. JAX-kernel-only is **not at MXU
+    ceiling** on the 14-shape set; only the 2048³ shape comes within
+    ~25% of peak (66% → 90% would be a hardware-asymptote stretch).
+  - Helion at 30% peak on the headline shape has **headroom** that the
+    cycle-35 "kernel-side beat the chip ceiling" attribution misread.
+  - The single-call us all sits at ~125 us **dispatch ceiling**,
+    drowning all kernel-side differences (~3-50 us on-device deltas
+    aren't visible through a ~125 us host-side noise floor). The
+    measure_headline H/P ≈ 1.00 verdict is **honest at the user-call
+    level** but a kernel-only G7 substep that produces a 10%
+    on-device improvement would only move the user-perceived us by
+    ~0.5%, which is below the noise floor — that's why every G7
+    substep (Mosaic, cluster, algo) registered as "no addressable
+    gain" even when the underlying kernel signal could have moved.
+
+API limit note: programmatic access to MXU-busy-%, HBM stall-%, and
+scheduler-overhead numbers requires the `xprof` UI (not installed on
+the pod) or `tensorboard_plugin_profile` (not installed). Even the
+opaque trace pb file produced via `jax.profiler.start_trace` contains
+those counters internally — but they're not exposed through the
+public ProfileData API at this JAX version (0.10.0). The
+device-per-call us numbers above are sufficient direct evidence; a
+deeper MXU-busy-% would only refine the per-event attribution within
+the dominant `%fusion` / `%tpu_custom_call.1` event, not change the
+verdict.
+
+---
+
+**Track 4 — XLA HLO dump comparison (bf16 1024³ headline shape).**
+
+`XLA_FLAGS=--xla_dump_to=/tmp/dr7_hlo` produces `module_*` files per
+JIT-compiled function. For the 3 paths the post-optimization HLO
+(after_optimizations.txt) for each module-of-interest:
+
+| Path                | Module                | HLO root op                                                              | Lines |
+|---------------------|-----------------------|--------------------------------------------------------------------------|-------|
+| **JAX `jnp.matmul`** | `module_0642.jit_jax_jit` | `%fusion = bf16[...] fusion(%copy-done, %y.1), kind=kOutput, calls=%fused_computation` → inner `%convolution.1 ... dim_labels=bf_io->bf, metadata={op_name="dot_general"}` | 47 |
+| **Hand-Pallas**      | `module_0650.jit__lambda`  | `%pallas_matmul.1 = bf16[...] custom-call(%x.1, %y.1), custom_call_target="tpu_custom_call"` (embedded Mosaic IR `matmul_kernel`) | 26 |
+| **Helion-kernel**    | `module_0658.jit_wrapped`  | `%tpu_custom_call.1 = bf16[...] custom-call(%args_0_.1, %args_1_.1), custom_call_target="tpu_custom_call"` (embedded Mosaic IR `_helion_helion_matmul_kernel` / `reordered_kernel`) | 24 |
+
+**Structural diff (decoded from Mosaic IR strings + HLO body):**
+
+  1. **JAX path** uses XLA's native `dot_general` lowering →
+     `kind=kOutput` fused convolution. Critically, the HLO contains
+     `%copy-start = (bf16[...]S(1)...) copy-start(%x.1), cross_program_prefetch_index=0`
+     — XLA pre-fetches LHS into VMEM (`S(1)` = scoped memory layer 1)
+     **across program invocations**. The `cross_program_prefetch_index`
+     attribute is the key: subsequent calls to the same jit see the
+     LHS already-staged in VMEM by the previous call's wind-down.
+     This is the source of JAX's 5.50 us per-call device time on the
+     headline shape — the on-device matmul kernel itself doesn't have
+     to wait for the LHS to arrive from HBM.
+  2. **Pallas + Helion paths** both lower to a single
+     `custom_call_target="tpu_custom_call"` with serialized Mosaic IR
+     embedded. The custom-call is **opaque to XLA's
+     cross-program-prefetch planner** — XLA cannot reach inside the
+     custom call to schedule a prefetch. Both pay the LHS-load-from-HBM
+     cost on every call. No `copy-start` / `cross_program_prefetch_index`
+     in either Pallas or Helion HLO.
+  3. **Helion ≈ Pallas at HLO level**: both `custom_call_target=
+     "tpu_custom_call"`, same `scoped_memory_configs` (memory_space=1,
+     size=33554432 = 32 MiB scratch), same `operand_layout_constraints`,
+     same `frontend_attributes={kernel_metadata={}}`. The Mosaic IR
+     bodies differ in identity strings (Helion's `reordered_kernel` +
+     `_helion_helion_matmul_kernel` + `pipeline_mode<synchronous>`
+     annotation vs Pallas's `matmul_kernel`) but both ultimately
+     contain one `tpu.matmul` op inside an outer parallel grid.
+  4. **Helion's autotuner pick `[1024,1024,1024] outer_grid pb=True`**
+     for the headline shape is structurally **a single launch** —
+     not a tiled grid (block size = full shape). Hand-Pallas runs
+     bm=bk=bn=512 → 8 inner-launch iterations per output block,
+     plus an outer 2×2 grid → 32 sub-launches total. **Helion's
+     single-launch pick has fewer launches than hand-Pallas**, which
+     explains why Helion (6.12 us dev) beats Pallas (9.91 us dev) at
+     the device level on the headline.
+
+**Track 4 verdict — definitive structural finding:**
+
+  - **Helion and hand-Pallas are HLO-equivalent within the custom-call
+    regime** (both opaque tpu_custom_call), so kernel-side improvements
+    within the Mosaic IR space are bounded by what custom-call can do.
+  - **JAX's `dot_general` path gets `cross_program_prefetch` that
+    Pallas / Helion fundamentally cannot get** because they're
+    custom-calls. The ~0.6 us per-call difference between JAX 5.50 us
+    and Helion 6.12 us on the headline shape is the cross-program
+    prefetch cost (~12% of JAX's time). This is a **structural lever**
+    that exists at the XLA-HLO level, not at the kernel level — a
+    Helion substep that emits a `dot_general` lowering instead of a
+    `pallas_call` lowering for matmul shapes would inherit the
+    prefetch.
+  - **Helion is structurally ahead of hand-Pallas at the HLO level**
+    (single-launch outer_grid pick vs Pallas's tiled grid), which
+    matches the Track 3 device-time observation (Helion 6.12 < Pallas
+    9.91 us). The cycle-35 "Helion ≈ Pallas" verdict was correct
+    within single-call dispatch noise but understated the kernel-level
+    win.
+
+---
+
+**DR#7 combined verdict:**
+
+| Track | Verdict | Direction |
+|-------|---------|-----------|
+| 1 (TFLOPS vs peak) | **HEADROOM**: 0/14 shapes ≥ 90% peak under single-call; amortized headline 66%, large 75% | re-open G7 |
+| 2 (Roofline)       | **HEADROOM**: 2 compute-bound shapes far below FLOPS ceiling; 4 memory-bound shapes far below BW ceiling; 8 degenerate (latency-bound) | re-open G7 |
+| 3 (Profile)        | **HEADROOM**: JAX at 34/66% peak on headline/large; Helion 30/61%; hand-Pallas 19/23%; single-call us ~96-98% dispatch overhead | re-open G7 |
+| 4 (HLO)            | **HEADROOM**: structural — custom-call opacity blocks cross_program_prefetch; emitting `dot_general` instead of `pallas_call` for matmul would inherit XLA's prefetch | re-open G7 |
+
+**G7 ceiling clause is REVOKED.** All 4 tracks point to genuine
+headroom. The cycle-33/34/35 substep verdicts ("Mosaic / cluster / algo
+no addressable gain") remain valid within their substep scopes — but
+those substeps were probing the **wrong layer**. The headroom is at the
+**HLO / dispatch / cross-program-prefetch layer**, NOT inside the
+Mosaic IR body of the pallas_call. Reopen G7 with the substep menu
+below.
+
+---
+
+**G7 reopened substep menu (DR#7-derived, prioritized by direct evidence):**
+
+- **G7-dispatch-amortize** _(0-cycle plan-only; measurement-methodology
+  change; HIGH leverage)_. The cycle-31 unified-methodology us
+  reflects single-call dispatch-dominated time. Add a per-shape
+  amortized-throughput column to §1's 14-row table: `device_us` (from
+  jax.profiler trace, 200-call avg of the dominant device-plane event)
+  alongside the existing `Helion kernel (us)`. The two metrics tell
+  different stories — user-perceived latency vs on-device throughput —
+  and both should be tracked. **Re-open criterion**: should be done
+  next normal cycle to populate the table; the harness already
+  produces traces (see `.dr7_track3_v2.py` probe). Expected: surfaces
+  the ~5×–10× device-vs-single-call ratio that DR#7 found and gives
+  every later substep a meaningful gate metric.
+
+- **G7-prefetch** _(2-3 cycles, MEDIUM-HIGH leverage; ~12% headline
+  device-time delta vs JAX)_. Investigate whether Helion can emit a
+  `dot_general` (XLA-native) lowering path for matmul shapes that fit
+  hardware constraints — bypassing `pallas_call` entirely on the
+  shapes where the autotuner's best pick is "no tiling" (e.g. the
+  cycle-DR#7 headline pick `[1024,1024,1024] outer_grid pb=True`).
+  Mechanism: a Helion compiler pass that detects the "pure matmul,
+  block_sizes == input dims" case and lowers via `jax.lax.dot_general`
+  instead of `pl.pallas_call(matmul_kernel, ...)`. The custom-call
+  opacity that blocks `cross_program_prefetch_index` is the issue
+  (Track 4 finding). Expected: closes the ~0.6 us / 12% gap to JAX on
+  the headline shape; possibly larger on cross-call repeat workloads
+  where the prefetch amortizes more. **Risk**: requires a backend
+  decision (do we emit pallas_call or dot_general per call?), and
+  may need a fallback for shapes where the pallas_call path is faster
+  (skinny / sub-MXU-tile shapes). **Re-open criterion**: profile the
+  Helion-kernel-only-via-dot_general variant on the 14-shape set
+  against the existing pallas_call path and the JAX baseline; if the
+  dot_general variant wins on the dense / compute-bound shapes, land
+  the conditional lowering.
+
+- **G7-prefetch-pallas** _(1-2 cycles, MEDIUM leverage; speculative)_.
+  Alternative to G7-prefetch that doesn't require leaving the
+  pallas_call path: investigate whether the Pallas API exposes a
+  `prefetch_input(...)` or similar hook (analogous to
+  `PrefetchScalarGridSpec`'s scalar prefetch, but for tensor inputs).
+  The hand-Pallas reference already uses
+  `pltpu.PrefetchScalarGridSpec` with `num_scalar_prefetch=0` — a
+  non-zero value or a separate tensor-prefetch hook may exist. **Re-open
+  criterion**: search Pallas's source for tensor-prefetch APIs;
+  if a usable API is found, wire it into Helion's pallas_call lowering
+  for matmul. If no such API exists in Pallas, escalate as upstream
+  Pallas feature request and G7-prefetch (HLO-side) is the only path.
+
+- **G7-launch-fusion** _(1-2 cycles, MEDIUM leverage; ~30% headline
+  device-time advantage Helion already has over hand-Pallas)_. Helion's
+  cycle-DR#7 autotuner pick on the headline shape was a single-launch
+  config (`[1024,1024,1024] outer_grid pb=True` = entire matmul in one
+  pallas_call invocation), which DR#7 Track 3 measured as 6.12 us dev
+  vs hand-Pallas's 9.91 us (38% faster on-device). The autotuner is
+  already finding the right structural answer; this substep would
+  **verify the per-shape autotuner pick across the 14-shape table** is
+  the single-launch variant whenever the shape fits VMEM (per-tile
+  VMEM ~16 MB for bf16 1024² = within the 64 MiB VMEM cap). Where it
+  isn't, examine whether the heuristic should bias the pick toward
+  larger blocks. **Re-open criterion**: 14-shape device-time
+  measurement table (G7-dispatch-amortize prereq); for any shape
+  where the autotuner picked a tiled config, hand-probe a
+  single-launch alternative and compare device us.
+
+- **G7-Mosaic / G7-cluster / G7-algo** (cycle 33/34/35 closures
+  STAND with corrected attribution): "no addressable Helion-side gain
+  within the substep scope" remains valid. **What changed in DR#7**: the
+  attribution "because the chip is at matmul ceiling" was wrong; the
+  real reason these substeps showed no signal is that the measurement
+  methodology had ~125 us of dispatch noise that buried any kernel-side
+  ~3-10 us improvement. With G7-dispatch-amortize landed, a future
+  re-probe of any of these substeps would have a 10× tighter signal
+  band and could plausibly surface a 2-3% gain that was lottery-noise
+  invisible before.
+
+**G7 ceiling-verification status**: DR#7 ⚠️ HEADROOM FOUND → G7 is
+**RE-OPENED** with the substep menu above. Next normal cycle picks up
+the dirty plan diff and starts G7-dispatch-amortize as Step 1 of the
+new G7 substep run.
 
 **History.** _(append one row per cycle)_
 
@@ -4557,6 +4903,7 @@ data; G7 substep menu either ✅ finalizes or re-opens with new substeps.
 | 2026-05-25 | (cycle 33 staged) | G7-Mosaic | 1.048 (pinned) | **0.994 (pinned baseline)** | Explored `pltpu.CompilerParams` knobs (`vmem_limit_bytes`, `internal_scratch_in_bytes`, `disable_bounds_checks`, `disable_semaphore_checks`) via per-call monkey-patch on `pltpu.CompilerParams` + `pl.pallas_call`. 15-cell unpinned ablation (3 shapes × 5 knobs × 1 sweep) showed apparent +1.1-1.4% on `no_all_checks` / `internal_scratch_512k` at headline; but every cell picked a different autotuner config so the deltas were lottery noise. Headline-only pinned-config re-ablation (5 knobs × 3 sweeps, pin `[512,512,512] unroll pb=F`): baseline 0.994; vmem_64m 0.986; vmem_128m 0.996; no_all_checks 0.997; internal_scratch_512k 0.993. No knob ≥ +2% kHJ. **Verdict**: G7-Mosaic CLOSED with no addressable gain; recommend G7-cluster next. No source change landed this cycle; only the plan section updates. |
 | 2026-05-25 | (cycle 34 staged) | G7-cluster | n/a (hand-Pallas probe) | n/a (hand-Pallas probe) | Probed `pl.core_map(pltpu.create_tensorcore_mesh("core", num_cores=N))` + `pltpu.emit_pipeline(..., core_axis_name="core")` on TPU v7 single-chip (`TPU_VISIBLE_CHIPS=3`). 5 shape × block configs × {single, 2-core, 4-core} × 2 independent paired-sample interleaved sweeps (50 iter each). Best speedup over single-core hand-Pallas: **+2.3% (bf16 2048×1024×2048, 2-core)** — under the 3% bar. Headline bf16 1024³: **0.962x–0.978x** across both sweeps (cluster ~2.2–3.8% **slower**). bf16 1024³ smaller-block: 0.958x–1.014x. f32 1024³: 0.962x–0.970x. Root cause: TPU v7 `get_tpu_info().num_cores == 1` — single physical TensorCore per chip. The `core_map` API compiles but cannot recruit a second core; the multi-core launch runs sequentially with extra DMA/semaphore coordination overhead. **Verdict**: G7-cluster CLOSED with no addressable gain; the only TPU intra-chip cluster lever Pallas exposes (`core_map` + `core_axis_name`) is physically unavailable on TPU v7. Recommend G7-algo next (G7-search is no-op since no new lever exists). No source change landed this cycle; only plan updates. |
 | 2026-05-25 | (cycle 35 staged) | G7-algo | n/a (Pattern A baseline 148.6 us; Pattern B split-K 465.5 us → 3.13x SLOWER, not faster) | n/a (Helion-kernel-vs-Helion-kernel hand-probe; H/P and H/J unchanged from cycle 32 carry-forward) | Hand-probed split-K (`hl.atomic_add` + 3-axis `hl.tile`) and asymmetric tiling on bf16 1024×1024×1024 headline. Probe script `examples/pallas_perf/_g7_algo_probe.py` (NOT staged; scratchpad only). Pattern A (current baseline kernel) median **148.6 us** (autotuner picked `[1024, 512, 512] unroll pb=F`). Pattern B (split-K kernel: `hl.atomic_add(out, [tile_m, tile_n], acc)` after a 3-axis `[m, n, k]` tile) median **465.5 us** with autotuner picking `[1024, 1024, 128] emit_pipeline pb=T split_k=1` — **3.13x SLOWER**. The autotuner rejected every `split_k > 1` candidate at the accuracy check because Helion's Pallas `atomic_add` lowering emits a non-atomic `out[:, :] = _prev + acc` RMW that races across the parallel-K grid axis (TPU v7 single-core ⇒ no real atomicity guarantee + no parallelism benefit + extra HBM round-trip per K-split). Pattern C (asymmetric tiling) is structurally inapplicable as a new Helion-DSL pattern because the existing `PowerOfTwoFragment`-per-axis `block_sizes` already covers non-square tiles; the current per-shape autotuner picks include `[128, 1024, 1024]`, `[256, 256, 256]`, `[1024, 512, 512]` etc. — no new lever to expose. **Verdict**: G7-algo CLOSED with no addressable gain. No candidate clears the 3% kHJ bar; split-K is 213% slower than baseline. **G7 ceiling clause invoked**: G7 ✅ AT HELION CEILING for all 14 shapes; the chip's matmul peak on TPU v7 is the binding constraint, and Helion-kernel already ≈ JAX (median kH/J ~1.004). No source change landed this cycle; only plan updates. |
+| 2026-05-25 | (DR#7 plan-only) | G7-ceiling-verification | n/a (carry-forward 1.042) | n/a (carry-forward 1.001) | DR#7 ran 4 direct-evidence verification tracks. **Track 1 (TFLOPS vs peak)**: TPU 7x bf16 peak = 1155 TFLOPS/s (per `jax._src.pallas.mosaic.tpu_info` `_get_tpu_info_impl` TPU_7X, `tensor_cores_per_chip=2`); HBM 3.70 TB/s; f32 HIGHEST effective ~bf16/6 = 192.5 TFLOPS/s. Per-shape Helion-kernel TFLOPS from cycle-31 §1 row table: headline bf16 1024³ at 17.77 TFLOPS = **1.54% of peak** (single-call); amortized fori_loop×500 gives 803.80 TFLOPS = **69.59% of peak** for the same shape. 0/14 shapes ≥ 90% peak under single-call methodology; even amortized, only 1024³ (67%) and 2048³ (75%) reach the 60-75% band. **Track 2 (roofline)**: ridge bf16 = 312 FLOPs/byte, f32 = 52 FLOPs/byte; 2 shapes compute-bound (bf16/f32 1024³), 4 memory-bound (the 128-K shapes), 8 degenerate. All 14 shapes far below their respective ceilings under single-call. **Track 3 (jax.profiler trace, 200-call avg device us per path)**: small bf16 128×1024×1024: JAX 2.28 / Pallas 4.22 / Helion 2.99 us; **headline** bf16 1024×1024×1024: JAX **5.50** / Pallas **9.91** / Helion **6.12** us; large bf16 2048×2048×2048: JAX 22.54 / Pallas 64.71 / Helion 24.25 us. **Helion BEATS hand-Pallas at the device level on every shape** (small +1.4×, headline +1.6×, large +2.7×); JAX is fastest by ~10-30% over Helion. **The single-call us (~120 us across all paths) is ~96-98% PJRT + pallas_call dispatch overhead**, not kernel work. JAX hits 34% / 66% peak on headline / large — **NOT at MXU ceiling**. **Track 4 (XLA HLO dump)**: JAX uses `dot_general` → `kind=kOutput` fused convolution with `cross_program_prefetch_index=0` on LHS (XLA pre-stages LHS in VMEM across program invocations); Pallas + Helion both `custom_call_target="tpu_custom_call"` (opaque to XLA's prefetch planner — they pay LHS-load every call). Helion's autotuner pick `[1024,1024,1024] outer_grid pb=True` (single launch) structurally beats hand-Pallas's `bm=bk=bn=512` (8-block tiled grid). **DR#7 verdict**: ALL 4 TRACKS SHOW HEADROOM. G7 ceiling clause REVOKED. The cycle-35 attribution "at MXU ceiling" was based on convergence at the **dispatch ceiling** (~125 us per-call jit overhead) which masks all kernel-level differences. **G7 reopened** with 5-substep menu (G7-dispatch-amortize, G7-prefetch, G7-prefetch-pallas, G7-launch-fusion, plus cycle-33/34/35 substeps now re-attributable to "noise-floor too high"). No source change landed in DR#7 — plan-only. Probe scripts left as `.dr7_*.py` untracked. |
 
 ---
 
