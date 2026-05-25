@@ -3174,6 +3174,158 @@ class TestPallas(TestCase):
                 f"{(result.float() - reference.float()).abs().max().item()}).",
             )
 
+    def test_pallas_matmul_dot_general_lowering_fires_on_no_tiling(self) -> None:
+        """Pure 2-input matmul with block_sizes covering input dims emits
+        ``lax.dot_general`` instead of ``pl.pallas_call``.
+
+        The Pallas backend's codegen marks the kernel eligible when:
+        - exactly two input tensor args and one output-only tensor arg;
+        - the device IR contains an ``aten.addmm`` / ``aten.mm`` family op;
+        - every ``block_size`` resolved by the autotuner-picked config
+          covers the corresponding input dim (single-launch case).
+
+        The launcher then substitutes ``jax.jit(lax.dot_general(...))``
+        for ``pl.pallas_call(...)`` — visible to XLA's planner so
+        ``cross_program_prefetch_index`` is reachable on cross-call
+        repeats.  Pin asserts the
+        ``_PALLAS_MATMUL_DOT_GENERAL_LOWERINGS`` counter bumps on
+        first compile + that output is numerically equivalent to the
+        ``pl.pallas_call`` path.
+        """
+        from helion import runtime as helion_runtime
+        from helion.runtime.config import Config
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_dot_general_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        # Force the no-tiling config (block_sizes match input dims).
+        bound = _matmul_dot_general_pin.bind((x, y))
+        no_tiling_cfg = Config(block_sizes=[256, 256, 256])
+
+        helion_runtime._reset_pallas_matmul_dot_general_lowerings()
+        compiled_fn = bound.compile_config(no_tiling_cfg)
+
+        # First call: launcher cache-build path constructs the
+        # ``lax.dot_general`` jit_fn and the counter bumps exactly once.
+        result_no_tiling = compiled_fn(x, y)
+
+        self.assertEqual(
+            helion_runtime._pallas_matmul_dot_general_lowerings(),
+            1,
+            "Pure matmul + no-tiling autotuner config must emit "
+            "``lax.dot_general`` (counter should be 1 after the first "
+            "call's launcher cache-build path).",
+        )
+
+        # Subsequent calls reuse the cached jit_fn — counter stays at 1.
+        for _ in range(3):
+            compiled_fn(x, y)
+        self.assertEqual(
+            helion_runtime._pallas_matmul_dot_general_lowerings(),
+            1,
+            "Launcher cache hits should not re-build the dot_general "
+            "jit_fn; the counter must stay at 1.",
+        )
+
+        # Numerical equivalence to a tiled ``pl.pallas_call`` reference
+        # (within bf16 tolerance — the dot_general path uses XLA's
+        # default precision rules which match Helion-Pallas's
+        # ``preferred_element_type=jnp.float32 + cast-back`` codegen).
+        bound_ref = _matmul_dot_general_pin.bind((x, y))
+        tiled_cfg = Config(block_sizes=[128, 128, 128])
+        helion_runtime._reset_pallas_matmul_dot_general_lowerings()
+        compiled_ref = bound_ref.compile_config(tiled_cfg)
+        result_tiled = compiled_ref(x, y)
+        # Tiled config must NOT trigger the lowering.
+        self.assertEqual(
+            helion_runtime._pallas_matmul_dot_general_lowerings(),
+            0,
+            "Tiled config (block_size < input_dim) must keep the "
+            "``pl.pallas_call`` path; counter should stay at 0.",
+        )
+        max_abs_diff = (
+            (result_no_tiling.float() - result_tiled.float()).abs().max().item()
+        )
+        # bf16 matmul on K=256 with f32 accum is ~1-2e-2 typical;
+        # allow a small tolerance for the dot_general vs pallas_call
+        # rounding differences (both accumulate in f32 then cast back
+        # to bf16, but the order of accumulation differs across paths).
+        self.assertLess(
+            max_abs_diff,
+            5e-2,
+            "dot_general lowering output diverged from pallas_call "
+            f"reference by {max_abs_diff} (>5e-2 tolerance).",
+        )
+
+    def test_pallas_matmul_dot_general_lowering_skips_tiled_configs(self) -> None:
+        """Tiled autotuner configs (block_size < input_dim on any axis)
+        must NOT trigger the ``lax.dot_general`` lowering path —
+        per-launch ``pl.pallas_call`` is faster on multi-launch kernels.
+
+        Pin asserts the counter stays at 0 when the kernel's resolved
+        block_sizes are smaller than the input dims on at least one
+        axis (the usual autotuner pick on shapes where one launch
+        won't fit VMEM, e.g. 4096^3 bf16).
+        """
+        from helion import runtime as helion_runtime
+        from helion.runtime.config import Config
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_tiled_pin(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(512, 512, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(512, 512, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_tiled_pin.bind((x, y))
+        # Block size < input dim on every axis: forces the
+        # ``pl.pallas_call`` tiled path.
+        tiled_cfg = Config(block_sizes=[128, 128, 128])
+
+        helion_runtime._reset_pallas_matmul_dot_general_lowerings()
+        compiled_fn = bound.compile_config(tiled_cfg)
+        compiled_fn(x, y)
+        compiled_fn(x, y)
+        self.assertEqual(
+            helion_runtime._pallas_matmul_dot_general_lowerings(),
+            0,
+            "Tiled config must NOT emit lax.dot_general; the "
+            "``pl.pallas_call`` path is more efficient when the "
+            "kernel actually has to tile.",
+        )
+
     def test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls(
         self,
     ) -> None:

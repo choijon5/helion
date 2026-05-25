@@ -1845,6 +1845,238 @@ class PallasBackend(Backend):
 
         return sorted(set(reduction_dims))
 
+    def _detect_matmul_dot_general_lowering(
+        self,
+        *,
+        sorted_args: list[Argument] | None,
+        config: Config,
+        output_indices: list[int],
+        inplace_indices: list[int],
+        block_spec_info: object,
+    ) -> dict[str, object] | None:
+        """Detect a pure-matmul, no-tiling kernel that the launcher can
+        lower as ``jax.jit(lax.dot_general(...))`` instead of
+        ``pl.pallas_call(...)``.
+
+        Eligibility (all must hold):
+        1. Kernel has exactly 2 input tensor args and 1 output-only
+           tensor arg (the pure-output ``out = matmul(x, y)`` shape).
+           Mixed in-place / output-only kernels and scalar arg kernels
+           are ineligible.
+        2. Every input / output tensor is 2D with matching M/K/N
+           contiguous layout (``x: [M, K]``, ``y: [K, N]``,
+           ``out: [M, N]``).  Higher-rank BMM is intentionally not
+           covered yet — bigger surface and the headline gate signal
+           is 2D anyway.
+        3. The device IR contains exactly one ``aten.addmm`` /
+           ``aten.mm`` / ``aten.bmm`` / ``aten.baddbmm`` family op
+           (``_loop_contains_matmul`` returns True for the root grid
+           loop).
+        4. The autotuner-picked block sizes for every block_id used
+           by the kernel cover the corresponding tensor dim — i.e.
+           the kernel runs as a single launch with no inner K reduction
+           tile.  This is the case where ``lax.dot_general`` is
+           equivalent.
+
+        Returns the lowering spec ``dict`` on a match, ``None``
+        otherwise.  The spec is consumed by
+        ``_build_matmul_dot_general_jit_fn`` in
+        ``helion/runtime/__init__.py``.
+        """
+        from .compile_environment import CompileEnvironment
+        from .device_function import DeviceFunction
+        from .device_function import TensorArg
+        from .host_function import HostFunction
+
+        if sorted_args is None or not output_indices:
+            return None
+        # Only fire on pure-output kernels (no in-place mutation, exactly
+        # one output) — keeps the lowering swap-in surgical and avoids
+        # arg-aliasing semantics.
+        if inplace_indices or len(output_indices) != 1:
+            return None
+
+        # Collect tensor positions among ``sorted_args``.
+        tensor_positions = [
+            i for i, arg in enumerate(sorted_args) if isinstance(arg, TensorArg)
+        ]
+        non_tensor_positions = [
+            i for i, arg in enumerate(sorted_args) if not isinstance(arg, TensorArg)
+        ]
+        # 2 inputs + 1 output, no scalar args.  Scalar args would imply
+        # the kernel isn't a pure ``out = matmul(x, y)``.
+        if non_tensor_positions or len(tensor_positions) != 3:
+            return None
+
+        out_pos = output_indices[0]
+        input_positions = [p for p in tensor_positions if p != out_pos]
+        if len(input_positions) != 2:
+            return None
+
+        lhs_arg = sorted_args[input_positions[0]]
+        rhs_arg = sorted_args[input_positions[1]]
+        out_arg = sorted_args[out_pos]
+        assert isinstance(lhs_arg, TensorArg)
+        assert isinstance(rhs_arg, TensorArg)
+        assert isinstance(out_arg, TensorArg)
+        lhs_t = lhs_arg.fake_value
+        rhs_t = rhs_arg.fake_value
+        out_t = out_arg.fake_value
+        # Require 2D matmul with matching contraction dim and
+        # statically-known shapes.  The static-shape requirement matches
+        # the ``static_shapes=True`` invariant that DR#7's prefetch
+        # ceiling-verification work covers.
+        if lhs_t.ndim != 2 or rhs_t.ndim != 2 or out_t.ndim != 2:
+            return None
+        try:
+            m = int(lhs_t.shape[0])
+            k_lhs = int(lhs_t.shape[1])
+            k_rhs = int(rhs_t.shape[0])
+            n = int(rhs_t.shape[1])
+            out_m = int(out_t.shape[0])
+            out_n = int(out_t.shape[1])
+        except (TypeError, ValueError):
+            return None
+        if k_lhs != k_rhs or out_m != m or out_n != n:
+            return None
+
+        # The device IR must contain a matmul.  Walk the root grid
+        # loop's graph for an ``aten.addmm`` / ``aten.mm`` /
+        # ``aten.bmm`` / ``aten.baddbmm`` family op.  Use the existing
+        # ``_loop_contains_matmul`` helper so the predicate stays in
+        # one place (kept honest by ``test_pallas_direct_call_*``
+        # which exercises the same matmul kernel pattern).
+        device_fn = DeviceFunction.current()
+        device_ir = HostFunction.current().device_ir
+        if not device_ir.grid_block_ids:
+            return None
+        # Iterate root-grid loops; any one containing a matmul
+        # qualifies.  For the standard ``hl.tile([m, n])`` matmul
+        # there is exactly one root grid loop.
+        matmul_present = any(
+            _loop_contains_matmul(device_fn, list(grid_block_ids))
+            for grid_block_ids in device_ir.grid_block_ids
+        )
+        if not matmul_present:
+            return None
+
+        # Identify which input arg is the lhs (M, K) and which is the
+        # rhs (K, N) by shape — the matmul-pattern detection above only
+        # confirms ``aten.addmm`` / ``aten.mm`` is present; the user
+        # may have written ``f(y, x) -> x @ y``.  Shape-based
+        # disambiguation is exact when the input shapes are
+        # asymmetric.  When all dims are equal (e.g. M=K=N=1024 square
+        # matmul, the headline case) both orderings produce the same
+        # output, so either is safe to use.
+        if lhs_t.shape == (m, k_lhs) and rhs_t.shape == (k_lhs, n):
+            lhs_arg_pos = input_positions[0]
+            rhs_arg_pos = input_positions[1]
+        elif lhs_t.shape == (k_lhs, n) and rhs_t.shape == (m, k_lhs):
+            # Swapped — user wrote ``f(y, x) -> x @ y``.  Adjust so
+            # the launcher passes them in (lhs, rhs) order.
+            lhs_arg_pos = input_positions[1]
+            rhs_arg_pos = input_positions[0]
+        else:
+            return None
+
+        # Block sizes for all root-grid block_ids must cover the
+        # corresponding tensor dim.  We do not know which block_id
+        # belongs to which axis (M / N / K) without further analysis;
+        # instead require every block_id resolved by the autotuner
+        # config to have a configured value ≥ max(M, N, K) so any
+        # axis-mapping is single-launch.  Skinny matmuls (e.g. M=1)
+        # naturally pass because every block_size ≥ 1.
+        env = CompileEnvironment.current()
+        all_root_block_ids: set[int] = set()
+        for grid_block_ids in device_ir.grid_block_ids:
+            all_root_block_ids.update(grid_block_ids)
+        # Inner reduction block_ids (K loops) live on the device IR
+        # too — walk device_ir's full block_sizes to catch them.
+        # ``env.block_sizes`` covers every block_id known to the
+        # compiler so iterate that.
+        max_dim = max(m, k_lhs, n)
+        eligible_block_ids: list[int] = []
+        for bid, bsi in enumerate(env.block_sizes):
+            if bsi is None:  # type: ignore[unreachable]
+                continue
+            try:
+                bs = bsi.from_config(config)
+            except Exception:
+                return None
+            if not isinstance(bs, int):
+                return None
+            # Any block_size smaller than the max input dim means the
+            # kernel runs multi-launch on that axis — not a no-tiling
+            # case.  This is conservative (a block_size smaller than
+            # ``max_dim`` but larger than the axis the block actually
+            # tiles would still be single-launch on that axis), but
+            # falls cleanly within the "block_sizes match input dims"
+            # G7-prefetch hypothesis.
+            if bs < max_dim:
+                return None
+            eligible_block_ids.append(bid)
+
+        # Additionally: the ``block_spec_info`` (per-tensor
+        # ``(block_shape, grid_dims)``) must indicate every input /
+        # output tensor is untiled — every grid_dim entry is ``None``.
+        # If the launcher would route through outer-grid BlockSpecs the
+        # ``pl.pallas_call`` pipeline still applies; only the
+        # fully-untiled case is safe to replace with ``dot_general``.
+        if block_spec_info is None or not isinstance(block_spec_info, list):
+            return None
+        # ``block_spec_info`` is indexed by sorted_args position; check
+        # the three tensor positions we care about.
+        for pos in (input_positions[0], input_positions[1], out_pos):
+            if pos >= len(block_spec_info):
+                return None
+            entry = block_spec_info[pos]
+            if entry is None:
+                # ``None`` means "untiled scalar"; here it would be a
+                # tensor with no recorded tiling info — bail.
+                return None
+            block_shape, grid_dims = entry
+            if any(gd is not None for gd in grid_dims):
+                return None
+
+        # All checks passed.  Build the spec the launcher will consume.
+        # Re-resolve lhs/rhs from the disambiguated positions so the
+        # dtype keys match the operand order the launcher will pass.
+        lhs_resolved = sorted_args[lhs_arg_pos].fake_value  # type: ignore[attr-defined]
+        rhs_resolved = sorted_args[rhs_arg_pos].fake_value  # type: ignore[attr-defined]
+        lhs_dtype_str = self.dtype_str(lhs_resolved.dtype)
+        rhs_dtype_str = self.dtype_str(rhs_resolved.dtype)
+        out_dtype_str = self.dtype_str(out_t.dtype)
+        # ``lax.dot_general`` precision keyword: f32 × f32 needs
+        # ``HIGHEST`` to match the existing Helion-Pallas codegen's
+        # ``precision=jax.lax.Precision.HIGHEST`` (see
+        # ``_emit_pallas_matmul`` in ``helion/_compiler/matmul_utils.py``).
+        highest_precision = (
+            lhs_resolved.dtype == torch.float32 and rhs_resolved.dtype == torch.float32
+        )
+        # f32 accumulator needs the narrow → wide preferred dtype +
+        # cast-back for fp16 / bf16 outputs that derive from a
+        # ``hl.zeros([..., float32])`` accumulator.  For f32 inputs
+        # the accumulator is already f32 so no cast.
+        f32_acc = out_t.dtype in (torch.bfloat16, torch.float16)
+        # ``tensor_arg_indices`` (the launcher's input-tensor order)
+        # is the sorted list of tensor positions excluding output-only
+        # positions.  It is built deterministically inside
+        # ``_pallas_prepare_args`` from the runtime ``args`` tuple, so
+        # we map the codegen-time sorted_args positions to the same
+        # tensor-arg ordering by ranking among non-output positions.
+        non_output_positions = sorted(p for p in tensor_positions if p != out_pos)
+        lhs_tensor_arg_index = non_output_positions.index(lhs_arg_pos)
+        rhs_tensor_arg_index = non_output_positions.index(rhs_arg_pos)
+        return {
+            "lhs_tensor_arg_index": int(lhs_tensor_arg_index),
+            "rhs_tensor_arg_index": int(rhs_tensor_arg_index),
+            "lhs_dtype": lhs_dtype_str,
+            "rhs_dtype": rhs_dtype_str,
+            "out_dtype": out_dtype_str,
+            "f32_accumulator": bool(f32_acc),
+            "highest_precision": bool(highest_precision),
+        }
+
     def build_launcher_args(
         self,
         args: list[str],
@@ -2013,6 +2245,27 @@ class PallasBackend(Backend):
 
         if CompileEnvironment.current().settings.pallas_interpret:
             launcher_args.append("_pallas_interpret=True")
+
+        # G7-prefetch: when the kernel reduces to a pure 2D matmul with
+        # ``block_sizes`` covering the input dims (no-tiling case), emit
+        # an extra ``_matmul_dot_general=...`` launcher arg so the
+        # launcher substitutes ``jax.jit(lax.dot_general(...))`` for
+        # ``pl.pallas_call(...)``.  XLA's compilation planner sees
+        # ``dot_general`` and can attach
+        # ``cross_program_prefetch_index=0`` to pre-stage LHS across
+        # program invocations — closing the structural ~12% headline
+        # gap to ``jnp.matmul`` that the ``tpu_custom_call`` opacity
+        # imposes (see DR#7 Track 4 in ``plan.md`` §5 G7).  Falls back
+        # silently when any eligibility check fails.
+        matmul_spec = self._detect_matmul_dot_general_lowering(
+            sorted_args=sorted_args,
+            config=config,
+            output_indices=output_indices,
+            inplace_indices=inplace_indices,
+            block_spec_info=block_spec_info,
+        )
+        if matmul_spec is not None:
+            launcher_args.append(f"_matmul_dot_general={matmul_spec!r}")
 
         return launcher_args
 

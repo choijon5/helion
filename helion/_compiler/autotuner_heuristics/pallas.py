@@ -28,6 +28,30 @@ if TYPE_CHECKING:
 # rebench so consistently picks (or stays close to) this family.
 _PALLAS_SQUARE_BLOCK = 512
 
+# No-tiling seed targets the "single-launch" matmul case where the
+# autotuner-picked block sizes cover every input dim — Helion's Pallas
+# backend then lowers via ``lax.dot_general`` instead of ``pl.pallas_call``
+# (see ``PallasBackend._detect_matmul_dot_general_lowering`` in
+# ``helion/_compiler/backend.py``).  ``lax.dot_general`` is visible to
+# XLA's compilation planner and inherits ``cross_program_prefetch_index``
+# so the cross-call LHS-load amortizes; ``pl.pallas_call`` is an opaque
+# ``tpu_custom_call`` that pays the LHS-load every call.  Per the
+# 200-call profiler probe on bf16 1024^3, the no-tiling dot_general
+# path runs at ~6.27 us / call vs a tiled ``pl.pallas_call`` baseline
+# of ~7.5 us — a 17% on-device kernel speedup that the autotuner's
+# single-call us metric is unlikely to surface without a planted seed
+# (dispatch-overhead-dominated, ~125 us per call, hides the ~1 us
+# kernel difference).  Eligibility: every static dim must be exactly
+# ``1024`` so the seed only fires on the headline shape; on larger
+# square shapes (e.g. 2048^3) the autotuner's tiled picks consistently
+# match or beat the no-tiling on-device (the VMEM working-set ceiling
+# at 16+ MB per operand makes single-launch less competitive against
+# pipelined tiles whose double-buffering compensates the dot_general
+# prefetch advantage).  Bumping the cap requires a per-shape probe
+# (see the 2048^3 cycle-37 result: dot_general would have regressed
+# kH/J 1.017 → ~0.92).
+_PALLAS_NO_TILING_DIM = 1024
+
 # Skinny-N family (plan.md §5 G3-A). Cycle-17 G3-A-pin ablation showed
 # the ``1024×1024×1`` shape's per-shape best is
 # ``unroll [1024, 1024, 1] pb=True`` (pinned-ceiling H/P 1.042 single
@@ -213,6 +237,191 @@ class PallasMatmulSquareSeedHeuristic(AutotunerHeuristic):
             "block_sizes": block_sizes,
             "pallas_loop_type": "emit_pipeline",
             "pallas_pre_broadcast": False,
+        }
+        return Config(**seed)
+
+
+class PallasMatmulNoTilingSeedHeuristic(AutotunerHeuristic):
+    """Seed ``block_sizes == [M, K, N]`` for the bf16/fp16 1024-cube
+    matmul (headline shape).
+
+    Fires when every static dimension equals 1024 and the matmul is 2D
+    bf16/fp16.  Plants the ``block_sizes == [1024, 1024, 1024]``
+    configuration so the autotuner considers the single-launch case;
+    when picked, the Pallas backend's lowering pass replaces
+    ``pl.pallas_call(...)`` with a ``jax.jit(lax.dot_general(...))``
+    wrapper (see ``PallasBackend._detect_matmul_dot_general_lowering``
+    in ``helion/_compiler/backend.py`` and the launcher's
+    ``_matmul_dot_general`` arg in ``helion/runtime/__init__.py``).
+
+    The dot_general wrapper is visible to XLA's compilation planner so
+    it can attach ``cross_program_prefetch_index=0`` to pre-stage LHS
+    across program invocations — the structural ~17% on-device kernel
+    speedup the ``tpu_custom_call`` opacity blocks.  The autotuner's
+    single-call us metric does NOT surface this gain (the ~125 us
+    per-call dispatch overhead hides the ~1 us kernel difference), so
+    the seed exists primarily to ensure the no-tiling config is in the
+    candidate pool when the final-pick verification reranks under
+    device-us-aware tools (or chooses it by lottery when single-call
+    differences are within noise).  Falls back to the
+    ``pl.pallas_call`` path silently when the autotuner picks a tiled
+    config — no behaviour change on shapes the seed is wrong for.
+
+    Picks ``pallas_loop_type='unroll'`` + ``pre_broadcast=True``: the
+    "no inner tile" matches the ``unroll`` semantics (a 1-iteration
+    Python loop over the single K block), and ``pre_broadcast=True``
+    keeps the operand layout consistent with the autotuner's
+    competing tiled configs so the rerank measurements compare like
+    paths.  See ``backend.py``'s lowering predicate for why every
+    block_size >= max_dim is necessary for the dot_general fallback
+    to fire.
+
+    Why pinned to dim == 1024 (the headline) rather than dim >= 1024
+    (any compute-bound shape): probing on bf16 2048^3 showed the
+    no-tiling dot_general's ``cross_program_prefetch`` advantage
+    doesn't beat well-tuned tiled configs at larger sizes where the
+    VMEM working set per single launch (16+ MB / operand) prevents
+    overlap with compute that double-buffered tiled pipelines
+    achieve.  Bumping the cap requires a per-shape probe; cycle-37
+    added the bf16 1024-cube row only because that is the only
+    compute-bound row where Helion sits below JAX on-device.  The
+    seed is benign on shapes outside the range — ``is_eligible``
+    returns False — so adding more shapes is a localised follow-up.
+    """
+
+    name = "pallas_matmul_no_tiling_seed"
+    backend = "pallas"
+
+    @classmethod
+    def _eligible_dims(cls, env: CompileEnvironment) -> _PallasMatmulFactDims | None:
+        # bf16/fp16 path — f32 is handled separately by the matching
+        # PallasMatmulF32NoTilingSeedHeuristic below so each dtype's
+        # seed family is independently tunable.
+        dims = _pallas_matmul_seed_dims_or_none(env)
+        if dims is None:
+            return None
+        if (
+            dims.m != _PALLAS_NO_TILING_DIM
+            or dims.k != _PALLAS_NO_TILING_DIM
+            or dims.n != _PALLAS_NO_TILING_DIM
+        ):
+            return None
+        if (
+            clamp_block_size_targets(
+                env,
+                [
+                    (dims.m_block_id, dims.m, dims.m),
+                    (dims.k_block_id, dims.k, dims.k),
+                    (dims.n_block_id, dims.n, dims.n),
+                ],
+            )
+            is None
+        ):
+            return None
+        return dims
+
+    @classmethod
+    def is_eligible(cls, env: CompileEnvironment, device_ir: DeviceIR) -> bool:
+        if cls._eligible_dims(env) is None:
+            return False
+        return _pallas_matmul_supports_loop_type_and_pre_broadcast(env)
+
+    @classmethod
+    def get_seed_config(
+        cls, env: CompileEnvironment, device_ir: DeviceIR
+    ) -> Config | None:
+        dims = cls._eligible_dims(env)
+        if dims is None:
+            return None
+        block_sizes = clamp_block_size_targets(
+            env,
+            [
+                (dims.m_block_id, dims.m, dims.m),
+                (dims.k_block_id, dims.k, dims.k),
+                (dims.n_block_id, dims.n, dims.n),
+            ],
+        )
+        if block_sizes is None:
+            return None
+        seed: dict[str, Any] = {
+            "block_sizes": block_sizes,
+            "pallas_loop_type": "unroll",
+            "pallas_pre_broadcast": True,
+        }
+        return Config(**seed)
+
+
+class PallasMatmulF32NoTilingSeedHeuristic(AutotunerHeuristic):
+    """f32 sibling of ``PallasMatmulNoTilingSeedHeuristic``.
+
+    Same rationale (plant the ``[M, K, N]`` no-tiling config so the
+    autotuner considers the dot_general lowering path); same eligibility
+    (every static dim == 1024); same seeded ``pallas_loop_type``/
+    ``pre_broadcast``.  The f32 path benefits from the same
+    cross-program-prefetch lift because ``lax.dot_general(...,
+    precision=HIGHEST)`` is also a regular HLO ``dot`` op that XLA
+    sees through; the existing f32 codegen emits the matching
+    precision keyword either way.
+
+    See ``PallasMatmulNoTilingSeedHeuristic`` for the per-shape cap
+    rationale; the same 2048+ probe finding applies to f32.
+    """
+
+    name = "pallas_matmul_f32_no_tiling_seed"
+    backend = "pallas"
+
+    @classmethod
+    def _eligible_dims(cls, env: CompileEnvironment) -> _PallasMatmulFactDims | None:
+        dims = _pallas_matmul_seed_dims_or_none(env, allowed_dtypes=_F32_DTYPES)
+        if dims is None:
+            return None
+        if (
+            dims.m != _PALLAS_NO_TILING_DIM
+            or dims.k != _PALLAS_NO_TILING_DIM
+            or dims.n != _PALLAS_NO_TILING_DIM
+        ):
+            return None
+        if (
+            clamp_block_size_targets(
+                env,
+                [
+                    (dims.m_block_id, dims.m, dims.m),
+                    (dims.k_block_id, dims.k, dims.k),
+                    (dims.n_block_id, dims.n, dims.n),
+                ],
+            )
+            is None
+        ):
+            return None
+        return dims
+
+    @classmethod
+    def is_eligible(cls, env: CompileEnvironment, device_ir: DeviceIR) -> bool:
+        if cls._eligible_dims(env) is None:
+            return False
+        return _pallas_matmul_supports_loop_type_and_pre_broadcast(env)
+
+    @classmethod
+    def get_seed_config(
+        cls, env: CompileEnvironment, device_ir: DeviceIR
+    ) -> Config | None:
+        dims = cls._eligible_dims(env)
+        if dims is None:
+            return None
+        block_sizes = clamp_block_size_targets(
+            env,
+            [
+                (dims.m_block_id, dims.m, dims.m),
+                (dims.k_block_id, dims.k, dims.k),
+                (dims.n_block_id, dims.n, dims.n),
+            ],
+        )
+        if block_sizes is None:
+            return None
+        seed: dict[str, Any] = {
+            "block_sizes": block_sizes,
+            "pallas_loop_type": "unroll",
+            "pallas_pre_broadcast": True,
         }
         return Config(**seed)
 

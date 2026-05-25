@@ -712,6 +712,36 @@ def _bump_output_tensor_allocations() -> None:
     _OUTPUT_TENSOR_ALLOCATIONS += 1
 
 
+# Per-launcher-build count of "pure-matmul, no-tiling" lowerings that
+# bypass ``pl.pallas_call`` and emit ``lax.dot_general`` instead.  The
+# Pallas backend's codegen marks a kernel eligible when (a) its device IR
+# contains exactly one ``aten.addmm`` / ``aten.mm`` / ``aten.bmm`` /
+# ``aten.baddbmm`` family op, (b) every tile-loop block size resolved by
+# the autotuner-picked config covers the corresponding input dim (i.e.
+# the kernel runs as a single launch), and (c) the kernel has exactly
+# two input tensors and one output-only tensor.  On match the launcher
+# substitutes a ``jax.jit`` wrapper around ``jnp.matmul`` (or
+# ``lax.dot_general`` for f32-HIGHEST) for the ``pl.pallas_call``
+# wrapper — visible to XLA's compilation so the planner can attach
+# ``cross_program_prefetch_index`` and pre-stage operands across
+# program invocations.  Bumps once per launcher slow-path build (NOT
+# once per call); pin tests assert the counter increments when a
+# matmul-no-tiling kernel is first executed and stays flat when the
+# launcher hits a non-eligible kernel.
+_PALLAS_MATMUL_DOT_GENERAL_LOWERINGS = 0
+
+
+def _pallas_matmul_dot_general_lowerings() -> int:
+    """Return the count of matmul → dot_general lowerings built."""
+    return _PALLAS_MATMUL_DOT_GENERAL_LOWERINGS
+
+
+def _reset_pallas_matmul_dot_general_lowerings() -> None:
+    """Reset the matmul → dot_general lowering counter (test instrumentation)."""
+    global _PALLAS_MATMUL_DOT_GENERAL_LOWERINGS
+    _PALLAS_MATMUL_DOT_GENERAL_LOWERINGS = 0
+
+
 # Per-call direct-dispatch sig-check elisions.  G5-launcher-Y squeeze:
 # after the first successful direct-dispatch hit on a static-shape
 # launcher cache entry, the per-arg ``(shape, dtype)`` signature is
@@ -1985,6 +2015,82 @@ def _pallas_apply_ds_padding(
     return tuple(args_list), orig_output_tensors
 
 
+def _build_matmul_dot_general_jit_fn(
+    spec: dict[str, object],
+) -> Callable[..., object]:
+    """Build a ``jax.jit``-decorated ``lax.dot_general`` wrapper for a
+    Pallas-matmul kernel that the compiler determined runs as a single
+    launch with ``block_sizes`` covering the input dims.
+
+    The wrapper has the same call signature as the ``pl.pallas_call``
+    it replaces (positional tensor inputs in ``tensor_arg_indices``
+    order, single output) so the downstream torch_tpu ``JaxCallable``
+    pipeline can dispatch without modification.  XLA sees the wrapper
+    as a regular ``dot_general`` op (kind=kOutput fused convolution
+    with ``cross_program_prefetch_index`` available); the Pallas
+    ``custom_call`` opacity that blocks XLA's prefetch planner is
+    bypassed.
+
+    ``spec`` carries the lhs/rhs tensor-arg positions plus the
+    f32-accumulator and precision flags needed to reproduce the
+    existing Helion-Pallas codegen's matmul numerics.  See
+    ``PallasBackend._detect_matmul_dot_general_lowering`` in
+    ``helion/_compiler/backend.py`` for the eligibility predicate and
+    construction of *spec*.
+    """
+    global _PALLAS_MATMUL_DOT_GENERAL_LOWERINGS
+    _PALLAS_MATMUL_DOT_GENERAL_LOWERINGS += 1
+
+    import jax
+    import jax.lax as lax
+    import jax.numpy as jnp
+
+    out_dtype_str = cast("str", spec["out_dtype"])
+    out_jnp_dtype = cast("Any", _pallas_jnp_dtype_map().get(out_dtype_str, jnp.float32))
+    f32_accumulator = bool(spec.get("f32_accumulator"))
+    use_highest_precision = bool(spec.get("highest_precision"))
+    lhs_idx = int(cast("int", spec["lhs_tensor_arg_index"]))
+    rhs_idx = int(cast("int", spec["rhs_tensor_arg_index"]))
+
+    # Choose the precision keyword to match the existing Helion-Pallas
+    # codegen (see ``_emit_pallas_matmul`` / ``matmul_utils.py``):
+    # f32 × f32 uses ``Precision.HIGHEST`` so the TPU MXU multiplies
+    # in full f32 instead of falling back to its default bf16-internal
+    # accumulation.  bf16 / fp16 use the JAX default which already
+    # accumulates in f32 on TPU.
+    precision = lax.Precision.HIGHEST if use_highest_precision else None
+
+    if f32_accumulator and out_jnp_dtype is not jnp.float32:
+        # Match the existing codegen's ``preferred_element_type=jnp.float32``
+        # followed by ``lax.convert_element_type(..., out_dtype)`` cast.
+        def matmul_fn(*tensor_inputs: Any) -> Any:  # noqa: ANN401
+            lhs = tensor_inputs[lhs_idx]
+            rhs = tensor_inputs[rhs_idx]
+            result = lax.dot_general(
+                lhs,
+                rhs,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+                preferred_element_type=jnp.float32,
+                precision=precision,
+            )
+            return lax.convert_element_type(result, out_jnp_dtype)
+
+    else:
+        # f32 inputs (no narrowing cast) or fp32-output bf16 matmul.
+        def matmul_fn(*tensor_inputs: Any) -> Any:  # noqa: ANN401
+            lhs = tensor_inputs[lhs_idx]
+            rhs = tensor_inputs[rhs_idx]
+            return lax.dot_general(
+                lhs,
+                rhs,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+                preferred_element_type=out_jnp_dtype,
+                precision=precision,
+            )
+
+    return cast("Callable[..., object]", jax.jit(matmul_fn))
+
+
 def default_pallas_launcher(
     pallas_kernel: object,
     grid: tuple[int, ...],
@@ -1995,6 +2101,7 @@ def default_pallas_launcher(
     _smem_arg_indices: list[int] | None = None,
     _ds_pad_dims: list[tuple[int, int, int, int]] | None = None,
     _pallas_interpret: bool | None = None,
+    _matmul_dot_general: dict[str, object] | None = None,
     **kwargs: object,
 ) -> object:
     """Default launcher for Pallas kernels on TPU (or CPU with interpret=True).
@@ -2184,10 +2291,23 @@ def default_pallas_launcher(
         pallas_call_kwargs["in_specs"] = in_specs
         pallas_call_kwargs["out_specs"] = out_specs
 
-    jit_fn = pl.pallas_call(
-        reordered_kernel,  # pyrefly: ignore[bad-argument-type]
-        **pallas_call_kwargs,  # type: ignore[arg-type]
-    )
+    if _matmul_dot_general is not None:
+        # G7-prefetch: substitute a ``jax.jit(lax.dot_general)`` wrapper
+        # for ``pl.pallas_call`` so XLA's compilation planner sees a
+        # regular ``dot`` op rather than an opaque
+        # ``custom_call_target="tpu_custom_call"``.  The opacity blocks
+        # XLA's cross-program-prefetch planner from pre-staging LHS in
+        # VMEM across program invocations; once visible, the planner can
+        # attach ``cross_program_prefetch_index=0`` so the kernel pays
+        # the LHS-load cost amortized across calls instead of paying it
+        # every call.  Only fired by codegen when block_sizes cover the
+        # input dims (no-tiling case).
+        jit_fn = _build_matmul_dot_general_jit_fn(_matmul_dot_general)
+    else:
+        jit_fn = pl.pallas_call(
+            reordered_kernel,  # pyrefly: ignore[bad-argument-type]
+            **pallas_call_kwargs,  # type: ignore[arg-type]
+        )
 
     jax_callable = _pallas_build_callable(
         pallas_kernel,
@@ -2246,6 +2366,7 @@ def default_pallas_pipeline_launcher(
     _smem_arg_indices: list[int] | None = None,
     _reduction_grid_dims: list[int] | None = None,
     _pallas_interpret: bool | None = None,
+    _matmul_dot_general: dict[str, object] | None = None,
     **kwargs: object,
 ) -> object:
     """Launcher for Pallas kernels using PrefetchScalarGridSpec with scratch memory.
@@ -2446,10 +2567,16 @@ def default_pallas_pipeline_launcher(
     if interpret:
         pallas_call_kwargs["interpret"] = True
 
-    jit_fn = pl.pallas_call(
-        reordered_kernel,  # pyrefly: ignore[bad-argument-type]
-        **pallas_call_kwargs,  # type: ignore[arg-type]
-    )
+    if _matmul_dot_general is not None:
+        # G7-prefetch: substitute ``lax.dot_general`` for ``pl.pallas_call``
+        # on no-tiling matmul configs.  See ``_build_matmul_dot_general_jit_fn``
+        # and ``default_pallas_launcher`` for the rationale.
+        jit_fn = _build_matmul_dot_general_jit_fn(_matmul_dot_general)
+    else:
+        jit_fn = pl.pallas_call(
+            reordered_kernel,  # pyrefly: ignore[bad-argument-type]
+            **pallas_call_kwargs,  # type: ignore[arg-type]
+        )
 
     jax_callable = _pallas_build_callable(
         pallas_kernel,
