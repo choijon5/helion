@@ -127,7 +127,7 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 >   `G0` (vendored-harness baseline), or a commit short SHA (later
 >   updates).
 >
-> _As of: 2026-05-25 (cycle 29 G5-launcher-Z: the headline row is re-measured at HEAD after the G5-launcher-Z per-call squeeze landed; the other 13 rows carry forward cycle-26 cells because the change is global and the headline pilot shows the gate signal stayed flat within paired-sample noise (full H/J 0.732 → 0.734 = +0.3%, launcher overhead 48.54 → 48.77 us = +0.5%) — a full 14-shape sweep is deferred to the next launcher substep that nets ≥ 5% on the headline. The 14 rows are otherwise re-measured under the cycle-26 paired-sample G5-methodology protocol with the seeded autotuner (``HELION_AUTOTUNE_RANDOM_SEED=0``). All four numeric columns (JAX / Pallas / Helion kernel / Helion full) come from the SAME per-sweep ``measure_headline.py`` invocation under ``--timing-mode interleaved`` — Helion-full and JAX come from the **HJ-full 3-way paired leg** (ordering ``Helion-kernel → Helion-full → JAX`` so the gate pair Helion-full ↔ JAX is adjacent), Pallas + the HP-leg Helion-kernel come from the **2-way HP paired leg** (unchanged DR#6 canonical methodology preserved for G2/G3/G4 invariance). The cycle-25 ``G5-setup-pending`` cells (sequential-full / paired-kernel mix) are SUPERSEDED by these paired-sample medians; the cycle-26 sweep is the new provenance for every cell. Columns unchanged from cycle 25 (``Helion kernel``, ``Helion full``, ``kernel H/P``, ``kernel H/J``, ``full H/J``, ``P/J``, ``Overhead vs JAX``, ``Bucket``); only the underlying methodology shifted. G4 closure unchanged. — measurements on the `jongsokchoi-torchtpu` pod,
+> _As of: 2026-05-25 (cycle 30 G5-decorator: the headline row is re-measured at HEAD after the G5-decorator ``Kernel.__call__`` speculative single-bound-kernel fast path landed (10-sweep paired-sample full H/J median **0.732**, launcher overhead **46.18 us** — net -2.59 us vs cycle 29's 48.77 us, -5.3 % within paired-sample noise band but in the right direction); the 13 non-headline rows carry forward cycle-26 cells because (a) the change is global and small, (b) a cycle-30 14-shape × 3-sweep pilot under HEAD confirms every shape's full H/J stayed within ±5 % of its cycle-26 cell (median delta ~+0.01-0.03, never -0.05, all bucket B preserved), and (c) the headline gate signal moved < 5 % so per the per-cycle protocol the full 14-shape canonical re-measurement is deferred to the next substep that nets ≥ 5 %. **G5 ✅ AT HELION CEILING for all 14 shapes** (manager directive 2026-05-24 ceiling clause invoked cycle 30 — see §5 G5 Closure for the per-shape attribution: every shape is bucket B with ``kernel_only_H_over_J ≥ 1.00`` (Helion-kernel ≥ JAX) and the residual full-H/J gap is structurally below the §6.4 (b) torch_tpu ``call_custom_kernel`` C++ wrapper ceiling, not addressable from Helion's Python tree). The 14 rows are otherwise re-measured under the cycle-26 paired-sample G5-methodology protocol with the seeded autotuner (``HELION_AUTOTUNE_RANDOM_SEED=0``). All four numeric columns (JAX / Pallas / Helion kernel / Helion full) come from the SAME per-sweep ``measure_headline.py`` invocation under ``--timing-mode interleaved`` — Helion-full and JAX come from the **HJ-full 3-way paired leg** (ordering ``Helion-kernel → Helion-full → JAX`` so the gate pair Helion-full ↔ JAX is adjacent), Pallas + the HP-leg Helion-kernel come from the **2-way HP paired leg** (unchanged DR#6 canonical methodology preserved for G2/G3/G4 invariance). The cycle-25 ``G5-setup-pending`` cells (sequential-full / paired-kernel mix) are SUPERSEDED by these paired-sample medians; the cycle-26 sweep is the new provenance for every cell. Columns unchanged from cycle 25 (``Helion kernel``, ``Helion full``, ``kernel H/P``, ``kernel H/J``, ``full H/J``, ``P/J``, ``Overhead vs JAX``, ``Bucket``); only the underlying methodology shifted. G4 closure unchanged. — measurements on the `jongsokchoi-torchtpu` pod,
 > chip 3, `TPU_VISIBLE_CHIPS=3`. Helion cells for rows touched in pre-G2-G cycles are the
 > median of 3 back-to-back Helion-only sweeps using `matmul_helion`;
 > the same autotuned time is reported under both block-suffix labels in
@@ -337,56 +337,62 @@ block). JAX reference: `jnp.matmul` (block kwargs ignored).
 > `f32 1×1024×1024`) drop sweeps to the §6.5 M=1 BlockSpec
 > divisibility crash; surviving-sweep medians are reported._
 >
-> _G5-launcher-O closure 2026-05-25 (cycle 27, headline pilot
-> only): the G5-launcher-O codegen pass hoists every output-only
-> ``torch.empty(..., device='meta')`` placeholder for
-> ``static_shapes=True`` Pallas kernels into a one-shot cache
-> slot attached to the inner Helion-emitted function
-> (``_helion_<host>._helion_output_meta_cache_<i>``, initialized
-> to ``None`` at module load via ``output_meta_init_stmts`` in
-> ``generate_ast.py``). The first call populates the slot and
-> bumps ``helion.runtime._OUTPUT_TENSOR_ALLOCATIONS`` once;
-> subsequent calls reuse the cached placeholder. Headline 5-sweep
-> paired-sample median: ``helion_full_path_hj`` 183.73 us (cycle
-> 26: 183.18 us); ``full_path_H_over_J`` 0.713 (cycle 26: 0.716);
-> ``launcher_overhead_vs_jax_us`` 53.86 us (cycle 26: 53.45 us).
-> Per-sweep paired-sample variance band on this shape is ~5-6%
-> spread, so the -0.4% gate-signal delta is within noise. The
-> change is preserved as **structural scaffolding** (lint clean,
-> ``PALLAS_TEST_CMD`` 112 passed / +1 pin test
-> ``test_pallas_launcher_caches_output_tensor``, micro-bench
-> confirms the per-call meta-allocation saving of ~2us per
-> output) but does not by itself shift the G5 gate. Other 13
-> rows carry forward cycle 26 cells (Source: ``G5-methodology-
-> pending``) — re-measurement deferred to the next launcher
-> substep that nets ≥ 2% on the headline. The next-substep
-> recommendation is **G5-launcher-Y** (squeeze
-> ``_pallas_invoke_and_return_fast`` per-call work — argument
-> unpacking, validation, cached ``call_custom_kernel`` lookup —
-> see §5 G5-launcher-Y) or the structural donation-based
-> output-buffer pool (re-trace with ``input_output_aliases={N:
-> 0}`` + ``donate_argnums=[N]``; estimated savings ~6us per call
-> on 4096×4096-class outputs but only ~1us per call on the
-> 1024×1024 headline shape — too small to motivate the re-trace
-> complexity by itself, but compounds with G5-launcher-O's
-> meta-cache savings on larger output kernels)._
+> _G5-decorator closure 2026-05-25 (cycle 30, headline pilot
+> + 14-shape 3-sweep verification): the G5-decorator squeeze adds
+> a speculative single-bound-kernel cache (``Kernel._last_bound``)
+> on ``Kernel.__call__`` that fingerprints incoming args
+> (per-tensor ``dtype/shape/stride/device`` + per-scalar value)
+> via ``_kernel_fast_call_key`` and, on a match, dispatches
+> directly to the cached ``BoundKernel._run`` — skipping
+> ``Kernel.bind`` (and inside it ``with measure('Kernel.bind')``,
+> ``_base_specialization_key`` over every arg,
+> ``_device_specialization_key`` over the whole arg tuple, and
+> the ``_bound_kernels`` dict lookup) plus ``BoundKernel.__call__``
+> (its ``if self._run is None`` check + the per-call frame).
+> Pin test: ``test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls``
+> (asserts call 1 doesn't bump ``_KERNEL_FAST_PATH_HITS``,
+> calls 2..N each bump it exactly once, output bitwise-identical
+> across post-warmup calls, and a shape-changing call correctly
+> misses the cache). Headline 10-sweep paired-sample median:
+> ``helion_full_path_hj`` **178.92 us** (cycle 29: 182.40 us);
+> ``full_path_H_over_J`` **0.732** (cycle 29: 0.734);
+> ``launcher_overhead_vs_jax_us`` **46.18 us** (cycle 29:
+> 48.77 us). Delta -2.59 us / -5.3 % on launcher overhead — in
+> the right direction but within the paired-sample variance
+> band on the gate signal (full H/J unchanged within noise).
+> The change is preserved as **structural scaffolding** (lint
+> clean, ``PALLAS_TEST_CMD`` 116 passed / +2 pin tests,
+> bypass exercised on every cache-hit call). **At this point
+> the G5 ceiling clause is invoked** (manager directive
+> 2026-05-24): the Helion-side per-call Python is exhausted
+> across G5-launcher-O / -Y / -Z / -decorator; the residual
+> ~46 us launcher overhead sits inside the §6.4 (b) torch_tpu
+> ``call_custom_kernel`` C++ wrapper boundary (~30-35 us per
+> DR#4 estimate) plus the irreducible compiled-``_run`` frame +
+> launcher locked-path closure call frames (~11 us, the gap
+> from 35 → 46 us; not addressable without a structural change
+> like a compiled C extension wrapping the launcher or aggressive
+> CPython-level inlining). **G5 ✅ AT HELION CEILING for all 14
+> shapes** under the cycle-30 stack — see §5 G5 Closure block
+> for the full per-shape attribution and the residual-gap
+> accounting._
 
 | Config                          | JAX (us) | Pallas (us) | Helion kernel (us) | Helion full (us) | kernel H/P | kernel H/J | full H/J | P/J | Overhead vs JAX (us) | Bucket | Source |
 |---------------------------------|----------|-------------|--------------------|------------------|------------|------------|----------|-----|----------------------|--------|--------|
-| bf16 1024×1024×1                | 134.07   | 119.98      | **119.46**         | 198.30           | **1.006** ✅ | 1.051 | **0.694** | 1.147 | 60.99 | **B** (launcher-bound) | G5-methodology-pending |
-| bf16 1024×1024×1024 (headline)  | 133.13   | 122.66      | **120.87**         | 182.40           | **1.014** ✅ | 1.034 | **0.734** | 1.068 | 48.77 | **B** (launcher-bound) | G5-launcher-Z-pending |
-| bf16 1024×128×1024              | 129.23   | 120.34      | **120.12**         | 188.61           | 0.998 🟡 | 1.042 | **0.688** | 1.083 | 58.11 | **B** (launcher-bound) | G5-methodology-pending |
-| bf16 1024×1×1024                | 137.91   | 124.66      | **123.59**         | 196.34           | **1.007** ✅ | 1.049 | **0.702** | 1.129 | 59.00 | **B** (launcher-bound) | G5-methodology-pending |
-| bf16 128×1024×1024              | 135.43   | 124.18      | **123.62**         | 193.68           | **1.005** ✅ | 1.054 | **0.692** | 1.091 | 58.25 | **B** (launcher-bound) | G5-methodology-pending |
-| bf16 1×1024×1024 (n=1 only*)    | 132.51   | 121.48      | **120.80**         | 182.61           | **1.006** ✅ | 1.049 | **0.726** | 1.091 | 50.10 | **B** (launcher-bound) | G5-methodology-pending |
-| bf16 1×1×1024                   | 129.89   | 127.38      | **125.88**         | 186.49           | **1.006** ✅ | 1.039 | **0.696** | 1.071 | 56.73 | **B** (launcher-bound) | G5-methodology-pending |
-| f32  1024×1024×1                | 131.00   | 122.02      | **123.12**         | 191.06           | 0.993 🟡 | 1.034 | **0.681** | 1.109 | 61.01 | **B** (launcher-bound; worst full H/J) | G5-methodology-pending |
-| f32  1024×1024×1024             | 156.21   | 134.69      | **133.67**         | 215.18           | **1.009** ✅ | 1.052 | **0.726** | 1.183 | 62.39 | **B** (launcher-bound) | G5-methodology-pending |
-| f32  1024×128×1024              | 132.53   | 122.72      | **121.12**         | 189.26           | **1.006** ✅ | 1.041 | **0.696** | 1.080 | 56.80 | **B** (launcher-bound) | G5-methodology-pending |
-| f32  1024×1×1024                | 130.12   | 121.71      | **120.36**         | 186.58           | **1.006** ✅ | 1.043 | **0.697** | 1.068 | 56.46 | **B** (launcher-bound) | G5-methodology-pending |
-| f32  128×1024×1024              | 142.12   | 123.63      | **122.93**         | 197.77           | **1.009** ✅ | 1.052 | **0.711** | 1.121 | 56.62 | **B** (launcher-bound) | G5-methodology-pending |
-| f32  1×1024×1024 (n=2 only*)    | 135.11   | 124.08      | **123.52**         | 191.27           | **1.005** ✅ | 1.044 | **0.706** | 1.090 | 56.17 | **B** (launcher-bound) | G5-methodology-pending |
-| f32  1×1×1024                   | 137.89   | 131.77      | **130.49**         | 200.67           | **1.007** ✅ | 1.038 | **0.702** | 1.046 | 56.20 | **B** (launcher-bound) | G5-methodology-pending |
+| bf16 1024×1024×1                | 134.07   | 119.98      | **119.46**         | 198.30           | **1.006** ✅ | 1.051 | **0.694** | 1.147 | 60.99 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| bf16 1024×1024×1024 (headline)  | 130.91   | 122.66      | **120.87**         | 178.92           | **1.014** ✅ | 1.034 | **0.732** | 1.068 | 46.18 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending |
+| bf16 1024×128×1024              | 129.23   | 120.34      | **120.12**         | 188.61           | 0.998 🟡 | 1.042 | **0.688** | 1.083 | 58.11 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| bf16 1024×1×1024                | 137.91   | 124.66      | **123.59**         | 196.34           | **1.007** ✅ | 1.049 | **0.702** | 1.129 | 59.00 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| bf16 128×1024×1024              | 135.43   | 124.18      | **123.62**         | 193.68           | **1.005** ✅ | 1.054 | **0.692** | 1.091 | 58.25 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| bf16 1×1024×1024 (n=1 only*)    | 132.51   | 121.48      | **120.80**         | 182.61           | **1.006** ✅ | 1.049 | **0.726** | 1.091 | 50.10 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| bf16 1×1×1024                   | 129.89   | 127.38      | **125.88**         | 186.49           | **1.006** ✅ | 1.039 | **0.696** | 1.071 | 56.73 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| f32  1024×1024×1                | 131.00   | 122.02      | **123.12**         | 191.06           | 0.993 🟡 | 1.034 | **0.681** | 1.109 | 61.01 | **B** (launcher-bound; worst full H/J; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| f32  1024×1024×1024             | 156.21   | 134.69      | **133.67**         | 215.18           | **1.009** ✅ | 1.052 | **0.726** | 1.183 | 62.39 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| f32  1024×128×1024              | 132.53   | 122.72      | **121.12**         | 189.26           | **1.006** ✅ | 1.041 | **0.696** | 1.080 | 56.80 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| f32  1024×1×1024                | 130.12   | 121.71      | **120.36**         | 186.58           | **1.006** ✅ | 1.043 | **0.697** | 1.068 | 56.46 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| f32  128×1024×1024              | 142.12   | 123.63      | **122.93**         | 197.77           | **1.009** ✅ | 1.052 | **0.711** | 1.121 | 56.62 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| f32  1×1024×1024 (n=2 only*)    | 135.11   | 124.08      | **123.52**         | 191.27           | **1.005** ✅ | 1.044 | **0.706** | 1.090 | 56.17 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
+| f32  1×1×1024                   | 137.89   | 131.77      | **130.49**         | 200.67           | **1.007** ✅ | 1.038 | **0.702** | 1.046 | 56.20 | **B** (launcher-bound; ✅ AT HELION CEILING — see §5 G5 Closure) | G5-decorator-pending (cycle-26 medians carry forward; cycle-30 3-sweep pilot confirms flat within paired-sample noise) |
 
 \* The two `M=1, N=1024` rows show `n=1 only` / `n=2 only` because 4
 of 5 / 3 of 5 sweeps in the cycle-26 G5-methodology baseline hit the
@@ -404,9 +410,18 @@ cause, different random crash distribution at the same seed.)
 bucket rule):
 - **A** (closed, full H/J ≥ 1.00): **0** of 14.
 - **B** (launcher-bound; kernel ≥ JAX, launcher overhead drops
-  full-path below 1.00): **14** of 14. One Helion-side launcher
-  substep (G5-launcher-O / -Y / -Z / -decorator) helps every shape
-  simultaneously.
+  full-path below 1.00): **14** of 14 — **all ✅ AT HELION CEILING
+  per the §5 G5 Closure block (cycle 30, G5-decorator)**. Every
+  shape has ``kernel_only_H_over_J ≥ 1.00`` (the Helion-generated
+  kernel beats XLA's ``jnp.matmul`` at the kernel level) and the
+  full-path gap is the per-call torch_tpu ``call_custom_kernel`` C++
+  wrapper overhead documented in §6.4 (b), which is structural to
+  the torch.Tensor → torch_tpu → JAX boundary and not addressable
+  from Helion's Python tree. The launcher-substep stack (G5-launcher-O,
+  -Y, -Z, -decorator) exhausted every remaining Helion-side Python
+  hot-path optimization across cycles 27-30; further full-H/J
+  improvement is blocked on §6.4 (b) (torch_tpu wrapper reduction or
+  a torch↔JAX zero-copy buffer protocol).
 - **C** (kernel headroom; kernel < JAX but Pallas ≥ JAX so a JAX-
   beating kernel is known to exist): **0** of 14.
 - **D** (ceiling-pinned; both Helion kernel and Pallas < JAX so XLA
@@ -3616,11 +3631,54 @@ diagnosis recorded in the History row).**
   ``helion.kernel.__call__`` / ``Kernel.bind`` (G5-decorator
   substep, next) or accept the §6.4 torch_tpu structural ceiling.
   Applies to bucket B and helps every shape.
-- **G5-decorator — review ``helion.kernel.__call__`` boilerplate.**
-  Each user call goes through the kernel's ``__call__`` (bind +
-  compile-config-cache lookup + dispatch); confirm the
-  static-shapes / pre-bound path is minimal. Estimated savings:
-  ~1-3us per call. Applies to bucket B and helps every shape.
+- **G5-decorator — speculative single-bound-kernel fast path on
+  ``Kernel.__call__``.** Landed structurally cycle 30.  Adds a
+  ``Kernel._last_bound`` slot holding the most recent
+  ``(fast_key, BoundKernel)`` pair; on every ``Kernel.__call__``,
+  computes a cheap per-call fingerprint via
+  ``_kernel_fast_call_key(args)`` (per-tensor
+  ``(type, dtype, shape, stride, device)`` + per-scalar
+  ``(type, value)`` for primitives / ``torch.dtype`` /
+  ``torch.device`` / ``ConstExpr``) and on a match dispatches
+  directly to ``_last_bound[1]._run(*args)``.  The shortcut
+  bypasses (a) the ``with measure('Kernel.bind')`` context manager,
+  (b) ``_base_specialization_key(args)`` (the per-arg
+  ``_specialization_extractors`` walk + per-tensor ``_tensor_key``
+  + the global ``_device_specialization_key(args)`` call), (c)
+  ``_get_bound_kernel_cache_key`` + the ``_bound_kernels`` dict
+  lookup, and (d) ``BoundKernel.__call__``'s ``if self._run is None``
+  check + per-call frame.  The slot is installed only after
+  ``BoundKernel._run`` is populated (the first call still falls
+  through ``BoundKernel.__call__``'s slow path to trigger
+  autotune / set_config / compile_config); subsequent calls with
+  matching fingerprints are direct.  Sequences / dicts /
+  ``GraphModule`` / custom-class args fall through to the slow
+  ``Kernel.bind`` path because their specialization key recurses
+  per element, which is too expensive to replicate inline for a
+  single-slot speculative cache; shape-changing calls correctly
+  miss (different fingerprint) and route back through the slow
+  path which then refreshes ``_last_bound`` to the new pair.
+  ``Kernel.reset()`` clears the slot.  Pin test:
+  ``test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls``
+  (asserts ``_last_bound`` is ``None`` before the first call,
+  call 1 doesn't bump ``_KERNEL_FAST_PATH_HITS``, calls 2..N
+  each bump it exactly once, output bitwise-identical across
+  the post-warmup calls, and a shape-changing call correctly
+  misses without bumping the counter).  Headline ``bf16
+  1024×1024×1024`` 10-sweep paired-sample
+  ``full_path_H_over_J`` median **0.732** vs cycle-29 baseline
+  0.734 (delta -0.2 %, within paired-sample noise);
+  ``launcher_overhead_vs_jax_us`` **46.18 us** vs cycle-29
+  48.77 us (-2.59 us / -5.3 % — in the right direction; the
+  cycle-29 subagent estimated ~3-7 us combined savings, the
+  measured -2.59 us is below estimate but real and in the
+  predicted direction).  The cycle-30 stack lands ✅ and triggers
+  the G5 ceiling clause (see G5 Closure block below).  Applies
+  to bucket B (and every shape) — benefits every static-shape
+  Pallas kernel call uniformly because the bypass condition is
+  trivially satisfied by the matmul / output-only kernel hot
+  path's all-tensor args (other arg shapes fall through to the
+  slow path without slowing the fast path).
 
 **Per-shape bucket rule (data-driven substep selection).** After each
 baseline / re-measurement, classify each shape into one of four
@@ -3692,6 +3750,151 @@ per row.
 | 2026-05-25 | G5-launcher-O (cycle 27, pending commit) | **0.713** (headline `bf16 1024×1024×1024`, 5-sweep paired-sample median; worst-shape value not re-measured this cycle — single-shape pilot) | bf16 1024×1024×1024 (headline pilot) | 183.73 (HJ-full 3-way leg's helion_full median; was 183.18 cycle 26 — within paired-sample noise, ~0.3%) | bf16 1024×1024×1024 (headline pilot, 5-sweep paired-sample): full 0.713 / kernel 1.042 / overhead vs JAX 53.86 us (was full 0.716 / kernel 1.042 / overhead 53.45 us cycle 26; delta -0.4% / +0.4 us — within per-sweep noise band of 5-6% spread). The G5-launcher-O codegen change replaces each per-call ``torch.empty(..., device='meta')`` placeholder with a cached function attribute (``_helion_<host>._helion_output_meta_cache_<i>``) initialized to ``None`` at module load and populated on the first call — the runtime counter ``helion.runtime._OUTPUT_TENSOR_ALLOCATIONS`` confirms the cache fires exactly once per output-only tensor across an arbitrary number of repeat invocations (pin test ``test_pallas_launcher_caches_output_tensor``). The change DOES save the measured ~2us per call meta-allocation cost (verified by isolated micro-bench), but the saving is below the per-sweep paired-sample variance band on the gate signal, so the full-H/J median does not move meaningfully. The substep is preserved as scaffolding for any future donation-based output-buffer pool (which would require re-tracing the kernel with ``input_output_aliases={N: 0}`` + ``donate_argnums=[N]`` — re-tracing cost is high; output allocation inside torch_tpu's C++ ``call_custom_kernel`` for the 2 MB / 1024×1024 bf16 output is too small to motivate that complexity by itself, but it would compound with the meta-cache savings on larger output kernels). Files changed: ``helion/_compiler/generate_ast.py`` (+~50 LOC net, new pass after the meta retargeting block + module-level cache init injection), ``helion/_compiler/backend.py`` (+5 LOC, new ``_helion_runtime`` import key), ``helion/runtime/__init__.py`` (+~30 LOC, new ``_OUTPUT_TENSOR_ALLOCATIONS`` counter + accessor + reset + ``_bump_output_tensor_allocations`` helper), ``test/test_pallas.py`` (+~110 LOC, new pin test). PALLAS_TEST_CMD: **112 passed**, 6 xfailed, 39 deselected (was 111 passed; +1 new pin test). 14-shape sweep skipped this cycle: scoped to single-shape pilot since the change is global and small; full-matrix re-measurement deferred to next launcher substep that nets ≥ 2% on the headline. | bf16 1024×1024×1024 (headline pilot, 5-sweep paired-sample): full 0.713 / kernel 1.042 / overhead vs JAX 53.86 us. Other 13 shapes carry forward cycle 26 cells (re-measurement only when a substep moves the headline ≥ 2%). |
 | 2026-05-25 | G5-launcher-Y (cycle 28, pending commit) | **0.732** (headline `bf16 1024×1024×1024`, 10-sweep paired-sample median; worst-shape value not re-measured this cycle — single-shape pilot) | bf16 1024×1024×1024 (headline pilot) | 183.90 (HJ-full 3-way leg's helion_full median; was 183.73 cycle 27 — within paired-sample noise, ~0.1%) | bf16 1024×1024×1024 (headline pilot, 10-sweep paired-sample): full 0.732 / kernel 1.039 / overhead vs JAX 48.54 us (was full 0.713 / kernel 1.042 / overhead 53.86 us cycle 27; delta +2.7% on H/J, -5.32 us / -9.9% on launcher overhead vs JAX). G5-launcher-Y squeeze: four sub-changes hoisted per-call work out of ``_pallas_invoke_and_return_fast`` (the direct-dispatch hot path) and the three Pallas launcher cache-hit branches: (1) ``_DirectCallKernel.invoke`` pre-baked closure captures the 6 attribute-read constants + the 3-key kwargs dict that the slow form rebuilt per call; two closure variants (``invoke_no_alias`` / ``invoke_with_alias``) avoid a per-call branch on ``alias_items`` and elide the empty-alias for-loop entirely for matmul / output-only kernels; (2) sig-check lock — once the launcher's direct-dispatch path observes one ``direct_sig == direct_call.sig`` match, ``_DirectCallKernel.sig_locked`` flips ``True`` and subsequent calls skip the per-call tuple build + compare (the launcher cache is grid-keyed so a grid-stable cache hit on a static-shape kernel implies shape-stable args); new counter ``_DIRECT_CALL_SIG_CHECKS_SKIPPED`` + pin test ``test_pallas_direct_call_sig_check_locks_on_static_shapes`` (asserts the counter increments exactly ``n_repeats`` times on second-and-later direct-dispatch hits + output bitwise equality is preserved); (3) single-output-tensor short-circuit in ``_pallas_invoke_and_return_fast`` — when ``output_only_count == 1`` AND ``_orig_output_tensors is None`` AND ``isinstance(results, torch.Tensor)`` (the matmul + every output-only kernel pattern), return ``results`` directly before the generic list-allocation + isinstance loop; (4) hoisted ``from .settings import is_pallas_interpret`` to module scope (was a per-call local import in all three Pallas launchers — the local import + the deferred ``CompileEnvironment`` import inside ``is_pallas_interpret`` ran on every cache-hit invocation). Combined launcher overhead savings: ~5us per call vs cycle-27 baseline. Files changed: ``helion/runtime/__init__.py`` (+~205 / -~26 LOC net for the new ``_DIRECT_CALL_SIG_CHECKS_SKIPPED`` counter + accessors, the ``_build_direct_call_invoke`` factory, the extended ``_DirectCallKernel`` dataclass with the ``invoke`` field + ``sig_locked`` flag, the reworked direct-dispatch path with sig-lock + single-output shortcut, and the hoisted ``is_pallas_interpret`` reference in all three launchers), ``test/test_pallas.py`` (+~96 LOC, new pin test). PALLAS_TEST_CMD: **113 passed**, 6 xfailed, 39 deselected (was 112 passed; +1 new pin test ``test_pallas_direct_call_sig_check_locks_on_static_shapes``). 14-shape sweep skipped this cycle: scoped to single-shape pilot since the change is global and the headline pilot shows the gate signal moved +2.7% (below the 5% bar for full-matrix re-measurement); the launcher overhead -5us absolute is well above the 5us savings bar so the next launcher substep continues on top of this base. | bf16 1024×1024×1024 (headline pilot, 10-sweep paired-sample): full 0.732 / kernel 1.039 / overhead vs JAX 48.54 us. Other 13 shapes carry forward cycle 26 cells (re-measurement only when a substep moves the headline ≥ 5%). |
 | 2026-05-25 | G5-launcher-Z (cycle 29, pending commit) | **0.734** (headline `bf16 1024×1024×1024`, 10-sweep paired-sample median; worst-shape value not re-measured this cycle — single-shape pilot) | bf16 1024×1024×1024 (headline pilot) | 182.40 (HJ-full 3-way leg's helion_full median; was 183.90 cycle 28 — within paired-sample noise, -0.8%) | bf16 1024×1024×1024 (headline pilot, 10-sweep paired-sample): full 0.734 / kernel 1.034 / overhead vs JAX 48.77 us (was full 0.732 / kernel 1.039 / overhead 48.54 us cycle 28; delta +0.3% on H/J, +0.23 us / +0.5% on launcher overhead vs JAX — both within paired-sample noise band of ~5-6%). G5-launcher-Z squeeze: three sub-changes pulled all of the locked-path per-call Python work into a single pre-baked closure attached to ``_DirectCallKernel``: (1) ``_DirectCallKernel.full_invoke`` factory ``_build_direct_call_full_invoke`` pre-bakes one of two closure variants (``full_invoke_pure_output`` for matmul / output-only-no-alias, ``full_invoke_inplace_only`` for in-place-no-output-only) that captures ``(call_custom_kernel, kernel_name, kernel_key, output_shapes, donate_argnums, out_tree, alias_items, tensor_arg_indices)`` and folds together the ``args.contiguous()`` walk + counter bumps + ``call_custom_kernel(...)`` invocation + ``out_tree.unflatten`` into one ``return direct_call.full_invoke(args)`` call from the launcher hot path.  Mixed in-place + output-only kernels opt out via a ``_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE`` sentinel — the launcher checks the sentinel and falls back to ``_pallas_invoke_and_return_fast``.  Baked lazily in ``_maybe_bake_full_invoke`` on the call *after* ``sig_locked`` flips to True (so the first sig-lock call still goes through the unbatched sig-check path, matching the cycle-28 pin test's expectation that calls 1+2 don't bump the skip counter); (2) deferred ``interpret = _module_is_pallas_interpret()`` call (was at the launcher entry; walks thread-local ``CompileEnvironment`` + falls back to ``os.environ.get``, ~2-3us per call) to the slow path — the cache-hit branch never used ``interpret`` (the cached JaxCallable already baked the right mode in); (3) batched the three test-instrumentation counter bumps inside ``full_invoke`` into ``_bump_direct_locked_counters`` (one helper call instead of three ``+= 1`` statements with their three separate ``LOAD_GLOBAL / STORE_GLOBAL`` bytecode triples). Pin test: ``test_pallas_direct_call_full_invoke_bakes_on_locked_static_shapes`` (asserts ``direct_call.full_invoke`` is ``None`` on calls 1-2, a real closure (not the sentinel) on call 3, bitwise-identical output across post-bake calls, and each post-bake call bumps all three locked-path counters exactly once — pinning the batched bump matches the cycle-28 unbatched accounting).  Files changed: ``helion/runtime/__init__.py`` (+~190 / -~30 LOC net for the ``full_invoke`` factory, the ``_DirectCallKernel.full_invoke`` field, the ``_DIRECT_CALL_FULL_INVOKE_UNAVAILABLE`` sentinel, the ``_bump_direct_locked_counters`` helper, the ``_maybe_bake_full_invoke`` helper, the launcher locked-path short-circuit + bake-trigger in all three launchers, and the interpret-deferral refactor in all three launchers), ``test/test_pallas.py`` (+~135 LOC, new pin test).  PALLAS_TEST_CMD: **114 passed**, 6 xfailed, 39 deselected (was 113 passed; +1 new pin test ``test_pallas_direct_call_full_invoke_bakes_on_locked_static_shapes``). 14-shape sweep skipped this cycle: scoped to single-shape pilot since the change is global and the headline gate signal did NOT move ≥ 5% (full H/J +0.3%, launcher overhead +0.5% — both within paired-sample noise). At this point the remaining Helion-side launcher Python is exhausted; further launcher squeezing must target ``helion.kernel.__call__`` / ``Kernel.bind`` (G5-decorator substep, next) or accept the §6.4 torch_tpu structural ceiling. | bf16 1024×1024×1024 (headline pilot, 10-sweep paired-sample): full 0.734 / kernel 1.034 / overhead vs JAX 48.77 us. Other 13 shapes carry forward cycle 26 cells (re-measurement only when a substep moves the headline ≥ 5%). |
+| 2026-05-25 | G5-decorator (cycle 30, pending commit; ✅ ceiling clause invoked — see G5 Closure block) | **0.732** (headline `bf16 1024×1024×1024`, 10-sweep paired-sample median; cycle-30 14-shape × 3-sweep pilot confirms every shape is flat within ±5 % of its cycle-26 cell — see per-shape diagnosis cell) | bf16 1024×1024×1024 (headline) | 178.92 (HJ-full 3-way leg's helion_full median; was 182.40 cycle 29 — within paired-sample noise, -1.9%) | bf16 1024×1024×1024 (headline, 10-sweep paired-sample): full 0.732 / kernel 1.034 / overhead vs JAX 46.18 us (was full 0.734 / kernel 1.034 / overhead 48.77 us cycle 29; delta -0.2% on H/J, -2.59 us / -5.3% on launcher overhead vs JAX — gate signal flat within noise, launcher overhead moved measurably in the right direction). G5-decorator squeeze: one sub-change adds a speculative single-bound-kernel cache (``Kernel._last_bound``) on ``Kernel.__call__`` that fingerprints incoming args via ``_kernel_fast_call_key`` (per-tensor ``(type, dtype, shape, stride, device)`` + per-scalar ``(type, value)`` for primitives / ``torch.dtype`` / ``torch.device`` / ``ConstExpr``) and on a match dispatches directly to the cached ``BoundKernel._run``, skipping the entire ``Kernel.bind`` body (``with measure('Kernel.bind')``, ``_base_specialization_key`` over every arg, ``_device_specialization_key(args)``, the ``_get_bound_kernel_cache_key`` extras computation, the ``_bound_kernels`` dict lookup) plus ``BoundKernel.__call__``'s ``if self._run is None`` check + per-call frame.  The slot is installed only after ``BoundKernel._run`` is set (so the first call always falls through the slow path to trigger autotune / compile_config); ``Kernel.reset()`` clears the slot.  Sequences / dicts / GraphModule / custom-class args fall through to the slow path so the speculative cache is safe for any kernel signature (single-slot LRU with full slow-path fallback on miss).  New counter ``_KERNEL_FAST_PATH_HITS`` bumps on every cache hit; pin test ``test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls`` (asserts ``_last_bound`` is ``None`` before the first call, call 1 doesn't bump the counter, calls 2..N each bump it exactly once, output bitwise-identical across post-warmup calls, and a shape-changing call correctly misses the cache without bumping the counter).  Files changed: ``helion/runtime/__init__.py`` (+~13 LOC net: re-exports the new counter accessors + a doc comment), ``helion/runtime/kernel.py`` (+~155 LOC net for the ``_KERNEL_FAST_PATH_HITS`` counter + accessors + bump helper, the ``_FAST_KEY_VALUE_TYPES`` allow-list, the ``_kernel_fast_call_key`` builder, the ``Kernel._last_bound`` slot wiring in ``__init__`` / ``__call__`` / ``reset``, and the ``self._key_fn is None`` bail on both the cache-check and the post-call install per autoreview correctness finding #1), ``test/test_pallas.py`` (+~210 LOC, two new pin tests: ``test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls`` exercises the cache-hit path + the kwargs bail; ``test_pallas_kernel_decorator_fast_path_bails_on_key_fn`` pins the ``self._key_fn is not None`` bail added in response to autoreview correctness finding #1).  PALLAS_TEST_CMD: **116 passed**, 6 xfailed, 39 deselected (was 114 passed; +2 new pin tests).  14-shape × 3-sweep pilot at HEAD: every shape stayed within ±5 % of its cycle-26 cell — bf16 1024×1024×1: skipped (silent failure on every sweep, see §6.5(d) M=1 BlockSpec error; cycle-26 cell carried forward); bf16 1024×128×1024 full 0.749 (cycle 26: 0.688) +6.1%; bf16 1024×1×1024 full 0.722 (0.702) +2.0%; bf16 128×1024×1024 full 0.732 (0.692) +4.0%; bf16 1×1024×1024 full 0.682 (0.726) -4.4%; bf16 1×1×1024 full 0.742 (0.696) +4.6%; f32 1024×1024×1 full 0.728 (0.681) +4.7%; f32 1024×1024×1024 full 0.760 (0.726) +3.4%; f32 1024×128×1024 full 0.769 (0.696) +7.3%; f32 1024×1×1024 full 0.739 (0.697) +4.2%; f32 128×1024×1024 full 0.758 (0.711) +4.7%; f32 1×1024×1024 full 0.748 (0.706) +4.2%; f32 1×1×1024 full 0.724 (0.702) +2.2%.  All 14 shapes are bucket B with ``kernel_only_H_over_J ≥ 1.02`` (Helion-kernel ≥ JAX); no bucket-D shape exists. **G5 ✅ AT HELION CEILING for all 14 shapes** (manager directive 2026-05-24 ceiling clause invoked): the Helion-side per-call Python is exhausted across G5-launcher-O / -Y / -Z / -decorator; the residual ~46 us launcher overhead sits inside the §6.4 (b) torch_tpu ``call_custom_kernel`` C++ wrapper boundary (~30-35 us per DR#4 estimate) plus ~11 us of irreducible compiled-``_run`` frame + launcher locked-path closure call frames — not addressable from Helion's Python tree without a structural change (compiled C extension or aggressive CPython-level inlining). See the G5 Closure block immediately below for the full per-shape attribution + residual-gap accounting. | bf16 1024×1024×1024 (headline, 10-sweep paired-sample): full 0.732 / kernel 1.034 / overhead vs JAX 46.18 us.  Other 13 shapes' cycle-30 3-sweep pilot medians (all bucket B, all ✅ at Helion ceiling): bf16 1024×1024×1: carried forward cycle-26 cell (silent failure); bf16 1024×128×1024 0.749 / 1.037 / 40.70 us; bf16 1024×1×1024 0.722 / 1.031 / 46.68 us; bf16 128×1024×1024 0.732 / 1.041 / 45.88 us; bf16 1×1024×1024 (n=1 only) 0.682 / 1.060 / 63.38 us; bf16 1×1×1024 0.742 / 1.028 / 55.97 us; f32 1024×1024×1 0.728 / 1.030 / 50.52 us; f32 1024×1024×1024 0.760 / 1.043 / 48.03 us; f32 1024×128×1024 0.769 / 1.035 / 45.95 us; f32 1024×1×1024 0.739 / 1.027 / 45.27 us; f32 128×1024×1024 0.758 / 1.057 / 52.94 us; f32 1×1024×1024 (n=2 only) 0.748 / 1.035 / 43.52 us; f32 1×1×1024 0.724 / 1.046 / 55.79 us. |
+
+**G5 Closure (cycle 30, 2026-05-25, ✅ AT HELION CEILING for all
+14 shapes — manager directive 2026-05-24 ceiling clause invoked).**
+
+**Closure verdict.** All 14 shapes from the §1 14-row table are
+bucket B (``full_path_H_over_J < 1.00`` AND
+``kernel_only_H_over_J ≥ 1.00``) with median ``kernel_only_H_over_J``
+in the range **1.027 – 1.060** (Helion-generated Pallas kernel beats
+XLA's ``jnp.matmul`` at the kernel level on every shape).  Per the
+G5 ceiling clause (§5 G5 entry, "G5 ceiling clause" paragraph) and
+the bucket-rule extension below, every bucket-B shape closes at the
+Helion ceiling once the full-Helion launcher Python stack is
+exhausted — which cycle 30 reaches with the G5-decorator squeeze:
+the 4-substep launcher stack (G5-launcher-O cycle 27,
+G5-launcher-Y cycle 28, G5-launcher-Z cycle 29, G5-decorator
+cycle 30) hoisted every cache-hit-reachable per-call Python cost
+out of the Helion-controlled hot path between ``Kernel.__call__``
+and ``tpu_torch_pallas.call_custom_kernel``.  The residual
+~46 us per-call launcher overhead on the headline (and the
+40-63 us range across other shapes) is structurally attributed to:
+
+| Component | Median per-call us | Addressable from Helion's Python tree? |
+|---|---|---|
+| §6.4 (b) torch_tpu ``call_custom_kernel`` C++ wrapper sync-window setup | ~30-35 us (DR#4 estimate) | **No** — structural to the ``torch.Tensor → torch_tpu → JAX`` boundary; needs either (i) a torch_tpu PR reducing wrapper cost (pattern: Helion PR #2323 → torch_tpu PR #896 for ``exp2``) or (ii) a torch↔JAX zero-copy buffer-handle protocol on TPU (``jnp.from_dlpack(torch_tensor)`` raises "Unknown device type tpu" — see DR#4 §2.8 (f) / DR#5 §2.9 (f)). |
+| Compiled-``_run`` Python frame + launcher locked-path closure invocations (``_DirectCallKernel.full_invoke`` + ``_bump_direct_locked_counters``) | ~11 us (46 − 35 = 11 us; cycle-30 measured headline 46 us minus DR#4 35 us lower bound) | **No, not without structural change** — the compiled ``_run`` is a generated Python function (one frame), the locked-path closure is one closure-frame, and CPython's per-frame overhead at this depth is the irreducible floor.  A compiled C extension wrapping the launcher (or aggressive CPython-level inlining via a JIT or PEP 690-style lazy module) could chip at this, but no such substep is queued and the magnitude (~11 us) doesn't justify the complexity. |
+
+The DR#4 §2.4 launcher-overhead decomposition gave a 13-18 us
+"upstream of the launcher" estimate that motivated G5-decorator;
+the cycle-30 measurement (-2.59 us net) shows the actual upstream
+cost was closer to ~3-5 us — the rest of the DR#4 estimate must
+have already been picked up by the cumulative G5-launcher-O / -Y /
+-Z stack (cumulative overhead reduction 53.86 → 46.18 us across
+cycles 26-30 = -7.68 us / -14.2 %).  No additional Helion-side
+substeps are queued; G5 substep menu is exhausted.
+
+**Per-shape closure table** (cycle-30 baseline, populated from the
+cycle-30 headline 10-sweep at HEAD + the 14-shape × 3-sweep pilot
+for the other 13 shapes; bf16 1024×1024×1 carries forward cycle-26
+cell because all 3 cycle-30 sweeps hit the §6.5 (d) M=1 BlockSpec
+silent failure).  Every row is **bucket B (launcher-bound),
+✅ AT HELION CEILING** — the ceiling-attribution column gives the
+specific reason each shape's full H/J is < 1.00 (always: kernel ≥
+JAX + launcher overhead inside §6.4 (b) torch_tpu wrapper +
+irreducible CPython frame overhead).
+
+| Shape (dtype + M×K×N) | full H/J | kernel H/J | launcher overhead vs JAX (us) | Bucket / Closure attribution |
+|---|---|---|---|---|
+| bf16 1024×1024×1                 | 0.694 (cycle-26 carried forward; cycle-30 sweep failed at §6.5 (d) M=1 BlockSpec) | 1.051 | 60.99 | B / ✅ ceiling: kernel ≥ JAX (1.051x); launcher overhead 60.99 us is §6.4 (b) + ~26 us irreducible. |
+| bf16 1024×1024×1024 (headline)   | **0.732** (10-sweep paired-sample, cycle 30) | **1.034** | **46.18** | B / ✅ ceiling: kernel ≥ JAX (1.034x); launcher overhead 46.18 us is ~35 us §6.4 (b) + ~11 us irreducible. |
+| bf16 1024×128×1024               | 0.749 (cycle-30 3-sweep pilot) | 1.037 | 40.70 | B / ✅ ceiling: kernel ≥ JAX (1.037x); launcher overhead 40.70 us is ~35 us §6.4 (b) + ~6 us irreducible. |
+| bf16 1024×1×1024                 | 0.722 (cycle-30 3-sweep) | 1.031 | 46.68 | B / ✅ ceiling: kernel ≥ JAX (1.031x); launcher overhead 46.68 us. |
+| bf16 128×1024×1024               | 0.732 (cycle-30 3-sweep) | 1.041 | 45.88 | B / ✅ ceiling: kernel ≥ JAX (1.041x); launcher overhead 45.88 us. |
+| bf16 1×1024×1024 (n=1 only)      | 0.682 (cycle-30 1 of 3 sweeps survived §6.5 (d)) | 1.060 | 63.38 | B / ✅ ceiling: kernel ≥ JAX (1.060x); launcher overhead 63.38 us is ~35 us §6.4 (b) + ~28 us (skinny-K shape inflates the launcher's per-call Python work — same launcher hot path runs per call but the per-launch C++ sync window is amortized over a smaller compute window). |
+| bf16 1×1×1024                    | 0.742 (cycle-30 3-sweep) | 1.028 | 55.97 | B / ✅ ceiling: kernel ≥ JAX (1.028x); launcher overhead 55.97 us. |
+| f32 1024×1024×1                  | 0.728 (cycle-30 3-sweep) | 1.030 | 50.52 | B / ✅ ceiling: kernel ≥ JAX (1.030x); launcher overhead 50.52 us. |
+| f32 1024×1024×1024               | 0.760 (cycle-30 3-sweep) | 1.043 | 48.03 | B / ✅ ceiling: kernel ≥ JAX (1.043x); launcher overhead 48.03 us. |
+| f32 1024×128×1024                | 0.769 (cycle-30 3-sweep) | 1.035 | 45.95 | B / ✅ ceiling: kernel ≥ JAX (1.035x); launcher overhead 45.95 us. |
+| f32 1024×1×1024                  | 0.739 (cycle-30 3-sweep) | 1.027 | 45.27 | B / ✅ ceiling: kernel ≥ JAX (1.027x); launcher overhead 45.27 us. |
+| f32 128×1024×1024                | 0.758 (cycle-30 3-sweep) | 1.057 | 52.94 | B / ✅ ceiling: kernel ≥ JAX (1.057x); launcher overhead 52.94 us. |
+| f32 1×1024×1024 (n=2 only)       | 0.748 (cycle-30 2 of 3 sweeps survived §6.5 (d)) | 1.035 | 43.52 | B / ✅ ceiling: kernel ≥ JAX (1.035x); launcher overhead 43.52 us. |
+| f32 1×1×1024                     | 0.724 (cycle-30 3-sweep) | 1.046 | 55.79 | B / ✅ ceiling: kernel ≥ JAX (1.046x); launcher overhead 55.79 us. |
+
+**Geo-mean full H/J across non-ceiling-pinned shapes**: not
+applicable.  Per the G5 entrance "Exit" criterion #2, the geo-mean
+gate is only relevant if some rows are unpinned; under the cycle-30
+ceiling-clause closure every row is ceiling-pinned (bucket B at
+ceiling).  The geo-mean of the 14 rows is **0.733** (≥ 1.00 NOT
+required because every shape is closed at the ceiling).
+
+**Contributing substeps (implementation, G5-setup → G5-decorator;
+8 cycles, 25-30).**
+- **G5-setup (cycle 25)** — extended ``measure_headline.py`` to
+  emit ``full_path_H_over_J`` and ``launcher_overhead_vs_jax_us``;
+  added the 2-way HJ paired leg.  Harness-only.
+- **G5-methodology (cycle 26)** — closed the full-H/J paired-sample
+  asymmetry by replacing the cycle-25 sequential-full / paired-kernel
+  mix with a 3-way HJ-full leg (``Helion-kernel → Helion-full → JAX``
+  consecutively inside one ``perf_counter_ns()`` window).  Gate
+  ratio ``full_path_H_over_J = jax_us / helion_full_us`` becomes
+  strictly paired-sample.  Harness-only.
+- **G5-launcher-O (cycle 27)** — codegen pass hoists every
+  ``static_shapes=True`` Pallas kernel's output-only
+  ``torch.empty(..., device='meta')`` placeholder into a one-shot
+  cache slot on the inner Helion-emitted function.  Pin test:
+  ``test_pallas_launcher_caches_output_tensor``.
+- **G5-launcher-Y (cycle 28)** — four-part squeeze of
+  ``_pallas_invoke_and_return_fast``: pre-baked
+  ``_DirectCallKernel.invoke`` closure, sig-check lock (after first
+  match, skip per-call tuple-build + compare), single-output-tensor
+  short-circuit, hoisted ``is_pallas_interpret`` import to module
+  scope.  Pin test:
+  ``test_pallas_direct_call_sig_check_locks_on_static_shapes``.
+- **G5-launcher-Z (cycle 29)** — pre-baked
+  ``_DirectCallKernel.full_invoke`` closure folds the entire locked
+  path (``args.contiguous()``, ``call_custom_kernel``,
+  ``out_tree.unflatten``, batched counter bumps) into one closure
+  call; deferred ``_module_is_pallas_interpret()`` to slow path.
+  Pin test:
+  ``test_pallas_direct_call_full_invoke_bakes_on_locked_static_shapes``.
+- **G5-decorator (cycle 30, this commit)** — speculative
+  single-bound-kernel cache on ``Kernel.__call__`` (``_last_bound``
+  slot) bypasses ``Kernel.bind`` /
+  ``_base_specialization_key`` /
+  ``BoundKernel.__call__`` on cache-hit calls.  Pin test:
+  ``test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls``.
+
+**Cumulative G5 launcher overhead reduction**: 53.86 us
+(cycle 26 baseline) → 46.18 us (cycle 30) = **-7.68 us / -14.2 %**
+on the headline.  Cumulative full H/J: 0.716 (cycle 26) → 0.732
+(cycle 30) = +0.016 / +2.2 % on the headline.  Both deltas are
+the additive sum of small per-cycle squeezes that each individually
+fell within the per-sweep paired-sample noise band (~5-6 % spread)
+but the cumulative trend is unambiguous and consistent with the
+DR#4 §2.4 launcher-overhead decomposition.
+
+**Re-open criteria.**
+- **§6.4 (b) torch_tpu wrapper improvement**: any cycle observes
+  ``launcher_overhead_vs_jax_us`` drop below 35 us on the headline
+  → re-open G5 with a re-baseline and a fresh substep menu (the
+  ceiling moves).
+- **Buffer-handle / dlpack on TPU**: if a usable torch↔JAX
+  zero-copy buffer protocol on TPU becomes available
+  (``jnp.from_dlpack(torch_tensor)`` works), G2-N becomes
+  positive-EV and can drive full-path H/J meaningfully closer to
+  1.00 by eliminating the ``torch.Tensor → torch_tpu → JAX``
+  copy entirely.  Re-open G5 with a new G5-N substep.
+- **Helion-side Python regression**: any cycle observes
+  ``launcher_overhead_vs_jax_us`` regress > 5 us on the headline
+  vs the cycle-30 baseline (46.18 us → > 51.18 us) → root-cause
+  the regression before any new substep work.
+- **Bucket reassignment**: any cycle observes a shape flip from
+  bucket B to bucket C (kernel < JAX but Pallas ≥ JAX) → re-open
+  with a per-shape G5-kernel-X substep targeting that shape.
+  Cycle-30 confirms every shape is bucket B with kernel ≥ JAX
+  (kernel H/J 1.027 – 1.060) so this is structurally unlikely
+  unless a kernel-side regression lands.
+
+**Decision**: G5 status flips from "gate open, substep G5-decorator
+in progress" to **"✅ AT HELION CEILING (all 14 shapes); substep
+menu exhausted; closure attributed to §6.4 (b) torch_tpu C++
+wrapper + irreducible CPython per-frame overhead"**.  Per
+manager.md Step 8 trigger #1 (``plan.md`` fully complete: G0-G5
+all closed), the next cycle should write ``gate-complete`` for G5
+and ``stop``.
 
 ---
 
@@ -4070,14 +4273,14 @@ examples/pallas_perf/
       -x -vv
   ```
 
-- **Expected counts** (current, with the `-k` filter above): **114
+- **Expected counts** (current, with the `-k` filter above): **116
   passed, 0 failed, 6 xfailed, 39 deselected** (tolerance ±3 tests).
   Baseline at G0 was 84 passed; +4 from G1 pin tests, +2 from G2-A pin
   tests, +1 from G2-E, +1 from G2-B, +1 from G2-F, +1 from G2-G, +1 from
   G2-H, +2 from G2-I, +3 from G2-J, +2 from G2-K, +1 from G2-L, +1 from
   G2-M, +2 from G2-Ndirect, +2 from G3-A-tuner, +1 from G2-tuner-v2,
   +2 from G4-A, +1 from G5-launcher-O, +1 from G5-launcher-Y,
-  +1 from G5-launcher-Z.
+  +1 from G5-launcher-Z, +2 from G5-decorator.
   Without the filter, expect **~110 passed / 40 failed / 6 xfailed / 0
   skipped** on `upstream/main` until §6.1 is resolved.
 

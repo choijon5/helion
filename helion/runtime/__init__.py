@@ -30,6 +30,9 @@ from .._compiler.cute.tcgen05_constants import TCGEN05_DIRECT_ENTRY_TOTAL_WORK_C
 from .._utils import triton_is_available
 from .config import Config as Config
 from .kernel import Kernel as Kernel
+from .kernel import _bump_kernel_fast_path_hits as _bump_kernel_fast_path_hits
+from .kernel import _kernel_fast_path_hits as _kernel_fast_path_hits
+from .kernel import _reset_kernel_fast_path_hits as _reset_kernel_fast_path_hits
 from .kernel import kernel as kernel
 from .settings import is_pallas_interpret as _module_is_pallas_interpret
 
@@ -700,6 +703,11 @@ def _reset_direct_call_sig_checks_skipped() -> None:
     """Reset the sig-check-skip counter (test instrumentation)."""
     global _DIRECT_CALL_SIG_CHECKS_SKIPPED
     _DIRECT_CALL_SIG_CHECKS_SKIPPED = 0
+
+
+# The G5-decorator ``_kernel_fast_path_hits`` counter is defined in
+# ``helion/runtime/kernel.py`` to avoid a re-import cycle; re-exported via
+# the top-level import block above.
 
 
 @dataclass(slots=True)

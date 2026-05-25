@@ -2970,6 +2970,213 @@ class TestPallas(TestCase):
             f"{helion_runtime._jaxcallable_key_cache_hits() - keycache_hits_before}.",
         )
 
+    def test_pallas_kernel_decorator_fast_path_skips_bind_on_repeat_calls(
+        self,
+    ) -> None:
+        """Static-shape kernel short-circuits Kernel.__call__ to BoundKernel._run.
+
+        G5-decorator squeeze (2026-05-25 plan.md §5 G5-decorator): once
+        ``Kernel.__call__`` has dispatched one call to a ``BoundKernel``
+        whose ``_run`` is set, the speculative ``_last_bound`` slot is
+        populated with the per-call fingerprint
+        (``_kernel_fast_call_key``) for the args.  Subsequent calls with
+        args matching that fingerprint (per-tensor
+        ``dtype/shape/stride/device`` + per-scalar value identity) skip
+        ``Kernel.bind`` (which spends ~12-20us on
+        ``_base_specialization_key`` / ``_device_specialization_key`` /
+        ``_get_bound_kernel_cache_key``) and
+        ``BoundKernel.__call__`` (which costs an attribute load + an
+        ``is None`` check) entirely, routing through the
+        ``_last_bound[1]._run(*args)`` direct dispatch.  The counter
+        ``helion.runtime._kernel_fast_path_hits()`` bumps once per
+        shortcut.
+
+        The test asserts: call 1 goes through the slow ``bind`` path
+        (counter stays at 0); calls 2..N each shortcut and bump the
+        counter exactly once per call.  Output equality is preserved
+        (the bypass is safe under static_shapes=True because the
+        fingerprint captures exactly what the slow
+        ``_base_specialization_key`` derives from for tensor args).
+        """
+        from helion import runtime as helion_runtime
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_decorator_fast_path_pin(
+            x: torch.Tensor, y: torch.Tensor
+        ) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        # Pin the slow-path fingerprint installer: before any call,
+        # ``_last_bound`` must be ``None`` (no speculative cache).
+        self.assertIsNone(
+            _matmul_decorator_fast_path_pin._last_bound,
+            "Fast-path slot must be None before the first call.",
+        )
+
+        helion_runtime._reset_kernel_fast_path_hits()
+        self.assertEqual(helion_runtime._kernel_fast_path_hits(), 0)
+
+        # Call 1: slow path (autotune / compile / set_config /
+        # _run := compiled_fn).  After the call, ``_last_bound`` is
+        # installed with the fingerprint for ``(x, y)``.  The counter
+        # is still 0 — the slow path itself does not bump it.
+        reference = _matmul_decorator_fast_path_pin(x, y).clone()
+        self.assertEqual(
+            helion_runtime._kernel_fast_path_hits(),
+            0,
+            "First call must run the slow ``bind`` path; counter must not bump.",
+        )
+        self.assertIsNotNone(
+            _matmul_decorator_fast_path_pin._last_bound,
+            "Fast-path slot must be populated after the first call "
+            "completes (the slow path installs ``_last_bound`` once "
+            "``BoundKernel._run`` is set).",
+        )
+
+        # Calls 2..N: ``_last_bound`` is populated and the per-call
+        # fingerprint matches, so each call shortcuts to
+        # ``last[1]._run(*args)`` and bumps the counter.
+        n_repeats = 10
+        for _ in range(n_repeats):
+            result = _matmul_decorator_fast_path_pin(x, y)
+            self.assertTrue(
+                torch.equal(result, reference),
+                "Decorator fast-path call output diverged "
+                "(max_abs_diff="
+                f"{(result.float() - reference.float()).abs().max().item()}).",
+            )
+        self.assertEqual(
+            helion_runtime._kernel_fast_path_hits(),
+            n_repeats,
+            f"Each post-warmup call must bump the decorator fast-path "
+            f"counter exactly once; expected {n_repeats} hits, got "
+            f"{helion_runtime._kernel_fast_path_hits()}.",
+        )
+
+        # Sanity: a shape-changing call must miss the fast path
+        # (different fingerprint) and route back through the slow
+        # ``bind`` path.  The counter must NOT bump on that call.
+        x2 = torch.randn(128, 128, device=DEVICE, dtype=torch.bfloat16)
+        y2 = torch.randn(128, 128, device=DEVICE, dtype=torch.bfloat16)
+        hits_before_miss = helion_runtime._kernel_fast_path_hits()
+        _ = _matmul_decorator_fast_path_pin(x2, y2)
+        self.assertEqual(
+            helion_runtime._kernel_fast_path_hits(),
+            hits_before_miss,
+            "Shape-changing call must miss the fast path; counter must not bump.",
+        )
+
+        # Bail #1: passing kwargs forces ``Kernel.__call__`` through
+        # ``normalize_args`` and the slow ``bind`` path; the fast-path
+        # check is skipped (the speculative cache is keyed on positional
+        # args only).  After the kwargs call ``_last_bound`` is
+        # refreshed for the normalized positional form, so the
+        # immediately-following positional call hits the fast path
+        # again.  Pinned so a future change to the kwargs branch can't
+        # silently break the bail.
+        hits_before_kwargs = helion_runtime._kernel_fast_path_hits()
+        _ = _matmul_decorator_fast_path_pin(x=x, y=y)
+        self.assertEqual(
+            helion_runtime._kernel_fast_path_hits(),
+            hits_before_kwargs,
+            "kwargs call must bail out of the fast path; counter must "
+            "not bump on the kwargs invocation itself.",
+        )
+
+    def test_pallas_kernel_decorator_fast_path_bails_on_key_fn(self) -> None:
+        """Kernels created with ``helion.kernel(key=...)`` skip the fast path.
+
+        G5-decorator bail: the speculative single-bound-kernel cache
+        only fingerprints ``(dtype, shape, stride, device)`` per tensor
+        (and the literal value for primitives / ``ConstExpr``).  A
+        user-supplied ``key=`` extractor passed to ``helion.kernel``
+        can derive its bucket from tensor *values* (e.g. a heuristic
+        that picks a different config based on a hash of the input),
+        so two calls with identical metadata may legitimately need
+        different ``BoundKernel`` instances.  ``Kernel.__call__`` must
+        bail at the top before consulting ``_last_bound`` whenever
+        ``self._key_fn is not None``, and must NOT install
+        ``_last_bound`` on the post-call refresh either.
+
+        The test asserts both bails by inspecting ``_last_bound``
+        across a sequence of calls on a kernel with a ``key=`` fn:
+        the slot stays ``None`` permanently and the counter never
+        bumps.
+        """
+        from helion import runtime as helion_runtime
+
+        @helion.kernel(
+            backend="pallas",
+            static_shapes=True,
+            key=lambda x, y: ("static-key",),
+        )
+        def _matmul_decorator_keyfn_pin(
+            x: torch.Tensor, y: torch.Tensor
+        ) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        helion_runtime._reset_kernel_fast_path_hits()
+        self.assertEqual(helion_runtime._kernel_fast_path_hits(), 0)
+        self.assertIsNone(_matmul_decorator_keyfn_pin._last_bound)
+
+        # 1 warmup + 5 hot calls.  None should touch the fast path.
+        reference = _matmul_decorator_keyfn_pin(x, y).clone()
+        for _ in range(5):
+            result = _matmul_decorator_keyfn_pin(x, y)
+            self.assertTrue(
+                torch.equal(result, reference),
+                "Key-fn kernel call output diverged "
+                f"(max_abs_diff="
+                f"{(result.float() - reference.float()).abs().max().item()}).",
+            )
+
+        self.assertEqual(
+            helion_runtime._kernel_fast_path_hits(),
+            0,
+            "Key-fn kernels must skip the decorator fast path; counter "
+            "must stay at 0 across warmup + 5 hot calls.",
+        )
+        self.assertIsNone(
+            _matmul_decorator_keyfn_pin._last_bound,
+            "Key-fn kernels must NOT populate ``_last_bound`` either "
+            "(the post-call install path is gated on the same "
+            "``_key_fn is None`` precondition as the cache-check).",
+        )
+
     def test_bmm(self) -> None:
         """Test BMM with default config — exercises size_matches fix.
 
