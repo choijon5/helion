@@ -2310,23 +2310,32 @@ def default_pallas_launcher(
 
     out_shape_arg = out_shapes if len(out_shapes) > 1 else out_shapes[0]
 
-    estimated_vmem = _estimate_pallas_vmem_bytes(
-        pl,
-        pltpu,
-        in_specs,
-        out_specs,
-        None,
-        args,
-        tensor_arg_indices,
-        _output_indices,
-        pallas_aliases,
-    )
-    vmem_limit_bytes = _get_vmem_limit_bytes(pltpu)
-    if estimated_vmem > vmem_limit_bytes:
-        raise RuntimeError(
-            f"XLA:TPU compile permanent error. Ran out of memory in memory space vmem. "
-            f"Estimated {estimated_vmem / 1e6:.2f}MB exceeds {vmem_limit_bytes / 1e6:.2f}MB vmem capacity."
+    # The VMEM estimate only applies to the ``pl.pallas_call`` lowering
+    # — the ``jax.jit(lax.dot_general)`` path that fires when
+    # ``_matmul_dot_general`` is non-``None`` (G7-prefetch no-tiling
+    # case) doesn't allocate VMEM the same way (XLA's planner streams
+    # the contraction).  Skip the check for that path; otherwise a
+    # large no-tiling config (e.g. 2048³ f32 or 4096³ anything) trips
+    # the per-launch VMEM cap and the launcher raises before the
+    # dot_general substitution at line 2341 below can take over.
+    if _matmul_dot_general is None:
+        estimated_vmem = _estimate_pallas_vmem_bytes(
+            pl,
+            pltpu,
+            in_specs,
+            out_specs,
+            None,
+            args,
+            tensor_arg_indices,
+            _output_indices,
+            pallas_aliases,
         )
+        vmem_limit_bytes = _get_vmem_limit_bytes(pltpu)
+        if estimated_vmem > vmem_limit_bytes:
+            raise RuntimeError(
+                f"XLA:TPU compile permanent error. Ran out of memory in memory space vmem. "
+                f"Estimated {estimated_vmem / 1e6:.2f}MB exceeds {vmem_limit_bytes / 1e6:.2f}MB vmem capacity."
+            )
 
     pallas_call_kwargs: dict[str, object] = {
         "out_shape": out_shape_arg,
@@ -2581,23 +2590,27 @@ def default_pallas_pipeline_launcher(
         grid=grid,
     )
 
-    estimated_vmem = _estimate_pallas_vmem_bytes(
-        pl,
-        pltpu,
-        in_specs_list,
-        out_specs,
-        scratch_shapes,
-        args,
-        tensor_arg_indices,
-        _output_indices,
-        pallas_aliases,
-    )
-    vmem_limit_bytes = _get_vmem_limit_bytes(pltpu)
-    if estimated_vmem > vmem_limit_bytes:
-        raise RuntimeError(
-            f"XLA:TPU compile permanent error. Ran out of memory in memory space vmem. "
-            f"Estimated {estimated_vmem / 1e6:.2f}MB exceeds {vmem_limit_bytes / 1e6:.2f}MB vmem capacity."
+    # Same VMEM-estimate skip as in ``default_pallas_launcher``: the
+    # ``jax.jit(lax.dot_general)`` G7-prefetch path doesn't go through
+    # ``pl.pallas_call`` so the per-launch VMEM cap doesn't apply.
+    if _matmul_dot_general is None:
+        estimated_vmem = _estimate_pallas_vmem_bytes(
+            pl,
+            pltpu,
+            in_specs_list,
+            out_specs,
+            scratch_shapes,
+            args,
+            tensor_arg_indices,
+            _output_indices,
+            pallas_aliases,
         )
+        vmem_limit_bytes = _get_vmem_limit_bytes(pltpu)
+        if estimated_vmem > vmem_limit_bytes:
+            raise RuntimeError(
+                f"XLA:TPU compile permanent error. Ran out of memory in memory space vmem. "
+                f"Estimated {estimated_vmem / 1e6:.2f}MB exceeds {vmem_limit_bytes / 1e6:.2f}MB vmem capacity."
+            )
 
     reduction_grid_dims = set(_reduction_grid_dims or [])
     dim_semantics = tuple(

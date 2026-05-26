@@ -41,16 +41,38 @@ _PALLAS_SQUARE_BLOCK = 512
 # of ~7.5 us — a 17% on-device kernel speedup that the autotuner's
 # single-call us metric is unlikely to surface without a planted seed
 # (dispatch-overhead-dominated, ~125 us per call, hides the ~1 us
-# kernel difference).  Eligibility: every static dim must be exactly
-# ``1024`` so the seed only fires on the headline shape; on larger
-# square shapes (e.g. 2048^3) the autotuner's tiled picks consistently
-# match or beat the no-tiling on-device (the VMEM working-set ceiling
-# at 16+ MB per operand makes single-launch less competitive against
-# pipelined tiles whose double-buffering compensates the dot_general
-# prefetch advantage).  Bumping the cap requires a per-shape probe
-# (see the 2048^3 cycle-37 result: dot_general would have regressed
-# kH/J 1.017 → ~0.92).
-_PALLAS_NO_TILING_DIM = 1024
+# kernel difference).
+#
+# Eligibility (bf16/fp16 path — the f32 sibling below uses a narrower
+# set):
+#   - every static dim must equal one of these square cube sizes;
+#   - bf16 1024-cube (headline): forced-dot_general device kH/J 0.792
+#     → 1.000 on the cycle-37 single-shape probe;
+#   - bf16 2048-cube (manager large-shape extension): forced-dot_general
+#     device kH/J 0.922 → 1.000 (+8.5% on-device) on the per-shape
+#     ablation probe; clear seed win;
+#   - bf16 4096-cube (manager large-shape extension): forced-dot_general
+#     device kH/J 1.002 → 1.000 (within noise); seeding is benign and
+#     the compiler-seed bias band keeps the no-tiling pick when the
+#     autotuner's tiled candidates are within ~1 us paired delta of it
+#     (per ``_DEVICE_US_DELTA_SEED_BIAS_BAND_MS`` in
+#     ``helion/autotuner/base_search.py``).
+# f32 is intentionally NOT extended to 2048/4096 because the
+# per-shape probe showed the autotuner's tiled picks beat forced
+# no-tiling by ~2-2.5% on those rows (f32 HIGHEST takes the full
+# precision path through both dot_general and pl.pallas_call — the
+# dot_general's cross_program_prefetch advantage doesn't compensate
+# the autotuner's per-shape tile tuning at 2048+).  See the f32
+# heuristic's ``_PALLAS_F32_NO_TILING_DIMS`` for the f32-only set.
+_PALLAS_NO_TILING_DIMS: frozenset[int] = frozenset({1024, 2048, 4096})
+
+# f32 sibling cap — f32 HIGHEST has different cross-program-prefetch
+# economics (multi-pass emulation amortizes differently), and the
+# per-shape probe showed forced no-tiling regresses by ~2-2.5% on
+# both 2048-cube and 4096-cube vs the autotuner's tiled picks.  The
+# 1024-cube remains a clear win (f32 1024³ at the seed config
+# matches JAX device us), so the f32 seed stays pinned to 1024.
+_PALLAS_F32_NO_TILING_DIMS: frozenset[int] = frozenset({1024})
 
 # Skinny-N family (plan.md §5 G3-A). Cycle-17 G3-A-pin ablation showed
 # the ``1024×1024×1`` shape's per-shape best is
@@ -242,21 +264,23 @@ class PallasMatmulSquareSeedHeuristic(AutotunerHeuristic):
 
 
 class PallasMatmulNoTilingSeedHeuristic(AutotunerHeuristic):
-    """Seed ``block_sizes == [M, K, N]`` for the bf16/fp16 1024-cube
-    matmul (headline shape).
+    """Seed ``block_sizes == [M, K, N]`` for square bf16/fp16 matmul on
+    a fixed set of compute-bound cube sizes.
 
-    Fires when every static dimension equals 1024 and the matmul is 2D
-    bf16/fp16.  Plants the ``block_sizes == [1024, 1024, 1024]``
-    configuration so the autotuner considers the single-launch case;
-    when picked, the Pallas backend's lowering pass replaces
-    ``pl.pallas_call(...)`` with a ``jax.jit(lax.dot_general(...))``
-    wrapper (see ``PallasBackend._detect_matmul_dot_general_lowering``
-    in ``helion/_compiler/backend.py`` and the launcher's
+    Fires when every static dimension equals the same value and that
+    value is in ``_PALLAS_NO_TILING_DIMS`` (currently
+    ``{1024, 2048, 4096}``) and the matmul is 2D bf16/fp16.  Plants
+    the ``block_sizes == [N, N, N]`` configuration so the autotuner
+    considers the single-launch case; when picked, the Pallas backend's
+    lowering pass replaces ``pl.pallas_call(...)`` with a
+    ``jax.jit(lax.dot_general(...))`` wrapper (see
+    ``PallasBackend._detect_matmul_dot_general_lowering`` in
+    ``helion/_compiler/backend.py`` and the launcher's
     ``_matmul_dot_general`` arg in ``helion/runtime/__init__.py``).
 
     The dot_general wrapper is visible to XLA's compilation planner so
     it can attach ``cross_program_prefetch_index=0`` to pre-stage LHS
-    across program invocations — the structural ~17% on-device kernel
+    across program invocations — the structural on-device kernel
     speedup the ``tpu_custom_call`` opacity blocks.  The autotuner's
     single-call us metric does NOT surface this gain (the ~125 us
     per-call dispatch overhead hides the ~1 us kernel difference), so
@@ -276,17 +300,19 @@ class PallasMatmulNoTilingSeedHeuristic(AutotunerHeuristic):
     block_size >= max_dim is necessary for the dot_general fallback
     to fire.
 
-    Why pinned to dim == 1024 (the headline) rather than dim >= 1024
-    (any compute-bound shape): probing on bf16 2048^3 showed the
-    no-tiling dot_general's ``cross_program_prefetch`` advantage
-    doesn't beat well-tuned tiled configs at larger sizes where the
-    VMEM working set per single launch (16+ MB / operand) prevents
-    overlap with compute that double-buffered tiled pipelines
-    achieve.  Bumping the cap requires a per-shape probe; cycle-37
-    added the bf16 1024-cube row only because that is the only
-    compute-bound row where Helion sits below JAX on-device.  The
-    seed is benign on shapes outside the range — ``is_eligible``
-    returns False — so adding more shapes is a localised follow-up.
+    Per-shape eligibility comes from the device-us ablation: forced
+    no-tiling at the seed config matches or beats the autotuner's
+    tiled picks on 1024³ (kH/J 0.79 → 1.00; +26%) and 2048³ (kH/J
+    0.92 → 1.00; +8.5%) and is at parity on 4096³ (kH/J 1.00 → 1.00,
+    within noise).  Seeding is benign outside the set —
+    ``is_eligible`` returns False — and adding more shapes is a
+    localised follow-up gated on a per-shape ablation showing the
+    same parity-or-better behaviour.  The 2048+ extension depends on
+    the launcher's VMEM-estimate skip for the dot_general path (see
+    ``default_pallas_launcher`` / ``default_pallas_pipeline_launcher``
+    in ``helion/runtime/__init__.py``) — without that, the
+    ``[N, N, N]`` config would raise a per-launch VMEM cap error
+    before the dot_general substitution can take over.
     """
 
     name = "pallas_matmul_no_tiling_seed"
@@ -300,11 +326,7 @@ class PallasMatmulNoTilingSeedHeuristic(AutotunerHeuristic):
         dims = _pallas_matmul_seed_dims_or_none(env)
         if dims is None:
             return None
-        if (
-            dims.m != _PALLAS_NO_TILING_DIM
-            or dims.k != _PALLAS_NO_TILING_DIM
-            or dims.n != _PALLAS_NO_TILING_DIM
-        ):
+        if dims.m != dims.k or dims.k != dims.n or dims.m not in _PALLAS_NO_TILING_DIMS:
             return None
         if (
             clamp_block_size_targets(
@@ -355,16 +377,21 @@ class PallasMatmulF32NoTilingSeedHeuristic(AutotunerHeuristic):
     """f32 sibling of ``PallasMatmulNoTilingSeedHeuristic``.
 
     Same rationale (plant the ``[M, K, N]`` no-tiling config so the
-    autotuner considers the dot_general lowering path); same eligibility
-    (every static dim == 1024); same seeded ``pallas_loop_type``/
-    ``pre_broadcast``.  The f32 path benefits from the same
-    cross-program-prefetch lift because ``lax.dot_general(...,
+    autotuner considers the dot_general lowering path); same seeded
+    ``pallas_loop_type`` / ``pre_broadcast``.  The f32 path benefits
+    from the same cross-program-prefetch lift because ``lax.dot_general(...,
     precision=HIGHEST)`` is also a regular HLO ``dot`` op that XLA
     sees through; the existing f32 codegen emits the matching
     precision keyword either way.
 
-    See ``PallasMatmulNoTilingSeedHeuristic`` for the per-shape cap
-    rationale; the same 2048+ probe finding applies to f32.
+    Per-shape eligibility is narrower than the bf16 sibling:
+    ``_PALLAS_F32_NO_TILING_DIMS`` is currently ``{1024}``.  The 2048³
+    and 4096³ f32 large rows are intentionally NOT seeded — the
+    per-shape ablation showed forced no-tiling regresses by ~2-2.5%
+    vs the autotuner's tiled picks on those rows (f32 HIGHEST takes
+    a multi-pass MXU emulation path with different prefetch economics
+    than bf16, so the dot_general advantage doesn't compensate the
+    autotuner's per-shape tile tuning at the larger sizes).
     """
 
     name = "pallas_matmul_f32_no_tiling_seed"
@@ -376,9 +403,9 @@ class PallasMatmulF32NoTilingSeedHeuristic(AutotunerHeuristic):
         if dims is None:
             return None
         if (
-            dims.m != _PALLAS_NO_TILING_DIM
-            or dims.k != _PALLAS_NO_TILING_DIM
-            or dims.n != _PALLAS_NO_TILING_DIM
+            dims.m != dims.k
+            or dims.k != dims.n
+            or dims.m not in _PALLAS_F32_NO_TILING_DIMS
         ):
             return None
         if (

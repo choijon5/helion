@@ -1852,6 +1852,183 @@ class TestPallas(TestCase):
             "PallasMatmulSkinnyNSeedHeuristic owns the bf16 family.",
         )
 
+    def test_pallas_matmul_bf16_no_tiling_seed_covers_large_cubes(self) -> None:
+        """No-tiling seed fires on each bf16 cube in ``_PALLAS_NO_TILING_DIMS``.
+
+        ``PallasMatmulNoTilingSeedHeuristic`` plants
+        ``block_sizes == [N, N, N] unroll pre_broadcast=True`` for each
+        square bf16 cube whose dim is in the heuristic's eligibility
+        set.  Per-shape forced-config ablation:
+          - bf16 1024-cube (headline): kH/J 0.79 → 1.00 (+26%);
+          - bf16 2048-cube (manager large-shape extension): kH/J 0.92
+            → 1.00 (+8.5%);
+          - bf16 4096-cube (manager large-shape extension): kH/J 1.00
+            at parity (seeding is benign; the compiler-seed bias band
+            keeps the pick on the seed when the autotuner's tiled
+            candidates land within ~1 us paired-delta of it).
+
+        Pin asserts per cube N:
+          1. ``is_eligible`` returns True for bf16 ``N×N×N``;
+          2. ``compiler_seed_configs`` includes the
+             ``[N, N, N] unroll pb=True`` entry;
+          3. the heuristic name is registered on
+             ``ConfigSpec.autotuner_heuristics``.
+
+        Also asserts a negative case: a bf16 cube outside the set
+        (e.g. 256-cube) is NOT eligible, so the heuristic stays
+        scoped to its ablation-validated shapes.
+        """
+        from helion._compiler.autotuner_heuristics.pallas import _PALLAS_NO_TILING_DIMS
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulNoTilingSeedHeuristic,
+        )
+
+        self.assertEqual(
+            sorted(_PALLAS_NO_TILING_DIMS),
+            [1024, 2048, 4096],
+            "Eligibility set must cover the 3 ablation-validated bf16 "
+            "cubes (1024 / 2048 / 4096). Any change here needs a "
+            "per-shape ablation backing it.",
+        )
+
+        for dim in sorted(_PALLAS_NO_TILING_DIMS):
+            torch.manual_seed(0)
+            x = torch.empty(dim, dim, device=DEVICE, dtype=torch.bfloat16)
+            torch.manual_seed(1)
+            y = torch.empty(dim, dim, device=DEVICE, dtype=torch.bfloat16)
+            bound = pallas_matmul_bf16.bind((x, y))
+
+            self.assertTrue(
+                PallasMatmulNoTilingSeedHeuristic.is_eligible(
+                    bound.env, bound.host_function.device_ir
+                ),
+                f"Heuristic must fire on bf16 {dim}-cube; dim is in "
+                f"_PALLAS_NO_TILING_DIMS = {sorted(_PALLAS_NO_TILING_DIMS)}.",
+            )
+            self.assertIn(
+                PallasMatmulNoTilingSeedHeuristic.name,
+                bound.config_spec.autotuner_heuristics,
+                f"Heuristic name must be recorded on bf16 {dim}-cube so "
+                "the seed is attributable.",
+            )
+            seed_blocks = (dim, dim, dim)
+            seeded = [
+                (
+                    tuple(cfg.config.get("block_sizes", ())),
+                    cfg.config.get("pallas_loop_type"),
+                    cfg.config.get("pallas_pre_broadcast"),
+                )
+                for cfg in bound.config_spec.compiler_seed_configs
+            ]
+            self.assertIn(
+                (seed_blocks, "unroll", True),
+                seeded,
+                f"Compiler seed configs must include the no-tiling "
+                f"[{dim}, {dim}, {dim}] unroll pb=True entry on bf16 "
+                f"{dim}-cube so the dot_general lowering reaches the "
+                "autotuner's candidate pool.",
+            )
+
+        # Negative: 256-cube is not in the set so the heuristic must
+        # refuse it (no per-shape ablation has validated forced
+        # no-tiling at this size).
+        small_x = torch.empty(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        small_y = torch.empty(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        small_bound = pallas_matmul_bf16.bind((small_x, small_y))
+        self.assertFalse(
+            PallasMatmulNoTilingSeedHeuristic.is_eligible(
+                small_bound.env, small_bound.host_function.device_ir
+            ),
+            "No-tiling heuristic must refuse cubes outside "
+            "_PALLAS_NO_TILING_DIMS so the seed stays scoped to "
+            "ablation-validated shapes.",
+        )
+
+    def test_pallas_matmul_f32_no_tiling_seed_only_covers_1024_cube(self) -> None:
+        """f32 no-tiling seed is intentionally narrower than the bf16 sibling.
+
+        ``PallasMatmulF32NoTilingSeedHeuristic`` plants the
+        ``[1024, 1024, 1024] unroll pb=True`` seed for f32 1024-cube
+        only — the per-shape ablation showed forced no-tiling regresses
+        by ~2-2.5% vs the autotuner's tiled picks on f32 2048-cube and
+        4096-cube (f32 HIGHEST has different cross-program-prefetch
+        economics than bf16, so the dot_general advantage doesn't
+        compensate per-shape tile tuning at larger sizes).
+
+        Pin asserts:
+          1. f32 1024-cube fires the heuristic;
+          2. ``compiler_seed_configs`` includes the
+             ``[1024, 1024, 1024] unroll pb=True`` entry;
+          3. f32 2048-cube and 4096-cube do NOT fire the heuristic
+             (the narrower f32 cap is the intentional guard against
+             the per-shape regression).
+        """
+        from helion._compiler.autotuner_heuristics.pallas import (
+            _PALLAS_F32_NO_TILING_DIMS,
+        )
+        from helion._compiler.autotuner_heuristics.pallas import (
+            PallasMatmulF32NoTilingSeedHeuristic,
+        )
+
+        self.assertEqual(
+            sorted(_PALLAS_F32_NO_TILING_DIMS),
+            [1024],
+            "f32 eligibility set must stay pinned to 1024 — the 2048 "
+            "and 4096 f32 large rows regress under forced no-tiling per "
+            "the per-shape ablation. Widening here requires fresh f32 "
+            "ablation data.",
+        )
+
+        torch.manual_seed(0)
+        x = torch.empty(1024, 1024, device=DEVICE, dtype=torch.float32)
+        torch.manual_seed(1)
+        y = torch.empty(1024, 1024, device=DEVICE, dtype=torch.float32)
+        bound = pallas_matmul_f32.bind((x, y))
+
+        self.assertTrue(
+            PallasMatmulF32NoTilingSeedHeuristic.is_eligible(
+                bound.env, bound.host_function.device_ir
+            ),
+            "Heuristic must fire on f32 1024-cube (dim in _PALLAS_F32_NO_TILING_DIMS).",
+        )
+        self.assertIn(
+            PallasMatmulF32NoTilingSeedHeuristic.name,
+            bound.config_spec.autotuner_heuristics,
+            "Heuristic name must be recorded so the seed is attributable.",
+        )
+        seed_blocks = (1024, 1024, 1024)
+        seeded = [
+            (
+                tuple(cfg.config.get("block_sizes", ())),
+                cfg.config.get("pallas_loop_type"),
+                cfg.config.get("pallas_pre_broadcast"),
+            )
+            for cfg in bound.config_spec.compiler_seed_configs
+        ]
+        self.assertIn(
+            (seed_blocks, "unroll", True),
+            seeded,
+            "Compiler seed configs must include the no-tiling "
+            "[1024, 1024, 1024] unroll pb=True entry on f32 1024-cube.",
+        )
+
+        # Negative: f32 2048-cube and 4096-cube must NOT be eligible.
+        # If a refactor widens f32 eligibility without per-shape
+        # ablation evidence, this guard surfaces the regression as a
+        # test failure rather than a silent perf drop.
+        for dim in (2048, 4096):
+            big_x = torch.empty(dim, dim, device=DEVICE, dtype=torch.float32)
+            big_y = torch.empty(dim, dim, device=DEVICE, dtype=torch.float32)
+            big_bound = pallas_matmul_f32.bind((big_x, big_y))
+            self.assertFalse(
+                PallasMatmulF32NoTilingSeedHeuristic.is_eligible(
+                    big_bound.env, big_bound.host_function.device_ir
+                ),
+                f"f32 no-tiling heuristic must refuse {dim}-cube — "
+                "forced no-tiling regresses on f32 large shapes per "
+                "ablation.",
+            )
+
     def test_pallas_autotuner_compiler_seed_survives_final_pick(self) -> None:
         """Compiler-seeded members are re-considered during final-pick verification.
 
