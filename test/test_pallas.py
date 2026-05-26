@@ -14,6 +14,7 @@ from helion._testing import DEVICE
 from helion._testing import TestCase
 from helion._testing import code_and_output
 from helion._testing import onlyBackends
+from helion._testing import skipIfPallasInterpret
 from helion._testing import skipUnlessPallas
 from helion._testing import xfailIfPallas
 from helion._testing import xfailIfPallasInterpret
@@ -3196,6 +3197,155 @@ class TestPallas(TestCase):
             4,
             f"Expected device_us_fn to be called 4 times (2 candidates "
             f"× 2 paired calls per candidate); got {len(calls)}.",
+        )
+
+    @skipIfPallasInterpret(
+        "Device-us trace parsing requires a real TPU (interpret mode has no "
+        "``/device:TPU:0`` plane in the resulting ``.xplane.pb``)."
+    )
+    def test_pallas_paired_device_us_bench_finite_on_large_compute_bound_shape(
+        self,
+    ) -> None:
+        """``paired_device_us_bench`` stays finite for a 4096³-equivalent workload.
+
+        Plan.md §5 G7-trace-window-widen: the autotuner's device-us
+        re-rank historically collapsed to wall-clock on large
+        compute-bound shapes because ``_pallas_device_us_for_fn``
+        required ``per_event_counts[name] == n_calls`` exactly,
+        making the helper return ``+inf`` whenever the
+        ``jax.profiler.stop_trace`` flush dropped a handful of tail
+        events or whenever the per-call kernel emitted a slightly
+        different cardinality than 1.  The cycle-41 fix relaxes the
+        predicate to ``count >= _MIN_TRACE_EVENTS`` and computes the
+        per-call us as ``total_ns / actual_count``, so partial-trace
+        flushes still produce an unbiased per-call reading.
+
+        This pin guards that fix on a 4096³ standalone
+        ``jax.jit(lax.dot_general)`` callable (the no-tiling Pallas
+        backend lowering that ``PallasMatmulNoTilingSeedHeuristic``
+        plants for the device-us re-rank's cohort), confirming the
+        helper returns finite ``(median_device_us,
+        paired_delta_device_us)`` tuples for both the candidate and
+        the paired reference call.
+
+        Regression hazard pinned: if a refactor reverts the predicate
+        to ``count == n_calls`` exactly, the trace can drop the last
+        few events on a large compute-bound workload and the helper
+        returns ``+inf``, silently routing the autotuner to its
+        wall-clock fallback even when the kernel is producing a
+        usable device-us signal.
+        """
+        import jax
+        import jax.numpy as jnp
+
+        from helion.autotuner.benchmarking import (
+            _PALLAS_AUTOTUNE_DEVICE_US_MIN_TRACE_EVENTS,
+        )
+        from helion.autotuner.benchmarking import _pallas_device_us_for_fn
+        from helion.autotuner.benchmarking import paired_device_us_bench
+
+        # Sanity-check the floor is above the DVFS counter line band
+        # (typically ≤ 17 events) and below the partial-trace kernel
+        # band (≥ 40 events even on bf16 4096³); see the constant's
+        # comment block in ``helion/autotuner/benchmarking.py`` for
+        # the analysis.  If this assertion ever fires, the constant
+        # was re-tuned and the upstream comment / this test should
+        # be re-audited together.
+        self.assertGreaterEqual(
+            _PALLAS_AUTOTUNE_DEVICE_US_MIN_TRACE_EVENTS,
+            18,
+            "MIN_TRACE_EVENTS must stay above the DVFS counter line "
+            "(≤ 17 events) so the aggregator doesn't mis-pick it as "
+            "the dominant compute event.",
+        )
+
+        # 4096³ standalone lax.dot_general callable — the no-tiling
+        # lowering the Pallas backend emits when ``block_sizes``
+        # cover every input dim (see ``_build_matmul_dot_general_jit_fn``
+        # in ``helion/runtime/__init__.py``).
+        m = k = n = 4096
+        key = jax.random.PRNGKey(0)
+        k1, k2 = jax.random.split(key)
+        x = jax.random.normal(k1, (m, k), dtype=jnp.bfloat16)
+        y = jax.random.normal(k2, (k, n), dtype=jnp.bfloat16)
+
+        @jax.jit
+        def candidate_fn(a: object, b: object) -> object:
+            return jax.lax.dot_general(
+                a,
+                b,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+            )
+
+        @jax.jit
+        def reference_fn(a: object, b: object) -> object:
+            return jax.lax.dot_general(
+                a,
+                b,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+            )
+
+        # Pre-warm both jit_fns so the trace window sees only steady-
+        # state per-call device work (matches ``_pallas_device_us_for_fn``'s
+        # own n_warmup=5 pre-trace warmup).
+        for _ in range(5):
+            jax.block_until_ready(candidate_fn(x, y))
+            jax.block_until_ready(reference_fn(x, y))
+
+        # Direct helper call: confirm the relaxed predicate returns
+        # finite on a single 4096³ trace window.  50 calls is enough
+        # to clear MIN_TRACE_EVENTS even under aggressive flush
+        # truncation and keeps the test under the ~30s per-test
+        # CLAUDE.md guidance (bf16 4096³ ≈ 156 us / call → ~8 ms of
+        # device work).
+        single_us = _pallas_device_us_for_fn(
+            lambda: candidate_fn(x, y),
+            n_calls=50,
+            n_warmup=2,
+        )
+        self.assertTrue(
+            math.isfinite(single_us) and single_us > 0,
+            f"``_pallas_device_us_for_fn`` must return a finite, "
+            f"positive per-call us reading for a 4096³ no-tiling "
+            f"matmul; got {single_us!r}. Likely cause: the relaxed "
+            f"count predicate was reverted or the DVFS counter floor "
+            f"is misconfigured.",
+        )
+
+        # End-to-end via the paired bench (same path the autotuner
+        # uses), asserting both the candidate median and the paired
+        # delta come out finite.
+        def _device_us_fn(fn: Callable[[], object]) -> float:
+            return _pallas_device_us_for_fn(fn, n_calls=50, n_warmup=2)
+
+        results = paired_device_us_bench(
+            [lambda: candidate_fn(x, y)],
+            lambda: reference_fn(x, y),
+            device_us_fn=_device_us_fn,
+            passes=1,
+        )
+        self.assertEqual(len(results), 1, f"Expected 1 paired result; got {results!r}")
+        median_us, delta_us = results[0]
+        self.assertTrue(
+            math.isfinite(median_us) and median_us > 0,
+            f"Paired bench candidate median must be finite + positive "
+            f"on 4096³; got {median_us!r}",
+        )
+        self.assertTrue(
+            math.isfinite(delta_us),
+            f"Paired bench paired delta must be finite on 4096³ "
+            f"(both candidate and reference traces returned usable "
+            f"per-call us); got {delta_us!r}",
+        )
+        # The two jit_fns are structurally identical; their paired
+        # delta should be near zero (well within ±5 us across the
+        # 50-call trace window on bf16 4096³ ≈ 156 us / call).
+        self.assertLess(
+            abs(delta_us),
+            5.0,
+            f"Two structurally-identical jit_fns should produce a "
+            f"near-zero paired delta on a 50-call 4096³ trace; got "
+            f"{delta_us!r} us (signal-vs-noise sanity check).",
         )
 
     def test_pallas_launcher_fast_path_hits_on_repeat_invocations(self) -> None:

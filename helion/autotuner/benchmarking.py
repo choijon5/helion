@@ -478,6 +478,40 @@ def paired_device_us_bench(
 # 200 is the sweet spot.
 _PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_N_CALLS = 200
 _PALLAS_AUTOTUNE_DEVICE_US_DEFAULT_N_WARMUP = 5
+# Minimum per-event cardinality required for a ``/device:TPU:0`` line
+# event to count as a valid per-call kernel sample.  Two competing
+# constraints set this number:
+#
+#   - The DVFS ``P state`` counter line and other hardware counter
+#     lines emit a small fixed number of sampled events (typically
+#     ~1-17) over a trace window regardless of how many kernel calls
+#     happened; accepting those as kernel samples would dominate the
+#     per-event aggregation by ~45x (G7 cycle 36 finding: their total
+#     spans the full trace window, not just the kernel work).  The
+#     floor must sit comfortably above this band.
+#
+#   - The original cycle-36 ``_time_device_us`` matched events with
+#     ``count == n_calls`` exactly.  That works for the common case
+#     where every kernel dispatch produces one event on the device
+#     plane, but is fragile on edge cases:
+#       (1) the profiler's stop-trace flush deadline can drop the
+#       last few events on very long-running compute-bound traces;
+#       (2) some XLA op decompositions emit a slightly different
+#       per-call event count than 1 (e.g. when XLA folds a tail call
+#       into the next iteration).
+#     Relaxing the predicate to ``count >= _MIN_TRACE_EVENTS`` and
+#     computing the per-call us as ``total_ns / actual_count``
+#     (instead of ``total_ns / n_calls``) keeps the helper returning
+#     finite, unbiased readings in both edge cases without admitting
+#     the DVFS counter line.
+#
+# 20 sits well above the DVFS counter line (typically ≤ 17 events
+# regardless of n_calls — DVFS samples scale with wall time, not call
+# count) and well below the typical partial-trace kernel band (≥ 40
+# events even on the most compute-bound shapes we measure today).
+# Per-call us is computed as ``total_ns / actual_count`` so partial-
+# trace events still give an unbiased per-call reading.
+_PALLAS_AUTOTUNE_DEVICE_US_MIN_TRACE_EVENTS = 20
 # Multi-pass median per candidate suppresses cross-window scheduler /
 # cache-state variance that single-pass traces leave on the table.  At
 # 3 passes, the per-candidate cost is ~3-6 sec (3 trace windows ~1-2
@@ -515,26 +549,40 @@ def _pallas_device_us_for_fn(
     ``jax.profiler.start_trace`` / ``stop_trace`` window, parses the
     resulting ``.xplane.pb`` via ``jax.profiler.ProfileData.from_file``,
     finds the dominant compute event on the ``/device:TPU:0`` plane
-    (largest total ``duration_ns`` across events whose count == ``n_calls``
-    — the count filter excludes the DVFS ``P state`` counter line whose
-    ~17 sampled events over the trace window would otherwise dominate
-    the aggregation by ~45x), and returns ``total_ns / n_calls / 1000``.
+    (largest total ``duration_ns`` across events whose count is at
+    least ``_PALLAS_AUTOTUNE_DEVICE_US_MIN_TRACE_EVENTS`` — the count
+    floor excludes the DVFS ``P state`` counter line whose ~17 sampled
+    events over the trace window would otherwise dominate the
+    aggregation by ~45x), and returns ``total_ns / actual_count /
+    1000`` (the divisor is the matched event's actual cardinality, so
+    partial-trace flushes still produce an unbiased per-call reading).
 
     Mirrors ``examples/pallas_perf/measure_headline.py``'s
     ``_time_device_us`` (see plan.md §1 device-us block + §5 G7-prefetch
     cycle 36 history row) but lives here so the autotuner can call it
-    without depending on the examples package.
+    without depending on the examples package, and applies the relaxed
+    count predicate so the helper stays finite on large compute-bound
+    shapes (e.g. bf16 4096³, where the stop-trace flush deadline can
+    drop a handful of tail events).
 
     Returns ``+inf`` when ``jax`` is unavailable, when the trace
     produces no ``.xplane.pb`` (``jax.profiler`` silently dropped the
     trace), when the trace has no ``/device:TPU:0`` plane, or when
-    no event on the plane has cardinality == ``n_calls`` (the
-    per-call kernel emits a different number of events than
-    expected).  All four cases are "the trace data is unusable, not
-    the kernel is broken", so the caller's paired-delta median uses
-    ``inf`` as the "candidate failed" sentinel.  Exceptions raised by
-    the kernel itself (``fn``) propagate so a real kernel bug
-    surfaces instead of being silently re-ranked.
+    no event on the plane has cardinality ``>=
+    _PALLAS_AUTOTUNE_DEVICE_US_MIN_TRACE_EVENTS`` (the per-call
+    kernel emitted too few events for a meaningful aggregation, or
+    the candidate doesn't surface ``/device:TPU:0`` events at all
+    — the latter happens when the autotuner's ``member.fn`` is
+    invoked through torch_tpu's ``call_custom_kernel`` wrapper,
+    whose async dispatch path doesn't expose per-call device events
+    on the ``/device:TPU:0`` plane; that case falls back to the
+    autotuner's wall-clock paired re-rank inside
+    ``_run_final_pick_verification_device_us``).  All cases are "the
+    trace data is unusable, not the kernel is broken", so the
+    caller's paired-delta median uses ``inf`` as the "candidate
+    failed" sentinel.  Exceptions raised by the kernel itself
+    (``fn``) propagate so a real kernel bug surfaces instead of
+    being silently re-ranked.
     """
     try:
         import jax  # pyrefly: ignore[missing-module-attribute]
@@ -579,6 +627,7 @@ def _pallas_device_us_for_fn(
 
         pd = jax.profiler.ProfileData.from_file(pb_path)
         best_total_ns = 0
+        best_event_count = 0
         for plane in pd.planes:
             if plane.name != "/device:TPU:0":
                 continue
@@ -591,13 +640,25 @@ def _pallas_device_us_for_fn(
                     )
                     per_event_counts[ev.name] = per_event_counts.get(ev.name, 0) + 1
                 for name, total in per_event_totals.items():
-                    if per_event_counts[name] != n_calls:
+                    # Relaxed cardinality predicate (vs the original
+                    # ``count == n_calls``): accept any event whose
+                    # cardinality clears the DVFS counter floor.  The
+                    # divisor below uses the matched event's actual
+                    # count, so partial-trace flushes still give an
+                    # unbiased per-call us reading.  See the comment
+                    # block on ``_PALLAS_AUTOTUNE_DEVICE_US_MIN_TRACE_EVENTS``
+                    # above for the constraint analysis.
+                    if (
+                        per_event_counts[name]
+                        < _PALLAS_AUTOTUNE_DEVICE_US_MIN_TRACE_EVENTS
+                    ):
                         continue
                     if total > best_total_ns:
                         best_total_ns = total
-        if best_total_ns == 0:
+                        best_event_count = per_event_counts[name]
+        if best_total_ns == 0 or best_event_count == 0:
             return math.inf
-        return best_total_ns / n_calls / 1000.0
+        return best_total_ns / best_event_count / 1000.0
 
 
 def make_pallas_paired_device_us_bench(
