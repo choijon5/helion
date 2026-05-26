@@ -1402,6 +1402,31 @@ class PopulationBasedSearch(BaseSearch):
             if len(candidates) >= top_k:
                 break
 
+        # Unconditionally admit every compiler-seeded member with finite
+        # perf into the cohort, even when it ranked outside the wall-clock
+        # top-k.  On large-shape kernels (bf16 2048³+) the
+        # PallasMatmulNoTilingSeedHeuristic's ``[N, N, N]`` single-launch
+        # seed often carries higher single-call wall-clock variance than
+        # the tiled pl.pallas_call candidates because the per-call dispatch
+        # / lax.dot_general jit-compile overhead is a larger fraction of
+        # the short kernel's total wall-clock — so the seed's noisy
+        # initial rank pushes it past the top-k slice and the device-us
+        # re-rank never gets to see it. Re-admitting the seed here
+        # guarantees the device-us bench evaluates every structurally-
+        # distinct backend pick (the dot_general no-tiling lowering's
+        # cross_program_prefetch advantage is real, ~17% on-device, but
+        # only visible under the device-us signal — wall-clock can't
+        # rank it correctly on its own). The compiler-seed bias band
+        # downstream then promotes the seed when its paired-delta is
+        # within ~1us of any tiled near-miss winner.
+        for seed_member in compiler_seed_members:
+            if not math.isfinite(seed_member.perf):
+                continue
+            if id(seed_member) in seen_ids:
+                continue
+            seen_ids.add(id(seed_member))
+            candidates.append(seed_member)
+
         if len(candidates) < 2:
             return best
 

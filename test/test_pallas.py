@@ -2753,6 +2753,213 @@ class TestPallas(TestCase):
             f"{list(final.config['block_sizes'])} instead.",
         )
 
+    def test_pallas_autotuner_compiler_seeds_admitted_to_device_us_cohort(
+        self,
+    ) -> None:
+        """Compiler-seeded members are admitted to the device-us cohort even when wall-clock ranks them outside top-K.
+
+        Plan.md §5 G7 guard: the final-pick verification phase takes the
+        top-K wall-clock-fastest members of ``self.population`` and
+        re-times them via ``_run_final_pick_verification_device_us``.
+        On large-shape kernels (e.g. bf16 2048³) the
+        ``PallasMatmulNoTilingSeedHeuristic`` ``[N, N, N]``
+        single-launch seed often shows higher single-call wall-clock
+        variance than tiled ``pl.pallas_call`` candidates because the
+        per-call dispatch / ``lax.dot_general`` jit-compile overhead
+        is a larger fraction of the short kernel's total wall-clock —
+        so the seed's noisy initial rank pushes it past the top-K
+        slice and the device-us re-rank never sees it. The fix
+        unconditionally re-admits every compiler-seeded member with
+        finite perf into the cohort after the top-K slice, so the
+        device-us bench always evaluates the structurally-distinct
+        backend pick.
+
+        Scenario in this pin:
+
+        * top_k=2. ``self.population`` has 3 fast tiled members
+          (wall-clock perf 0.100, 0.101, 0.102 ms) and one compiler-
+          seeded no-tiling member with WORSE wall-clock perf
+          (0.150 ms — outside any top-2 slice by a wide margin).
+        * Under device-us, the compiler-seed is the fastest pick
+          (5 us on-device vs the tiled members' 10/11/12 us).
+        * Without unconditional admission, the device-us re-rank
+          sees only the 3 tiled members + ``best`` and picks
+          ``[1024, 1024, 1024]`` (tiled, fastest device-us of the
+          cohort: 10 us). The compiler-seed never reaches the bench.
+        * With unconditional admission, the seed is added to the
+          cohort regardless of its wall-clock rank, the device-us
+          bench evaluates it, and the compiler-seed bias band
+          promotes it on top of the tiled members (or the seed's
+          5 us absolute device-us wins on the primary key alone).
+
+        Regression hazard pinned: if a refactor reverts to slicing
+        the cohort to top-K wall-clock only, the seed is dropped
+        from device-us evaluation and the autotuner picks a tiled
+        config that's structurally slower on-device (G7-prefetch
+        large-shape headline regresses).
+        """
+        from unittest.mock import patch
+
+        from helion.autotuner.base_search import PopulationBasedSearch
+        from helion.autotuner.base_search import PopulationMember
+        from helion.runtime.config import Config
+
+        # Three tiled members (fast wall-clock, slow on-device) plus
+        # a compiler-seeded no-tiling member (slow wall-clock, fastest
+        # on-device).  top_k=2 → the seed gets sliced out under
+        # wall-clock ranking but unconditional admission re-adds it.
+        tiled_cfg_a = Config(block_sizes=[1024, 1024, 1024])
+        tiled_cfg_b = Config(block_sizes=[512, 1024, 1024])
+        tiled_cfg_c = Config(block_sizes=[1024, 512, 1024])
+        seed_cfg = Config(block_sizes=[2048, 2048, 2048])
+
+        device_us_per_fn: dict[int, float] = {}
+
+        def fake_device_us_bench(
+            fns: list[Callable[..., object]],
+            reference_fn: Callable[..., object],
+            *,
+            desc: str | None = None,
+        ) -> list[tuple[float, float]]:
+            ref_inner = getattr(reference_fn, "func", reference_fn)
+            ref_us = device_us_per_fn[id(ref_inner)]
+            results: list[tuple[float, float]] = []
+            for fn in fns:
+                inner = getattr(fn, "func", fn)
+                cand_us = device_us_per_fn[id(inner)]
+                results.append((cand_us, cand_us - ref_us))
+            return results
+
+        class _NoopLog:
+            def __call__(self, *_: object, **__: object) -> None:
+                return None
+
+            def debug(self, *_: object, **__: object) -> None:
+                return None
+
+            def warning(self, *_: object, **__: object) -> None:
+                return None
+
+        class _FakeBenchmarkProvider:
+            mutated_arg_indices: tuple[int, ...] = ()
+
+        class _FakeSettings:
+            autotune_benchmark_fn: Callable[..., list[float]] | None = None
+            autotune_progress_bar: bool = False
+            static_shapes: bool = True
+
+        class _FakeBackend:
+            @staticmethod
+            def get_paired_device_us_bench(
+                *, passes: int
+            ) -> Callable[..., list[tuple[float, float]]]:
+                del passes  # accepted for parity with the real backend hook
+                return fake_device_us_bench
+
+        class _FakeConfigSpec:
+            backend = _FakeBackend()
+
+        class _FakeKernel:
+            class env:
+                process_group_name: str | None = None
+
+        def tiled_a_fn() -> None:
+            return None
+
+        def tiled_b_fn() -> None:
+            return None
+
+        def tiled_c_fn() -> None:
+            return None
+
+        def seed_fn() -> None:
+            return None
+
+        # Tiled members: 10 / 11 / 12 us on-device (slow); seed: 5 us
+        # on-device (fast).  Wall-clock perf is inverted: tiled
+        # members at 0.100 / 0.101 / 0.102 ms; seed at 0.150 ms
+        # (wall-clock noisy — dispatch dominates the short kernel).
+        device_us_per_fn[id(tiled_a_fn)] = 10.0
+        device_us_per_fn[id(tiled_b_fn)] = 11.0
+        device_us_per_fn[id(tiled_c_fn)] = 12.0
+        device_us_per_fn[id(seed_fn)] = 5.0
+
+        tiled_a_member = PopulationMember(
+            fn=tiled_a_fn,
+            perfs=[0.100],
+            flat_values=[id(tiled_cfg_a)],
+            config=tiled_cfg_a,
+            status="ok",
+            compile_time=0.0,
+        )
+        tiled_b_member = PopulationMember(
+            fn=tiled_b_fn,
+            perfs=[0.101],
+            flat_values=[id(tiled_cfg_b)],
+            config=tiled_cfg_b,
+            status="ok",
+            compile_time=0.0,
+        )
+        tiled_c_member = PopulationMember(
+            fn=tiled_c_fn,
+            perfs=[0.102],
+            flat_values=[id(tiled_cfg_c)],
+            config=tiled_cfg_c,
+            status="ok",
+            compile_time=0.0,
+        )
+        seed_member = PopulationMember(
+            fn=seed_fn,
+            perfs=[0.150],  # noisy single-call wall-clock — outside top-2
+            flat_values=[id(seed_cfg)],
+            config=seed_cfg,
+            status="ok",
+            compile_time=0.0,
+        )
+
+        search = PopulationBasedSearch.__new__(PopulationBasedSearch)
+        # Population is the 3 tiled candidates + seed (mirroring the
+        # real autotune flow where the seed lives in the population
+        # but ranked poorly by wall-clock).
+        search.population = [
+            tiled_a_member,
+            tiled_b_member,
+            tiled_c_member,
+            seed_member,
+        ]
+        search.best_perf_so_far = min(m.perf for m in search.population)
+        search.log = _NoopLog()
+        search.args = ()
+        search.kernel = _FakeKernel()
+        search.benchmark_provider = _FakeBenchmarkProvider()
+        search.settings = _FakeSettings()
+        search.config_spec = _FakeConfigSpec()
+        search._compiler_seed_members = [seed_member]
+
+        # top_k=2: under wall-clock-only slicing, the cohort would
+        # be [best=tiled_a, tiled_b] and the seed (rank 4 by
+        # wall-clock) would be dropped from device-us evaluation.
+        # Unconditional seed admission re-adds it; the device-us
+        # bench then picks it (5 us absolute, -5 us paired delta
+        # vs tiled_a's 10 us).
+        with patch.dict(os.environ, {"HELION_AUTOTUNE_RANK_BY": "device_us"}):
+            final = search.run_final_pick_verification(
+                tiled_a_member, passes=3, top_k=2
+            )
+
+        self.assertEqual(
+            list(final.config["block_sizes"]),
+            [2048, 2048, 2048],
+            f"Compiler-seeded no-tiling config ({list(seed_cfg['block_sizes'])}) "
+            f"must be unconditionally admitted to the device-us cohort even "
+            f"when its wall-clock perf ranks it outside the top-K slice; "
+            f"under device-us it is the structurally-fastest pick (5us "
+            f"on-device vs tiled 10/11/12us). Got "
+            f"{list(final.config['block_sizes'])} — the seed was dropped "
+            f"from the cohort before device-us evaluation, which regresses "
+            f"the G7-prefetch large-shape headline.",
+        )
+
     def test_pallas_autotuner_final_pick_falls_back_to_wall_us_when_opted_out(
         self,
     ) -> None:
