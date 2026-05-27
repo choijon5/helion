@@ -522,6 +522,242 @@ def _pallas_check_dtypes(args: tuple[object, ...]) -> None:
             )
 
 
+# Cache-hit fast path skips the per-call dtype check + ds-pad + output-only loop.
+_LAUNCHER_FAST_PATH_HITS = 0
+
+
+def _launcher_fast_path_hits() -> int:
+    """Count fast-path cache-hit launcher invocations (test instrumentation)."""
+    return _LAUNCHER_FAST_PATH_HITS
+
+
+def _reset_launcher_fast_path_hits() -> None:
+    """Reset the fast-path counter (test instrumentation)."""
+    global _LAUNCHER_FAST_PATH_HITS
+    _LAUNCHER_FAST_PATH_HITS = 0
+
+
+_HELION_STATIC_JAX_CALLABLE_CLASS: type | None = None
+
+
+def _make_helion_static_jax_callable_class() -> type:
+    """Build a ``JaxCallable`` subclass that caches torch_tpu's per-call invocation key."""
+
+    global _HELION_STATIC_JAX_CALLABLE_CLASS
+    if _HELION_STATIC_JAX_CALLABLE_CLASS is not None:
+        return _HELION_STATIC_JAX_CALLABLE_CLASS
+
+    from torch_tpu._internal.pallas.pallas import (  # pyrefly: ignore[missing-import]
+        JaxCallable,
+    )
+
+    class _HelionStaticJaxCallable(JaxCallable):  # type: ignore[misc, valid-type]
+        """``JaxCallable`` subclass used as the anchor for the launcher fast path.
+
+        The class body is intentionally minimal here; stacked PRs attach
+        the direct-call snapshot (``_helion_direct_call``) that lets the
+        launcher hot path bypass ``JaxCallable.__call__`` entirely.
+        """
+
+        __slots__ = ()
+
+        def __call__(self, *args: object, **kwargs: object) -> object:
+            # First call goes through the JaxCallable slow path; the launcher
+            # snapshot built afterwards lets later calls skip this method.
+            result = super().__call__(*args, **kwargs)
+
+            if kwargs or not self.output_shapes:
+                return result
+
+            from torch_tpu._internal.pallas.pallas import (  # pyrefly: ignore[missing-import]
+                _get_kernel_invocation_key,
+            )
+
+            kernel_key = _get_kernel_invocation_key(
+                self.trace_key, args, kwargs, self.static_argnums
+            )
+            cached_entry = self.output_shapes.get(kernel_key)
+            if cached_entry is None:
+                return result
+            # Snapshot left intentionally empty in this commit; stacked PRs
+            # attach a direct-call structure here so subsequent calls bypass
+            # this ``__call__``.
+            return result
+
+    _HELION_STATIC_JAX_CALLABLE_CLASS = _HelionStaticJaxCallable
+    return _HelionStaticJaxCallable
+
+
+class _LauncherFastPath:
+    """Precomputed per-call state stored on the cached launcher entry."""
+
+    __slots__ = (
+        "ds_pad_required",
+        "ds_pad_orig_output_arg_indices",
+        "output_only_count",
+        "output_only_descriptors",
+        "padded_output_arg_indices",
+        "padded_output_dims_by_arg",
+        "tensor_arg_indices_tuple",
+    )
+
+    def __init__(
+        self,
+        tensor_arg_indices: list[int],
+        arg_to_tensor_pos: dict[int, int],
+        _output_indices: list[int],
+        _ds_pad_dims: list[tuple[int, int, int, int]] | None,
+    ) -> None:
+        # Tuple iteration is faster than list in the hot-path comprehension.
+        self.tensor_arg_indices_tuple: tuple[int, ...] = tuple(tensor_arg_indices)
+
+        descriptors: list[tuple[int, int]] = [
+            (out_idx, orig_pos)
+            for out_idx, orig_pos in enumerate(_output_indices)
+            if orig_pos not in arg_to_tensor_pos
+        ]
+        self.output_only_descriptors: tuple[tuple[int, int], ...] = tuple(descriptors)
+        self.output_only_count: int = len(descriptors)
+
+        # ``None`` sentinel: filled in on the first call once we know if any pad is non-zero.
+        self.ds_pad_required: bool | None = None
+
+        if _ds_pad_dims:
+            output_arg_set = set(_output_indices)
+            padded_dims_by_arg: dict[int, list[int]] = {}
+            padded_output_arg_indices: set[int] = set()
+            for arg_idx, dim, _bs, _extra in _ds_pad_dims:
+                if arg_idx in output_arg_set:
+                    padded_dims_by_arg.setdefault(arg_idx, []).append(dim)
+                    padded_output_arg_indices.add(arg_idx)
+            self.padded_output_dims_by_arg: dict[int, list[int]] = padded_dims_by_arg
+            self.padded_output_arg_indices: frozenset[int] = frozenset(
+                padded_output_arg_indices
+            )
+            self.ds_pad_orig_output_arg_indices: frozenset[int] = frozenset(
+                idx for idx in padded_output_arg_indices if idx in arg_to_tensor_pos
+            )
+        else:
+            self.padded_output_dims_by_arg = {}
+            self.padded_output_arg_indices = frozenset()
+            self.ds_pad_orig_output_arg_indices = frozenset()
+
+
+def _pallas_apply_ds_padding_fast(
+    args: tuple[object, ...],
+    _ds_pad_dims: list[tuple[int, int, int, int]],
+    fast_path: _LauncherFastPath,
+    padded_output_arg_indices: frozenset[int],
+) -> tuple[tuple[object, ...], dict[int, torch.Tensor] | None, bool]:
+    """``_pallas_apply_ds_padding`` with a short-circuit when every pad amount is zero."""
+    args_list: list[object] | None = None
+    orig_output_tensors: dict[int, torch.Tensor] | None = None
+    any_padding = False
+    for arg_idx, dim, block_size, extra_pad in _ds_pad_dims:
+        a = args[arg_idx] if args_list is None else args_list[arg_idx]
+        if not isinstance(a, torch.Tensor):
+            continue
+        pad_amount = (-a.shape[dim]) % block_size + extra_pad
+        if pad_amount == 0:
+            continue
+        any_padding = True
+        if args_list is None:
+            args_list = list(args)
+        if arg_idx in padded_output_arg_indices:
+            if orig_output_tensors is None:
+                orig_output_tensors = {}
+            if arg_idx not in orig_output_tensors:
+                orig_output_tensors[arg_idx] = cast("torch.Tensor", a)
+        pad_widths = [0] * (2 * a.ndim)
+        pad_widths[2 * (a.ndim - 1 - dim) + 1] = pad_amount
+        args_list[arg_idx] = torch.nn.functional.pad(a, pad_widths)
+    if fast_path.ds_pad_required is None:
+        # First-call precomputation: lock in whether any pad amount is
+        # non-zero so subsequent calls can elide the iteration outright.
+        fast_path.ds_pad_required = any_padding
+    if args_list is None:
+        return args, None, False
+    return tuple(args_list), orig_output_tensors, True
+
+
+def _pallas_invoke_and_return_fast(
+    jax_callable: object,
+    args: tuple[object, ...],
+    fast_path: _LauncherFastPath,
+    _orig_output_tensors: dict[int, torch.Tensor] | None,
+) -> object:
+    """Hot-path ``_pallas_invoke_and_return`` reading the precomputed ``fast_path``."""
+    tensor_arg_indices = fast_path.tensor_arg_indices_tuple
+    input_tensors = [
+        cast("torch.Tensor", args[i]).contiguous() for i in tensor_arg_indices
+    ]
+    results = jax_callable(*input_tensors)  # type: ignore[operator]
+
+    output_only_count = fast_path.output_only_count
+    if output_only_count == 0 and _orig_output_tensors is None:
+        # Hottest path: in-place outputs already written through donated aliases.
+        return None
+
+    if results is None:
+        return None
+    if not isinstance(results, (tuple, list)):
+        results = (results,)
+
+    output_only_results: list[object] = []
+    if output_only_count > 0:
+        for out_idx, orig_pos in fast_path.output_only_descriptors:
+            result = results[out_idx]
+            if not isinstance(result, torch.Tensor):
+                # Interpret mode: pallas_call returns JAX arrays.
+                out_tensor = cast("torch.Tensor", args[orig_pos])
+                device = out_tensor.device
+                if device.type == "meta":
+                    device = torch.device("cpu")
+                result = _jax_to_torch(result, device=device, dtype=out_tensor.dtype)
+            output_only_results.append(result)
+
+    if _orig_output_tensors is not None:
+        padded_dims_by_arg = fast_path.padded_output_dims_by_arg
+        # Copy sliced results back into original in-place output tensors.
+        for arg_idx in fast_path.ds_pad_orig_output_arg_indices:
+            orig_tensor = _orig_output_tensors.get(arg_idx)
+            if orig_tensor is None:
+                continue
+            dims = padded_dims_by_arg.get(arg_idx)
+            if not dims:
+                continue
+            padded = cast("torch.Tensor", args[arg_idx])
+            slices = [slice(None)] * padded.ndim
+            for dim in dims:
+                slices[dim] = slice(None, orig_tensor.shape[dim])
+            orig_tensor.copy_(padded[tuple(slices)])
+
+        # Slice padded output-only results back to original shapes.
+        if output_only_results:
+            for compacted_idx, (_, orig_pos) in enumerate(
+                fast_path.output_only_descriptors
+            ):
+                orig = _orig_output_tensors.get(orig_pos)
+                dims = padded_dims_by_arg.get(orig_pos)
+                if (
+                    orig is not None
+                    and dims
+                    and compacted_idx < len(output_only_results)
+                ):
+                    t = output_only_results[compacted_idx]
+                    if isinstance(t, torch.Tensor):
+                        slices = [slice(None)] * t.ndim
+                        for dim in dims:
+                            slices[dim] = slice(None, orig.shape[dim])
+                        output_only_results[compacted_idx] = t[tuple(slices)]
+
+    if output_only_count == 0:
+        return None
+    if output_only_count == 1:
+        return output_only_results[0]
+    return tuple(output_only_results)
+
+
 def _pallas_prepare_args(
     args: tuple[object, ...],
     _output_indices: list[int],
@@ -674,10 +910,11 @@ def _pallas_build_callable(
             if orig_pos in arg_to_tensor_pos
         ]
         callable_obj = _PallasInterpretCallable(jit_fn, inplace_output_mapping)
+        # Seed with ``None`` fast-path slot; launcher overwrites with real ``_LauncherFastPath``.
         setattr(
             pallas_kernel,
             cache_attr,
-            (grid, callable_obj, tensor_arg_indices, arg_to_tensor_pos),
+            (grid, callable_obj, tensor_arg_indices, arg_to_tensor_pos, None),
         )
         return callable_obj
 
@@ -685,22 +922,22 @@ def _pallas_build_callable(
         return _make_interpret_callable()
 
     import jax
-    from torch_tpu._internal.pallas.pallas import (  # pyrefly: ignore[missing-import]
-        JaxCallable,
-    )
 
     kernel_name = getattr(pallas_kernel, "__name__", "pallas_kernel")
 
-    jax_callable = JaxCallable(
+    # JaxCallable subclass caches the per-call invocation key (see _make_helion_static_jax_callable_class).
+    callable_cls = _make_helion_static_jax_callable_class()
+    jax_callable = callable_cls(
         name=kernel_name,
         jit_fn=jax.jit(jit_fn),
         trace_key=f"{kernel_name}_{id(pallas_kernel)}_{grid}{trace_key_suffix}",
         input_output_aliases=call_aliases,
     )
+    # Seed with ``None`` fast-path slot; launcher overwrites with real ``_LauncherFastPath``.
     setattr(
         pallas_kernel,
         cache_attr,
-        (grid, jax_callable, tensor_arg_indices, arg_to_tensor_pos),
+        (grid, jax_callable, tensor_arg_indices, arg_to_tensor_pos, None),
     )
     return jax_callable
 
@@ -925,18 +1162,39 @@ def default_pallas_launcher(
     if _output_indices is None:
         _output_indices = []
 
-    _orig_output_tensors: dict[int, torch.Tensor] | None = None
-    if _ds_pad_dims:
-        args, _orig_output_tensors = _pallas_apply_ds_padding(
-            args, _output_indices, _ds_pad_dims
-        )
-
-    _pallas_check_dtypes(args)
-
     cache = getattr(pallas_kernel, "_pallas_cache", None)
     if cache is not None and cache[0] == grid:
-        _, jax_callable, tensor_arg_indices, arg_to_tensor_pos = cache
-    else:
+        global _LAUNCHER_FAST_PATH_HITS
+        _LAUNCHER_FAST_PATH_HITS += 1
+        (
+            _,
+            jax_callable,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            fast_path,
+        ) = cache
+
+        _orig_output_tensors: dict[int, torch.Tensor] | None = None
+        if _ds_pad_dims and fast_path.ds_pad_required is not False:
+            args, _orig_output_tensors, _ = _pallas_apply_ds_padding_fast(
+                args,
+                _ds_pad_dims,
+                fast_path,
+                fast_path.padded_output_arg_indices,
+            )
+        # Cache-hit elides ``_pallas_check_dtypes``: the first call already validated.
+        return _pallas_invoke_and_return_fast(
+            jax_callable, args, fast_path, _orig_output_tensors
+        )
+    else:  # noqa: RET505
+        _orig_output_tensors = None
+        if _ds_pad_dims:
+            args, _orig_output_tensors = _pallas_apply_ds_padding(
+                args, _output_indices, _ds_pad_dims
+            )
+
+        _pallas_check_dtypes(args)
+
         from jax.experimental import pallas as pl
         from jax.experimental.pallas import tpu as pltpu
         import jax.numpy as jnp
@@ -1026,15 +1284,30 @@ def default_pallas_launcher(
             interpret=interpret,
         )
 
-    return _pallas_invoke_and_return(
-        jax_callable,
-        args,
-        tensor_arg_indices,
-        arg_to_tensor_pos,
-        _output_indices,
-        _ds_pad_dims,
-        _orig_output_tensors,
-    )
+        fast_path = _LauncherFastPath(
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            _output_indices,
+            _ds_pad_dims,
+        )
+        # Swap in the real _LauncherFastPath; _pallas_build_callable seeded a None placeholder.
+        pallas_kernel._pallas_cache = (  # pyrefly: ignore[missing-attribute]
+            grid,
+            jax_callable,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            fast_path,
+        )
+
+        return _pallas_invoke_and_return(
+            jax_callable,
+            args,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            _output_indices,
+            _ds_pad_dims,
+            _orig_output_tensors,
+        )
 
 
 def default_pallas_pipeline_launcher(
@@ -1070,18 +1343,38 @@ def default_pallas_pipeline_launcher(
     if _scratch_shapes is None:
         _scratch_shapes = []
 
-    _orig_output_tensors: dict[int, torch.Tensor] | None = None
-    if _ds_pad_dims:
-        args, _orig_output_tensors = _pallas_apply_ds_padding(
-            args, _output_indices, _ds_pad_dims
-        )
-
-    _pallas_check_dtypes(args)
-
     cache = getattr(pallas_kernel, "_pallas_pipeline_cache", None)
     if cache is not None and cache[0] == grid:
-        _, jax_callable, tensor_arg_indices, arg_to_tensor_pos = cache
-    else:
+        global _LAUNCHER_FAST_PATH_HITS
+        _LAUNCHER_FAST_PATH_HITS += 1
+        (
+            _,
+            jax_callable,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            fast_path,
+        ) = cache
+
+        _orig_output_tensors: dict[int, torch.Tensor] | None = None
+        if _ds_pad_dims and fast_path.ds_pad_required is not False:
+            args, _orig_output_tensors, _ = _pallas_apply_ds_padding_fast(
+                args,
+                _ds_pad_dims,
+                fast_path,
+                fast_path.padded_output_arg_indices,
+            )
+        return _pallas_invoke_and_return_fast(
+            jax_callable, args, fast_path, _orig_output_tensors
+        )
+    else:  # noqa: RET505
+        _orig_output_tensors = None
+        if _ds_pad_dims:
+            args, _orig_output_tensors = _pallas_apply_ds_padding(
+                args, _output_indices, _ds_pad_dims
+            )
+
+        _pallas_check_dtypes(args)
+
         from jax.experimental import pallas as pl
         from jax.experimental.pallas import tpu as pltpu
         import jax.numpy as jnp
@@ -1204,15 +1497,29 @@ def default_pallas_pipeline_launcher(
             interpret=interpret,
         )
 
-    return _pallas_invoke_and_return(
-        jax_callable,
-        args,
-        tensor_arg_indices,
-        arg_to_tensor_pos,
-        _output_indices,
-        _ds_pad_dims,
-        _orig_output_tensors,
-    )
+        fast_path = _LauncherFastPath(
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            _output_indices,
+            _ds_pad_dims,
+        )
+        pallas_kernel._pallas_pipeline_cache = (  # pyrefly: ignore[missing-attribute]
+            grid,
+            jax_callable,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            fast_path,
+        )
+
+        return _pallas_invoke_and_return(
+            jax_callable,
+            args,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            _output_indices,
+            _ds_pad_dims,
+            _orig_output_tensors,
+        )
 
 
 def default_pallas_fori_launcher(
@@ -1249,18 +1556,38 @@ def default_pallas_fori_launcher(
     if _scratch_shapes is None:
         _scratch_shapes = []
 
-    _orig_output_tensors: dict[int, torch.Tensor] | None = None
-    if _ds_pad_dims:
-        args, _orig_output_tensors = _pallas_apply_ds_padding(
-            args, _output_indices, _ds_pad_dims
-        )
-
-    _pallas_check_dtypes(args)
-
     cache = getattr(pallas_kernel, "_pallas_fori_cache", None)
     if cache is not None and cache[0] == grid:
-        _, jax_callable, tensor_arg_indices, arg_to_tensor_pos = cache
-    else:
+        global _LAUNCHER_FAST_PATH_HITS
+        _LAUNCHER_FAST_PATH_HITS += 1
+        (
+            _,
+            jax_callable,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            fast_path,
+        ) = cache
+
+        _orig_output_tensors: dict[int, torch.Tensor] | None = None
+        if _ds_pad_dims and fast_path.ds_pad_required is not False:
+            args, _orig_output_tensors, _ = _pallas_apply_ds_padding_fast(
+                args,
+                _ds_pad_dims,
+                fast_path,
+                fast_path.padded_output_arg_indices,
+            )
+        return _pallas_invoke_and_return_fast(
+            jax_callable, args, fast_path, _orig_output_tensors
+        )
+    else:  # noqa: RET505
+        _orig_output_tensors = None
+        if _ds_pad_dims:
+            args, _orig_output_tensors = _pallas_apply_ds_padding(
+                args, _output_indices, _ds_pad_dims
+            )
+
+        _pallas_check_dtypes(args)
+
         from jax.experimental import pallas as pl
         from jax.experimental.pallas import tpu as pltpu
         import jax.numpy as jnp
@@ -1382,15 +1709,29 @@ def default_pallas_fori_launcher(
             interpret=interpret,
         )
 
-    return _pallas_invoke_and_return(
-        jax_callable,
-        args,
-        tensor_arg_indices,
-        arg_to_tensor_pos,
-        _output_indices,
-        _ds_pad_dims,
-        _orig_output_tensors,
-    )
+        fast_path = _LauncherFastPath(
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            _output_indices,
+            _ds_pad_dims,
+        )
+        pallas_kernel._pallas_fori_cache = (  # pyrefly: ignore[missing-attribute]
+            grid,
+            jax_callable,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            fast_path,
+        )
+
+        return _pallas_invoke_and_return(
+            jax_callable,
+            args,
+            tensor_arg_indices,
+            arg_to_tensor_pos,
+            _output_indices,
+            _ds_pad_dims,
+            _orig_output_tensors,
+        )
 
 
 def _torch_to_jax(t: torch.Tensor) -> object:

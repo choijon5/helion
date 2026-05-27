@@ -1046,6 +1046,105 @@ class TestPallas(TestCase):
         # The bias block_spec_info must have None for dim 0 (not a grid index).
         self.assertIn("(None, 1)", code)
 
+    def test_pallas_launcher_fast_path_hits_on_repeat_invocations(self) -> None:
+        """Cached static-shape Pallas launcher elides per-call helper iteration.
+
+        Per-call Python dispatch overhead is a measurable slice of the
+        bf16 1024^3 headline gap.  On a cache hit,
+        ``default_pallas_launcher`` /
+        ``default_pallas_pipeline_launcher`` / ``default_pallas_fori_launcher``
+        each branch into a fast path that:
+
+        * Reuses a precomputed ``_LauncherFastPath`` instance carried on
+          the cached launcher entry instead of re-running
+          ``_pallas_apply_ds_padding`` / ``_pallas_check_dtypes`` /
+          the output-only-results loop per call.
+        * Increments ``helion.runtime._LAUNCHER_FAST_PATH_HITS`` on each
+          cache hit so this pin can assert the elision is exercised.
+
+        The kernel allocates its output via ``torch.empty`` inside the
+        kernel body, so ``out`` is an output-only tensor and the fast
+        path exercises both the output-only-results loop short-circuit
+        and the ds-pad skip (1024-divisible block sizes mean every
+        pad_amount is 0).  The test binds + ``compile_config`` directly
+        so autotuning doesn't muddy the counter (autotuning would call
+        the launcher hundreds of times across configs); only the
+        compiled callable's per-call launcher work is observed.
+
+        Regression hazard pinned: if a refactor splits the cache tuple
+        differently or removes the counter increment, this test fails.
+        Equally, if a refactor accidentally takes the slow path on
+        every call (e.g. by storing a 4-tuple instead of a 5-tuple and
+        always missing the new ``fast_path`` unpack), the hit count
+        drops to 0 and the test fails.
+        """
+        from helion import runtime as helion_runtime
+
+        # Define the kernel inside the test so the inner Helion-emitted
+        # function (and its ``_pallas_cache`` / ``_pallas_pipeline_cache``
+        # / ``_pallas_fori_cache``) is unique to this test run -- no
+        # cross-test pollution from other tests that bind
+        # ``pallas_matmul_bf16``.  The launcher cache lives on the
+        # *inner* generated function, not on the user-facing decorator
+        # object, so clearing attributes off the module-level
+        # ``pallas_matmul_bf16`` wouldn't help.
+
+        @helion.kernel(backend="pallas", static_shapes=True)
+        def _matmul_launcher_fast_path_pin(
+            x: torch.Tensor, y: torch.Tensor
+        ) -> torch.Tensor:
+            m, k = x.size()
+            _, n = y.size()
+            out = torch.empty(
+                [m, n],
+                device=x.device,
+                dtype=torch.promote_types(x.dtype, y.dtype),
+            )
+            for tile_m, tile_n in hl.tile([m, n]):
+                acc = hl.zeros([tile_m, tile_n], dtype=torch.float32)
+                for tile_k in hl.tile(k):
+                    acc = torch.addmm(acc, x[tile_m, tile_k], y[tile_k, tile_n])
+                out[tile_m, tile_n] = acc
+            return out
+
+        torch.manual_seed(0)
+        x = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+        torch.manual_seed(1)
+        y = torch.randn(256, 256, device=DEVICE, dtype=torch.bfloat16)
+
+        bound = _matmul_launcher_fast_path_pin.bind((x, y))
+        config = bound.config_spec.default_config()
+        compiled_fn = bound.compile_config(config)
+
+        helion_runtime._reset_launcher_fast_path_hits()
+        self.assertEqual(helion_runtime._launcher_fast_path_hits(), 0)
+
+        # First call seeds the launcher cache (slow path / no counter
+        # bump); subsequent calls take the fast path.
+        result = compiled_fn(x, y)
+        expected = (x.float() @ y.float()).to(torch.bfloat16)
+        torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+        self.assertEqual(
+            helion_runtime._launcher_fast_path_hits(),
+            0,
+            "First call should miss the launcher cache and run the "
+            "slow path (no fast-path counter bump).",
+        )
+
+        # Repeat invocations: same kernel, same shape, same dtype → cache hit.
+        n_repeats = 4
+        for _ in range(n_repeats):
+            result = compiled_fn(x, y)
+            torch.testing.assert_close(result, expected, rtol=1e-2, atol=1e-2)
+
+        self.assertEqual(
+            helion_runtime._launcher_fast_path_hits(),
+            n_repeats,
+            f"Repeat calls on a cached static-shape kernel must each hit "
+            f"the launcher fast path. Expected {n_repeats} hits; got "
+            f"{helion_runtime._launcher_fast_path_hits()}.",
+        )
+
     def test_bmm(self) -> None:
         """Test BMM with default config — exercises size_matches fix.
 
