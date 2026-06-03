@@ -6119,3 +6119,57 @@ from real incidents, not speculation.
   re-invokes the callable once so the next call rebuilds via
   ``_pallas_build_callable`` and the capture refreshes. See §2.11
   for the full root-cause walk-through.
+
+- **PR-readiness is part of "done", not a post-hoc cleanup pass
+  (launcher substack #2593–#2597, 2026-06).** The hill-climb gated on
+  kernel H/P and closed G2–G7, but the host-launcher PRs landed needing
+  ~3 days of pre-review cleanup: re-verifying the (noisy) launcher
+  numbers, collapsing a two-branch launcher a reviewer flagged, fixing
+  two CI-red pin tests the pod test-filter had masked, and rewriting PR
+  bodies that described the superseded code. Every one was fixable
+  in-cycle. ``manager.md`` "Definition of done" (review-clean code,
+  CI-set green, perf-as-stable-metric, lint) exists to keep this off the
+  human's plate. The next four entries are the specific traps.
+
+- **Two-branch code written "to minimize diff noise."** #2593's
+  fast-path launcher kept the cache-miss build under ``else:`` at
+  original indentation *to shrink the diff*, which duplicated the kernel
+  invoke across the hit and miss branches. The reviewer asked to
+  collapse it to a single fall-through (build-on-miss, then one shared
+  invoke tail used by the first and every warm call). A smaller diff is
+  not a goal — write the DRY form you'd defend in review. Adding a
+  branch to avoid re-indenting an existing block is the smell.
+
+- **State-inspection pin tests hard-coded to one launcher's cache
+  attr.** ``test_pallas_call_custom_kernel_direct_matches_jaxcallable_output``
+  (#2594) and the sig-lock pin (#2597) asserted on ``_pallas_cache[5]``,
+  but the 256² bf16 matmul they compile lands on the **pipeline / fori**
+  launcher, whose cache lives under ``_pallas_pipeline_cache`` /
+  ``_pallas_fori_cache``. The owners list came up empty → ``[] is not
+  true`` red on CI. The sibling ``test_matmul_launcher_fast_path_pin``
+  got it right by scanning all three. Any test that walks the launcher
+  cache must try ``("_pallas_cache", "_pallas_pipeline_cache",
+  "_pallas_fori_cache")``.
+
+- **Changing generated code without updating its golden test — and the
+  pod filter hides the break.** #2595's output-meta cache rewrote
+  ``out = torch.empty_like(q_view, device='meta')`` into the cached
+  ``getattr(...)`` form, breaking ``test_attention_unroll_fp32``'s
+  ``assertIn``. That test fails to *compile* on this pod (a torch
+  ``_inductor`` lowering quirk unrelated to the change), so it sits in
+  the ``PALLAS_TEST_CMD`` ``-k 'not (...)'`` skip filter — the hill-climb
+  never ran it, but CI (different torch build) compiled and ran it →
+  red. When a cycle changes generated code, grep the *full* test file
+  for assertions on the changed text and re-run / update them by node
+  id, regardless of whether the pod filter skips them.
+
+- **Reporting a host-overhead win as a % reduction.** ``launcher_overhead
+  = full_us − kernel_us`` is the difference of two ~150us, host-dominated
+  measurements; the baseline term alone floats 58–90us run-to-run. The
+  same fixed code measured 66→42us (−37%) in one session and would read
+  −41% had the baseline landed at 71us as in an earlier run — the % is a
+  noisy ratio of two noisy numbers and invites "did it regress?" churn.
+  Report the absolute stable value and us saved ("launcher 66→42us,
+  −24us"); resolve sub-noise (< ~20us) Python deltas with a
+  single-process micro-bench, not the pod per-cycle signal (see the
+  sub-20us entry above).

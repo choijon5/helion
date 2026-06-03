@@ -27,6 +27,29 @@ harms coherence. ≤ 1500 changed implementation lines (excluding
 `plan.md`, `manager.md`, and `examples/pallas_perf/*.py`) is the soft
 target; larger is fine when the work is indivisible.
 
+**Definition of done (review-ready).** Every committed slice is a PR a
+human will open *as-is* — not a draft needing days of post-hoc cleanup
+(the launcher stack #2593–#2597 cost ~3 days of exactly that: verifying
+results, collapsing duplicated code, fixing CI-red tests, rewriting
+stale descriptions — all avoidable in-cycle). Before any commit
+(Step 4a/4b) the slice must clear all four:
+- **Review-clean code.** Write the final form you'd defend in review,
+  not a diff-minimizing one. No two-branch / duplicated path where one
+  DRY path works, no dead code, no scaffolding "to keep the diff small."
+  If a reviewer would ask you to collapse it, collapse it now — minutes
+  now vs a review round-trip later (Step 3).
+- **CI-set green, not just the filtered subset.** `PALLAS_TEST_CMD`'s
+  `-k 'not (...)'` filter (§8 / §6.1) hides tests CI *will* run. New
+  tests must actually run and pass on the pod; codegen / launcher
+  changes must re-run the golden + state-inspection tests they touch
+  (Step 5).
+- **Perf claim verified with the right tool, reported as a stable
+  metric.** Pod wall-clock is ±10-20us noisy (§11); a sub-noise
+  host/Python delta needs a single-process micro-bench, not the
+  per-cycle signal. Report absolute us ("launcher 66→42us"), not a
+  ratio % — the % floats with the noisy baseline.
+- **Lint clean** (`./lint.sh check`).
+
 **Subagent reuse is required.** Reuse the same implementation subagent
 through a whole commit cycle so it retains context. Requires
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in the shell environment that
@@ -152,6 +175,24 @@ Scan for unrelated files (caches, logs, profiler dumps, untracked
 artifacts, leftover probe scripts). Ask the subagent to unstage or
 remove anything that shouldn't be committed.
 
+**Review for PR-readiness, not just correctness.** The slice must read
+as the final form, not a diff. Reject and send back (this cycle, not
+"in 1–2 cycles"):
+- Duplicated / two-branch paths where one DRY path works (e.g. a
+  cache-hit branch and cache-miss branch that each invoke the kernel —
+  collapse to build-on-miss + one shared tail). The #2593 launcher
+  shipped a two-branch form "to keep diff noise minimal"; a reviewer
+  asked to collapse it after the PR was up. Don't optimize the diff
+  over the code.
+- Dead code, leftover counters / debug hooks, scaffolding kept only to
+  shrink the diff.
+- Comments, docstrings, and (when the human later opens the PR) the
+  commit body describing a *previous* shape of the code. If the code
+  changed, the prose around it changes in the same commit.
+Structural simplifications are **blocking** — fold them before the
+commit. The Step 3 "background autoreview, absorb next cycle" path is
+for narrow nits only, never for "this whole path should be restructured."
+
 **Always run autoreview on the staged diff** (mandatory; not optional):
 
 ```
@@ -268,6 +309,26 @@ Action determines what runs:
 
 Don't use `HELION_AUTOTUNE_EFFORT=none` for full validation. If failure
 is system / environment-related, stop and report.
+
+**The filtered test command hides CI failures.** `PALLAS_TEST_CMD`'s
+`-k 'not (...)'` filter skips tests that fail on *this pod* for
+pre-existing reasons (§6.1) — but CI runs the **full** suite, so a
+green `PALLAS_TEST_CMD` is necessary, not sufficient. Two checks the
+filter does not give you, required whenever this cycle touched generated
+code or launcher dispatch:
+- **Re-run the tests your change's output feeds**, even filtered ones.
+  Grep the test file for assertions on the symbol you changed and run
+  them by node id. #2595's output-meta cache changed
+  `out = torch.empty_like(...)` to the cached form and silently broke
+  `test_attention_unroll_fp32`'s codegen assertion — that test sits in
+  the pod-skip filter, so the loop never ran it and it landed red on CI.
+- **Any test you *added* this cycle must actually run and pass on the
+  pod** (not just be staged). A pin test you can't execute is unverified.
+  State-inspection pins must be launcher-agnostic — check all three
+  cache attrs (`_pallas_cache` / `_pallas_pipeline_cache` /
+  `_pallas_fori_cache`), since the matmul lands on pipeline/fori, not
+  `_pallas_cache`. #2594/#2597 pins hard-coded `_pallas_cache[5]` →
+  empty owners → red CI.
 
 Report:
 - Exact commands run
