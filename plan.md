@@ -5890,6 +5890,18 @@ from real incidents, not speculation.
   marker first; perf chase second.
 - **Disabling correctness tests to chase perf.** Never. If a test
   blocks a perf change, the test is right.
+
+- **Shipping a PR that isn't review-ready.** The manual post-hoc cleanup the
+  human repeatedly does -- do it in-cycle instead (see `manager.md` "Definition
+  of done (review-ready)").  Avoid: paragraph-length comments / 40-line
+  docstrings / per-param numpydoc on self-evident params (~1-3 lines, say it
+  once); trivial, redundant, or secondary-detail *pins* (keep the tests for
+  distinct core behaviors, share one scaffold helper instead of copy-pasting
+  it per test -- this is pruning redundant pins, NOT dropping correctness
+  coverage); index-into-results indirection or duplicated passes where one
+  DRY construct works; and over-splitting one coherent feature into a chain
+  of tiny inter-dependent PRs (one cohesive PR reviews better; keep a
+  dependency capstone last).
 - **Diary appending.** Don't add "as of cycle N…" preludes. Edit stale
   sections in place. The commit history is the diary.
 - **Re-opening deferred work without a new signal.** Each §6 entry has
@@ -6173,3 +6185,23 @@ from real incidents, not speculation.
   −24us"); resolve sub-noise (< ~20us) Python deltas with a
   single-process micro-bench, not the pod per-cycle signal (see the
   sub-20us entry above).
+
+## Anti-patterns & verification discipline (added 2026-06-05; fold into §2 / §6)
+
+- Perf-neutral lowering swaps are NOT gate advances. #2629 routed bf16/fp16
+  matmul through pl.dot claiming "Mosaic lowers it more efficiently"; but
+  pl.dot(bf16) IS lax.dot_general(..., preferred_element_type=f32) — identical
+  jaxpr, same tpu.matmul, identical XLA cost_analysis, 1.00x on every cota cell
+  (controlled interleaved A/B + IR diff). Before claiming a kernel win:
+  (a) IR-equivalence pre-check (same jaxpr/Mosaic-op/cost => neutral, skip the
+  benchmark); (b) controlled A/B at a fixed config, interleaved/paired-sample;
+  (c) device-us, not the ~125-230us dispatch-floored single-call wall-clock.
+  Within-noise => cleanup/parity or drop; no "faster" in the message.
+- f32 matmul is bf16-internal by design (no precision=HIGHEST). matmul_*.py
+  compare f32 to a true-f32 CPU ref at rtol=1e-3, so the f32 compute-bound rows
+  "FAIL" for BOTH Helion and hand-Pallas — a harness-reference artifact, not a
+  kernel regression. Dont chase; relax the harness f32 tolerance to bf16 level.
+- Cross-stack entanglement: a later slice may reuse an earlier slices test
+  helper (#2631 reuses #2629s pallas_matmul_bf16), so "drop #2629" isnt a clean
+  commit-drop — grep the stack for deleted symbols, keep shared helpers, drop
+  only dead routing + its pins.

@@ -25,7 +25,11 @@ or `plan.md` reorders them.
 Smallest coherent and complete slice — no padding, no splitting that
 harms coherence. ≤ 1500 changed implementation lines (excluding
 `plan.md`, `manager.md`, and `examples/pallas_perf/*.py`) is the soft
-target; larger is fine when the work is indivisible.
+target; larger is fine when the work is indivisible.  Do not over-split: a single
+coherent feature is ONE PR, not a chain of tiny inter-dependent ones (the
+final-pick PR merged three such slices).  In a dependency stack keep the
+capstone -- the slice that needs the others (e.g. a device-us re-rank that
+needs the matmul config) -- last, even if it re-touches an earlier theme.
 
 **Definition of done (review-ready).** Every committed slice is a PR a
 human will open *as-is* — not a draft needing days of post-hoc cleanup
@@ -49,6 +53,16 @@ stale descriptions — all avoidable in-cycle). Before any commit
   per-cycle signal. Report absolute us ("launcher 66→42us"), not a
   ratio % — the % floats with the noisy baseline.
 - **Lint clean** (`./lint.sh check`).
+- **Comments minimal.** ~1-3 lines, no paragraph comments; trim docstrings to
+  the non-obvious and drop per-param numpydoc when the params are self-evident.
+  A 40-line docstring or a 6-line inline block is a review smell -- say it once.
+- **Only the critical tests.** Pin distinct core behaviors; drop trivial gates,
+  redundant pins, and secondary-detail tests; share one fixture/scaffold helper
+  instead of copy-pasting it per test. Surface the cut list before deleting --
+  fewer, sharper tests review faster and still catch regressions.
+- **Code easy to follow.** Prefer the simplest construct: one dedup pass not
+  two, `zip`+`min(key=...)` not index-into-results indirection, no machinery a
+  default value already makes dead.
 
 **Subagent reuse is required.** Reuse the same implementation subagent
 through a whole commit cycle so it retains context. Requires
@@ -550,3 +564,51 @@ one-line reason.
   plan is internal scaffolding.
 - Outdated plan content is edited in place during updates, not
   appended.
+
+---
+
+## Perf-win verification — don't ship perf-neutral changes
+
+The #2626/#2629/#2631/#2632 stack reached review-ready, but **#2629 ("lower
+bf16/fp16 matmul through pl.dot") was perf-neutral** — its message claimed
+"Mosaic lowers it more efficiently," yet a controlled A/B was 1.00x on every
+cota cell. Confirming that cost the human ~a day of post-hoc A/B +
+HLO/jaxpr/cost inspection. Catch it in-cycle:
+
+- **IR-equivalence pre-check (before any TPU benchmark).** If a change only
+  swaps how an op lowers, diff the generated code AND the jaxpr/HLO. Same
+  jaxpr / same Mosaic op (`tpu.matmul`) / same
+  `jax.jit(...).lower().compile().cost_analysis()` ⇒ **perf-neutral by
+  construction** — not a win. (`pl.dot(bf16)` IS
+  `lax.dot_general(..., preferred_element_type=f32)`.) Reclassify as
+  cleanup/parity or drop; never a gate advance.
+- **Controlled A/B, not a hill-climb sample.** To claim a kernel win, compile
+  both variants at the SAME fixed config and time them interleaved/paired-
+  sample in one process (cancels drift). Within noise (~1.00x) ⇒ not a win;
+  don't commit it as one, don't put a perf claim in the message.
+- **Measure device-µs, not single-call wall-clock.** The TPU single-call full
+  path is dispatch-floored (~125–230 µs); µs-scale kernel deltas are invisible
+  there (a 1 µs kernel reads ~150 µs). Use the §7.1 device-µs harness (§11). A
+  `matmul_bench` `RESULT:` table is the dispatch-bound view — sanity-check only.
+- **Self-verify adversarially.** Before logging `commit`/`gate-complete` with a
+  perf number, run the controlled A/B yourself and confirm it clears noise —
+  don't trust the subagent's or the commit message's claim. This is the
+  verification the human otherwise has to redo.
+- **Step-2 false-completion signal (add to the list):** "perf change that an
+  interleaved A/B shows is within noise." Reject as a perf advance; keep only
+  on a non-perf rationale (parity/cleanup), labeled as such.
+
+**Cross-stack entanglement.** Before proposing a removal/revert, grep the whole
+stack for the symbols it deletes — a later slice may reuse an earlier slice's
+*test* helper (#2631 reuses #2629's `pallas_matmul_bf16`), so "drop #2629" is
+not a clean commit-drop. Keep shared helpers; drop only dead routing + its pins.
+
+**f32 is bf16-internal by design — not a bug.** f32 matmul emits plain
+`lax.dot_general` (no `precision=HIGHEST`) ⇒ TPU-default bf16-internal accum.
+`matmul_{helion,pallas}.py` compare f32 to a true-f32 CPU ref at rtol=1e-3, so
+the f32 compute-bound rows "FAIL" for **both** Helion and hand-Pallas — a
+harness-reference artifact, not a regression. Don't chase it; relax the harness
+f32 tolerance to bf16 level if it's noisy.
+
+Record the perf-neutral guard + f32 caveat as anti-patterns in `plan.md`
+(§2 / §6) on the next plan-update.
